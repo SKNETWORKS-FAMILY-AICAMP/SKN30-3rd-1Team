@@ -18,3 +18,4 @@ tauri-plugin-dialog = "2"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 ureq = { version = "2", features = ["json"] }
+tauri-plugin-opener = "2"

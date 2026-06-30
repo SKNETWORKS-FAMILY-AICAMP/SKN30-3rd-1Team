@@ -25,6 +25,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   type CSSProperties,
   FormEvent,
@@ -538,6 +539,15 @@ function createProjectNameFromPaths(paths: string[]) {
 
 function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
+}
+
+async function openExternalUrl(url: string) {
+  if (canUseTauriDialog()) {
+    await openUrl(url);
+    return;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function parseGithubRepositoryUrl(rawUrl: string) {
@@ -1710,7 +1720,7 @@ export function App() {
         ...currentSessions,
         [projectId]: session,
       }));
-      window.open(session.verificationUri, "_blank", "noopener,noreferrer");
+      await openExternalUrl(session.verificationUri);
       setDemoStatus({
         ok: true,
         message: `GitHub 인증 화면을 열었습니다. 코드: ${session.userCode}`,
@@ -1786,6 +1796,24 @@ export function App() {
       });
     } finally {
       setIsGithubAuthChecking(false);
+    }
+  }
+
+  async function handleOpenGithubVerification(projectId: string) {
+    const session = githubLoginSessions[projectId];
+
+    if (!session) {
+      return;
+    }
+
+    try {
+      await openExternalUrl(session.verificationUri);
+    } catch {
+      setDemoStatus({
+        ok: false,
+        message: "GitHub 인증 페이지를 열 수 없습니다",
+        scope: "github",
+      });
     }
   }
 
@@ -2851,6 +2879,14 @@ export function App() {
                         로그인 대기 중...
                       </span>
                       <div className="overview-github-action-buttons">
+                        <button
+                          className="overview-github-ghost-button"
+                          onClick={() => void handleOpenGithubVerification(selectedProject.id)}
+                          type="button"
+                        >
+                          <Link2 size={14} />
+                          <span>브라우저 열기</span>
+                        </button>
                         <button
                           className="overview-github-secondary-button"
                           disabled={isGithubAuthChecking}

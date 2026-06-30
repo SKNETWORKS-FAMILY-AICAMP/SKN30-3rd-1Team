@@ -1002,7 +1002,6 @@ button {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
   min-height: 0;
-  overflow: hidden;
 }
 
 .overview-panel {
@@ -1010,7 +1009,6 @@ button {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
 }
 
 .overview-panel h2 {
