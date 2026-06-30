@@ -187,3 +187,12 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+# Local agent and desktop app artifacts
+AGENTS.md
+.DS_Store
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/dist-ssr/
+desktop/src-tauri/target/
