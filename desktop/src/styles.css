@@ -1,23 +1,26 @@
 @font-face {
-  font-family: "D2Coding";
+  font-family: "PaiM D2Coding";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 599;
   src: url("./assets/fonts/D2Coding.woff2") format("woff2");
-  font-display: swap;
+  font-display: block;
 }
 
 @font-face {
-  font-family: "D2Coding";
+  font-family: "PaiM D2Coding";
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600 900;
   src: url("./assets/fonts/D2CodingBold.woff2") format("woff2");
-  font-display: swap;
+  font-display: block;
 }
 
 :root {
   color-scheme: light dark;
+  --app-font-family:
+    "PaiM D2Coding", "D2Coding", "D2 Coding", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    monospace;
   font-family:
-    "D2Coding", "D2 Coding", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    var(--app-font-family);
   background: canvas;
   color: canvastext;
   font-synthesis: none;
@@ -55,6 +58,7 @@ button {
 }
 
 .app-shell {
+  font-family: var(--app-font-family);
   --bg: #0f1115;
   --sidebar: #0c0e12;
   --surface: #1a1d24;
@@ -211,6 +215,7 @@ button {
 
 .sidebar {
   position: relative;
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -245,6 +250,8 @@ button {
 .app-shell[data-sidebar-collapsed="true"] .sidebar {
   padding-right: 8px;
   padding-left: 8px;
+  border-right: 0;
+  background: transparent;
 }
 
 .sidebar-toggle:hover {
@@ -631,8 +638,9 @@ button {
 
 .chat {
   position: relative;
+  grid-column: 2;
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
   min-width: 0;
   overflow: hidden;
@@ -724,13 +732,25 @@ button {
 .project-overview {
   display: grid;
   align-content: start;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 22px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 18px;
   height: 100%;
   width: min(980px, calc(100% - 48px));
   margin: 0 auto;
   overflow: hidden;
-  padding: 42px 0 178px;
+  padding: 42px 0 24px;
+}
+
+.project-overview-scroll {
+  display: grid;
+  align-content: start;
+  grid-template-rows: auto auto minmax(280px, auto);
+  gap: 22px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
 }
 
 .project-overview-header {
@@ -825,7 +845,7 @@ button {
 
 .overview-memory-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -896,6 +916,7 @@ button {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .overview-panel {
@@ -903,6 +924,7 @@ button {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .overview-panel h2 {
@@ -1089,20 +1111,18 @@ button {
 }
 
 .overview-chatbox {
-  position: absolute;
+  position: relative;
   z-index: 3;
-  bottom: 24px;
-  left: 50%;
   display: grid;
+  justify-self: center;
   gap: 10px;
-  width: min(var(--prompt-width), calc(100% - (var(--content-gutter) * 2)));
+  width: min(var(--prompt-width), calc(100% - 48px));
   max-width: var(--prompt-width);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px 14px;
   background: var(--surface);
   box-shadow: var(--shadow);
-  transform: translateX(-50%);
 }
 
 .overview-chatline {
@@ -1172,16 +1192,18 @@ button {
 }
 
 .chat-scroll {
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 58px var(--content-gutter) 184px;
+  padding: 58px var(--content-gutter) 28px;
 }
 
 .conversation {
   display: flex;
   flex-direction: column;
   gap: 34px;
+  width: 100%;
   max-width: var(--content-width);
   margin: 0 auto;
 }
@@ -1190,6 +1212,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
 }
 
 .message[data-role="user"] {
@@ -1197,6 +1221,7 @@ button {
 }
 
 .message-content {
+  min-width: 0;
   max-width: var(--content-width);
   font-size: 13px;
   font-weight: 500;
@@ -1205,7 +1230,8 @@ button {
 }
 
 .message[data-role="user"] .message-content {
-  max-width: 340px;
+  width: 340px;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 10px 14px;
@@ -1217,6 +1243,7 @@ button {
 
 .message-content p {
   margin: 0 0 14px;
+  overflow-wrap: anywhere;
 }
 
 .message-content p:last-child {
@@ -1234,6 +1261,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   max-width: 220px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1243,7 +1271,7 @@ button {
   color: var(--text);
   font-size: 11px;
   font-weight: 650;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .attachment-name {
@@ -1251,7 +1279,7 @@ button {
   overflow: hidden;
   overflow-wrap: anywhere;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .attachment-chip.removable {
@@ -1338,21 +1366,21 @@ button {
 }
 
 .prompt {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
+  position: relative;
+  z-index: 3;
   display: grid;
+  justify-self: center;
+  align-self: end;
   grid-template-rows: auto auto auto;
-  width: min(var(--prompt-width), calc(100% - (var(--content-gutter) * 2)));
+  width: min(var(--prompt-width), calc(100% - 48px));
   min-height: 104px;
   max-width: var(--prompt-width);
-  margin: 0 auto;
+  margin: 0 auto 24px;
   border: 1px solid var(--border);
   border-radius: 18px;
   padding: 16px 14px 12px 16px;
   background: var(--surface);
   box-shadow: var(--shadow);
-  transform: translateX(-50%);
 }
 
 .app-shell[data-drag-active="true"] .prompt {
@@ -1409,6 +1437,7 @@ button {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .prompt-actions button {
@@ -1430,6 +1459,29 @@ button {
 
 .prompt-actions .send-button {
   background: var(--surface-strong);
+}
+
+.prompt-actions .overview-button {
+  border-color: color-mix(in srgb, var(--accent-purple) 56%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent-purple) 24%, transparent),
+      color-mix(in srgb, #5ecdb1 14%, transparent)
+    ),
+    var(--surface-hover);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-purple) 14%, transparent);
+}
+
+.prompt-actions .overview-button:hover {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent-purple) 34%, transparent),
+      color-mix(in srgb, #5ecdb1 18%, transparent)
+    ),
+    var(--surface-strong);
 }
 
 .prompt-actions .send-button:disabled {
@@ -1455,15 +1507,48 @@ button {
   }
 
   .app-shell {
-    grid-template-columns: 1fr;
+    --content-gutter: 20px;
+    position: relative;
+    grid-template-columns: 44px minmax(0, 1fr);
   }
 
   .sidebar {
+    display: flex;
+    padding-right: 8px;
+    padding-left: 8px;
+    border-right: 0;
+    background: transparent;
+  }
+
+  .sidebar-header {
+    justify-content: flex-end;
+  }
+
+  .app-shell[data-sidebar-collapsed="true"] .sidebar-nav,
+  .app-shell[data-sidebar-collapsed="true"] .runtime-status,
+  .app-shell[data-sidebar-collapsed="true"] .projects,
+  .app-shell[data-sidebar-collapsed="true"] .sidebar-resize-handle {
+    display: none;
+  }
+
+  .app-shell[data-sidebar-collapsed="false"] .sidebar {
+    position: absolute;
+    z-index: 10;
+    inset: 0 auto 0 0;
+    width: min(var(--sidebar-width), calc(100% - 28px));
+    padding-right: 12px;
+    padding-left: 12px;
+    border-right: 1px solid var(--border);
+    background: var(--sidebar);
+    box-shadow: var(--shadow);
+  }
+
+  .app-shell[data-sidebar-collapsed="false"] .sidebar-resize-handle {
     display: none;
   }
 
   .chat-scroll {
-    padding: 44px 20px 172px;
+    padding: 44px 20px 24px;
   }
 
   .conversation {
@@ -1476,19 +1561,20 @@ button {
   }
 
   .prompt {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
+    justify-self: stretch;
     width: auto;
-    transform: none;
+    max-width: none;
+    margin-right: 14px;
+    margin-bottom: 14px;
+    margin-left: 14px;
   }
 
   .overview-chatbox {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
+    justify-self: stretch;
     width: auto;
-    transform: none;
+    max-width: none;
+    margin-right: 14px;
+    margin-left: 14px;
   }
 
   .prompt-actions {

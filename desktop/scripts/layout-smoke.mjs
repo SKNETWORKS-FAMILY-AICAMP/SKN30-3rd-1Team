@@ -26,6 +26,7 @@ const scenarios = [
   { width: 960, height: 680, collapsed: true, dragActive: false },
   { width: 960, height: 680, collapsed: true, dragActive: true },
   { width: 820, height: 680, collapsed: false, dragActive: true },
+  { width: 520, height: 680, collapsed: false, dragActive: false },
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -235,7 +236,9 @@ async function measureScenario(send, scenario) {
           height: box.height,
         };
       };
-      const overviewButton = document.querySelector('button[aria-label="프로젝트 Overview 열기"]');
+      const overviewButton = document.querySelector('button[aria-label="프로젝트 개요"]');
+      const sidebarToggle = document.querySelector('.sidebar-toggle');
+      const sidebarToggleBox = sidebarToggle?.getBoundingClientRect();
       const prompt = rect('.prompt');
       const actions = rect('.prompt-actions');
       const buttons = Array.from(document.querySelectorAll('.prompt-actions button')).map((button) => {
@@ -256,6 +259,7 @@ async function measureScenario(send, scenario) {
         buttons,
         overviewButtonExists: Boolean(overviewButton),
         overviewButtonDisabled: overviewButton?.disabled ?? true,
+        sidebarToggleVisible: Boolean(sidebarToggleBox?.width && sidebarToggleBox?.height),
         settingsExists: Boolean(document.querySelector('.settings-float')),
       };
     })()`,
@@ -282,6 +286,10 @@ async function measureScenario(send, scenario) {
 
   if (!value.overviewButtonExists || value.overviewButtonDisabled) {
     failures.push("project overview button should be enabled in the prompt");
+  }
+
+  if (!value.sidebarToggleVisible) {
+    failures.push("sidebar toggle should stay visible in narrow zoom-like layouts");
   }
 
   if (value.settingsExists) {
@@ -626,6 +634,9 @@ async function verifyLongContentLayout(send) {
       const overflowingMessages = Array.from(document.querySelectorAll('.message-content'))
         .filter((element) => element.scrollWidth > element.clientWidth + 1)
         .map((element) => ({
+          role: element.closest('.message')?.getAttribute('data-role') || "",
+          messageWidth: element.closest('.message')?.getBoundingClientRect().width ?? 0,
+          conversationWidth: document.querySelector('.conversation')?.getBoundingClientRect().width ?? 0,
           scrollWidth: element.scrollWidth,
           clientWidth: element.clientWidth,
           text: element.textContent.slice(0, 24),
@@ -652,7 +663,9 @@ async function verifyLongContentLayout(send) {
   }
 
   if (value.overflowingMessages.length > 0) {
-    failures.push("message content should wrap long unbroken text");
+    failures.push(
+      `message content should wrap long unbroken text: ${JSON.stringify(value.overflowingMessages)}`,
+    );
   }
 
   if (!value.attachmentVisible) {
@@ -1537,7 +1550,7 @@ async function verifyPromptOverviewButton(send) {
   await openAppWithProject(send);
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="프로젝트 Overview 열기"]')?.click()`,
+    expression: `document.querySelector('button[aria-label="프로젝트 개요"]')?.click()`,
   });
   await sleep(200);
 
@@ -1583,7 +1596,7 @@ async function verifyProjectOverviewQuestion(send) {
   await openAppWithProject(send);
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="프로젝트 Overview 열기"]')?.click()`,
+    expression: `document.querySelector('button[aria-label="프로젝트 개요"]')?.click()`,
   });
   await sleep(200);
   await send("Runtime.evaluate", {
@@ -1960,6 +1973,64 @@ async function verifySidebarPersistence(send) {
   }
 
   assertInside("prompt after collapsed reload", value.prompt, 960, failures);
+
+  return { value, failures };
+}
+
+// 확대처럼 CSS viewport가 좁아진 상태에서도 펼침 버튼이 실제 사이드바를 열어야 한다.
+async function verifyNarrowSidebarToggle(send) {
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 520,
+    height: 680,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await openAppWithProject(send);
+  await send("Runtime.evaluate", {
+    expression: `localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'true')`,
+  });
+  await send("Page.navigate", { url: APP_URL });
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.sidebar-toggle')?.click()`,
+  });
+  await sleep(200);
+
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
+      const projects = getComputedStyle(document.querySelector('.projects')).display;
+      const resizeHandle = getComputedStyle(document.querySelector('.sidebar-resize-handle')).display;
+      return {
+        expanded: shell?.getAttribute('data-sidebar-collapsed') === 'false',
+        sidebarWidth: sidebar.width,
+        projectsVisible: projects !== 'none',
+        resizeHandleHidden: resizeHandle === 'none',
+        stored: localStorage.getItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}) || "",
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    })()`,
+  });
+  const value = result.result.value;
+  const failures = [];
+
+  if (!value.expanded || value.stored !== "false") {
+    failures.push("narrow sidebar toggle should switch to expanded state");
+  }
+
+  if (!value.projectsVisible || value.sidebarWidth < 220) {
+    failures.push("narrow sidebar toggle should reveal sidebar content");
+  }
+
+  if (!value.resizeHandleHidden) {
+    failures.push("narrow sidebar should use toggle only, without resize handle");
+  }
+
+  if (value.scrollWidth > 520) {
+    failures.push(`narrow sidebar overlay should not overflow horizontally: ${value.scrollWidth} > 520`);
+  }
 
   return { value, failures };
 }
@@ -2544,6 +2615,16 @@ try {
     sidebarPersistenceResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
     console.log("PASS sidebar collapsed state persists after reload");
+  }
+
+  const narrowSidebarToggleResult = await verifyNarrowSidebarToggle(send);
+
+  if (narrowSidebarToggleResult.failures.length > 0) {
+    hasFailures = true;
+    console.log("FAIL narrow sidebar toggle");
+    narrowSidebarToggleResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+  } else {
+    console.log("PASS narrow sidebar toggle opens sidebar content");
   }
 
   const sidebarResizeCollapseResult = await verifySidebarResizeAndProjectCollapse(send);
