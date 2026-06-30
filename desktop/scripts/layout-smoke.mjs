@@ -1848,7 +1848,43 @@ async function verifyGithubTimelineState(send) {
 
   const connectClickResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('.runtime-status')?.textContent.trim() || ""`,
+    expression: `(() => {
+      const input = document.querySelector('.overview-github-connect-form input');
+      return {
+        hasUrlInput: Boolean(input),
+        urlValue: input?.value ?? null,
+        hasRuntimeStatus: Boolean(document.querySelector('.runtime-status')),
+        sidebarHasRuntimeStatus: Boolean(document.querySelector('.sidebar .runtime-status')),
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('.overview-github-connect-form input');
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      valueSetter?.call(input, 'https://example.com/not-a-github-repo');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('.overview-github-connect-form button')?.click();
+    })()`,
+  });
+  await sleep(250);
+
+  const invalidSubmitResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const githubPanel = document.querySelector('section[aria-label="GitHub 타임라인"]');
+      const githubStatus = githubPanel?.querySelector('.runtime-status');
+      const status = document.querySelector('.runtime-status');
+      return {
+        githubPanelHasStatus: Boolean(githubStatus),
+        githubStatusText: githubStatus?.textContent.trim() ?? "",
+        githubStatusOk: githubStatus?.getAttribute('data-ok') ?? "",
+        sidebarHasRuntimeStatus: Boolean(document.querySelector('.sidebar .runtime-status')),
+        runtimeStatusCount: document.querySelectorAll('.runtime-status').length,
+        animationName: status ? getComputedStyle(status).animationName : "",
+      };
+    })()`,
   });
 
   await send("Runtime.evaluate", {
@@ -1876,7 +1912,8 @@ async function verifyGithubTimelineState(send) {
 
   const value = {
     unlinked: unlinkedResult.result.value,
-    connectMessage: connectClickResult.result.value,
+    connectForm: connectClickResult.result.value,
+    invalidSubmit: invalidSubmitResult.result.value,
     linked: linkedResult.result.value,
   };
   const failures = [];
@@ -1885,8 +1922,21 @@ async function verifyGithubTimelineState(send) {
     failures.push("unlinked GitHub timeline should show only a connect button");
   }
 
-  if (!value.connectMessage.includes("데스크톱 앱에서 GitHub repo를 연결할 수 있습니다")) {
-    failures.push("GitHub connect button should expose a pending integration status");
+  if (!value.connectForm.hasUrlInput || value.connectForm.urlValue !== "" ||
+      value.connectForm.hasRuntimeStatus || value.connectForm.sidebarHasRuntimeStatus) {
+    failures.push("GitHub connect button should open an empty inline repository URL form");
+  }
+
+  if (!value.invalidSubmit.githubPanelHasStatus ||
+      value.invalidSubmit.githubStatusOk !== "false" ||
+      !value.invalidSubmit.githubStatusText.includes("GitHub repo를 연결할 수 없습니다") ||
+      value.invalidSubmit.sidebarHasRuntimeStatus ||
+      value.invalidSubmit.runtimeStatusCount !== 1) {
+    failures.push("GitHub connection failure status should render inside the GitHub panel only");
+  }
+
+  if (!value.invalidSubmit.animationName.includes("status-shake")) {
+    failures.push("GitHub connection failure status should keep the shake animation");
   }
 
   if (value.linked.hasConnectButton ||
