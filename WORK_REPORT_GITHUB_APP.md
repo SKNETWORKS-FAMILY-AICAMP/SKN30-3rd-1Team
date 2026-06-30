@@ -29,3 +29,6 @@
 - `npm run test:layout`
 - `uv run pytest`
 - `cargo test`
+
+## 남은 설정
+- 실제 private repo 연결 테스트에는 `.env`의 `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` 설정이 필요
