@@ -84,13 +84,20 @@ def sidebar():
         new_name = st.text_input("프로젝트명", key="new_project_name")
         if st.button("생성", key="create_project"):
             if new_name.strip():
-                pid = create_project(new_name.strip())
-                st.session_state.selected_project_id = pid
-                st.rerun()
+                try:
+                    pid = create_project(new_name.strip())
+                    st.session_state.selected_project_id = pid
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"프로젝트 생성 실패: {e}")
             else:
                 st.warning("프로젝트명을 입력하세요.")
 
-    projects = get_projects()
+    try:
+        projects = get_projects()
+    except Exception as e:
+        st.sidebar.error(f"DB 연결 오류: {e}\n\nDB_HOST, DB_USER, DB_PASSWORD, DB_NAME 설정을 확인하세요.")
+        return None, "", "문서 업로드"
     if not projects:
         st.sidebar.info("프로젝트가 없습니다.")
         return None, "", "문서 업로드"
