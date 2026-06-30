@@ -80,24 +80,43 @@ uv run streamlit run frontend/app.py --server.port 8502
 
 브라우저에서 `http://localhost:8502` 접속
 
-### 4. 데스크톱 앱 실행
+### 4. 데스크톱 앱 설치
 
-데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 루트 폴더에서 아래 명령을 실행합니다.
+개발 목적이 아니라 앱을 사용만 한다면 직접 빌드하지 말고 GitHub Release에서 설치 파일을 내려받습니다.
+
+- macOS: `PaiM-...-macos-...` 파일
+- Windows: `PaiM-...-windows-...-setup.exe` 또는 `.msi` 파일
+
+설치 파일이 없다면 개발 환경을 직접 맞추는 대신 새 Release 생성을 요청합니다.
+
+### 5. 데스크톱 앱 개발 실행
+
+데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 개발 실행에는 아래 도구가 필요합니다.
+
+- Node.js LTS
+- Rust/Cargo
+- Windows: Microsoft C++ Build Tools, WebView2 Runtime
+- macOS: Xcode Command Line Tools
+
+루트 폴더에서 아래 명령을 실행합니다.
 
 ```bash
 npm ci --prefix desktop
 npm run demo --prefix desktop
 ```
 
-현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다. Windows 팀원은 Node.js, Rust, WebView2 런타임이 설치된 상태에서 위 `demo` 명령을 실행하면 됩니다.
+현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다.
 
-각자 OS용 설치 파일을 빌드하려면:
+설치 파일을 직접 빌드하려면:
 
 ```bash
 npm run app:build --prefix desktop
 ```
 
-Windows에서는 빌드 결과가 보통 `desktop/src-tauri/target/release/bundle/msi/` 또는 `desktop/src-tauri/target/release/bundle/nsis/` 아래에 생성됩니다.
+빌드 결과는 보통 아래 폴더에 생성됩니다.
+
+- macOS: `desktop/src-tauri/target/release/bundle/`
+- Windows: `desktop/src-tauri/target/release/bundle/msi/` 또는 `desktop/src-tauri/target/release/bundle/nsis/`
 
 macOS에서 `.app`만 빌드하고 바로 실행하려면:
 
