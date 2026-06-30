@@ -1,11 +1,19 @@
-# Q&A 엔진: 질문 → 라우터 분류 → 컨텍스트 조회 → LLM 답변 생성
-# classifier가 질문 키워드로 mysql/chroma/both 중 검색 경로를 결정하고,
-# 해당 경로에서 컨텍스트를 조합해 LLM에 전달한다.
+# Q&A 엔진: 질문 → 컨텍스트 조회(SQL+Chroma) → LLM 답변 생성
+# 신뢰도 향상을 위해 항상 MySQL(구조화 기록)과 ChromaDB(원문 맥락) 두 소스를
+# 모두 조회해 교차 확인한 뒤 LLM에 전달한다.
 from typing import List, Dict
-from . import classifier, mysql_search, chroma_search
+from . import mysql_search, chroma_search
 from ..llm import get_llm_client, Message
 
 MAX_HISTORY = 10  # 대화 히스토리 최대 유지 턴 수 (컨텍스트 길이 제한)
+
+# 답변 신뢰도 향상용 시스템 지침: 구조화 기록을 우선 근거로, 원문 맥락으로 보강,
+# 충돌 시 명시, 컨텍스트 밖 내용은 지어내지 말 것, 출처 표기.
+SYSTEM_QA = """당신은 프로젝트 기록을 근거로 답하는 AI 어시스턴트입니다.
+- 구조화된 기록(결정/액션/이슈/리스크)을 우선 근거로 삼고, 원문 맥락으로 보강하라.
+- 두 근거가 충돌하면 그 사실을 답변에 밝혀라.
+- 제공된 컨텍스트에 없는 내용은 추측하지 말고 모른다고 답하라.
+- 답변 마지막에 근거가 된 출처를 표기하라."""
 
 
 def _build_context(project_id: int, question: str, route: str) -> tuple[str, List[str], dict]:
@@ -60,12 +68,13 @@ def answer(
     route: str = None,
 ) -> Dict:
     """질문에 대한 답변을 생성하는 메인 함수.
-    1. classifier로 검색 경로 결정 (route 미지정 시)
+    1. 항상 'both' — MySQL(구조화) + ChromaDB(원문 맥락) 두 소스 교차 조회
     2. _build_context로 DB 컨텍스트 조회
     3. 대화 히스토리 + 컨텍스트를 LLM에 전달해 답변 생성
     """
+    # 신뢰도 향상: 두 소스를 항상 모두 조회한다. (route 인자로 강제 지정도 가능)
     if route is None:
-        route = classifier.classify(question)
+        route = "both"
 
     context, sources, debug = _build_context(project_id, question, route)
 
@@ -78,7 +87,7 @@ def answer(
     ))
 
     client = get_llm_client()
-    response = client.chat(messages=messages)
+    response = client.chat(messages=messages, system=SYSTEM_QA)
 
     return {
         "answer":  response.content,
