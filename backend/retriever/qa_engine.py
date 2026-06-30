@@ -6,6 +6,9 @@
 import os
 from typing import List, Dict, Optional
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import chromadb
 from chromadb.utils import embedding_functions
 from langchain_chroma import Chroma
@@ -13,7 +16,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI
 
 from . import mysql_search
 
@@ -100,14 +102,51 @@ def _get_vectorstore() -> Chroma:
     return _vectorstore
 
 
-# LangChain 생성 체인(LCEL): 시스템 지침 + 대화 히스토리 + (컨텍스트 포함)질문 → 답변 텍스트
+# LangChain 생성 체인 프롬프트
 _prompt = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_QA),
     MessagesPlaceholder("history"),
     ("human", "프로젝트 컨텍스트:\n{context}\n\n질문: {question}"),
 ])
-_llm = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"), temperature=0)
-_chain = _prompt | _llm | StrOutputParser()
+
+
+def _make_llm():
+    """LLM_PROVIDER 환경변수에 따라 LangChain 채팅 모델 반환.
+    - openai  : OpenAI API
+    - claude  : Anthropic API
+    - google  : Google Gemini API
+    - local   : OpenAI 호환 로컬 서버 (Ollama / vLLM / LM Studio / llama.cpp 등)
+                LOCAL_LLM_URL, LOCAL_LLM_MODEL 환경변수로 엔드포인트·모델 지정
+    """
+    p = os.getenv("LLM_PROVIDER", "openai").lower()
+    if p == "openai":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0)
+    if p == "claude":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"), temperature=0)
+    if p == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL", "gemini-1.5-pro"), temperature=0)
+    if p == "local":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=os.getenv("LOCAL_LLM_MODEL", "local-model"),
+            base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"),
+            api_key="local",  # OpenAI 클라이언트가 키를 요구하므로 dummy 값
+            temperature=0,
+        )
+    raise ValueError(f"지원하지 않는 LLM_PROVIDER: {p} (openai/claude/google/local 중 하나)")
+
+
+_chain = None  # 첫 Q&A 호출 시 LLM_PROVIDER에 맞춰 초기화 (lazy — 앱 시작 시 API key 불필요)
+
+
+def _get_chain():
+    global _chain
+    if _chain is None:
+        _chain = _prompt | _make_llm() | StrOutputParser()
+    return _chain
 
 
 def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict]:
@@ -178,7 +217,7 @@ def answer(
         else:
             hist_msgs.append(HumanMessage(content=m["content"]))
 
-    answer_text = _chain.invoke({
+    answer_text = _get_chain().invoke({
         "history": hist_msgs,
         "context": context,
         "question": question,
