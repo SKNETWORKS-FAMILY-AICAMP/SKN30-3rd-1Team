@@ -9,9 +9,10 @@
     "preview": "vite preview --host 127.0.0.1",
     "test:layout": "node scripts/layout-smoke.mjs",
     "test:offline": "npm run build && node scripts/offline-bundle-smoke.mjs",
-    "app:build": "tauri build --bundles app",
+    "app:build": "tauri build",
+    "app:build:mac": "tauri build --bundles app",
     "app:open": "open -n src-tauri/target/release/bundle/macos/PaiM.app",
-    "demo": "npm run app:build && npm run app:open",
+    "demo": "npm run app:build:mac && npm run app:open",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -80,6 +80,39 @@ uv run streamlit run frontend/app.py --server.port 8502
 
 브라우저에서 `http://localhost:8502` 접속
 
+### 4. 데스크톱 앱 실행
+
+데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 루트 폴더에서 아래 명령을 실행합니다.
+
+```bash
+npm ci --prefix desktop
+npm run tauri --prefix desktop -- dev
+```
+
+현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다. Windows 팀원은 Node.js, Rust, WebView2 런타임이 설치된 상태에서 위 dev 명령을 실행하면 됩니다.
+
+각자 OS용 설치 파일을 빌드하려면:
+
+```bash
+npm run app:build --prefix desktop
+```
+
+Windows에서는 빌드 결과가 보통 `desktop/src-tauri/target/release/bundle/msi/` 또는 `desktop/src-tauri/target/release/bundle/nsis/` 아래에 생성됩니다.
+
+macOS에서 `.app`만 빌드하고 바로 실행하려면:
+
+```bash
+npm run app:build:mac --prefix desktop
+npm run app:open --prefix desktop
+```
+
+데스크톱 앱 검증:
+
+```bash
+npm run test:offline --prefix desktop
+npm run test:layout --prefix desktop
+```
+
 ---
 
 ## 프로젝트 구조
@@ -95,6 +128,9 @@ PaiM/
 │   ├── app.py           # Streamlit 진입점
 │   ├── views/           # 업로드 · 대시보드 · 채팅 · 타임라인
 │   └── components/      # 공통 UI 컴포넌트
+├── desktop/             # Tauri + React 데스크톱 앱
+│   ├── src/             # React UI
+│   └── src-tauri/       # Tauri 런타임
 ├── data/samples/        # 테스트용 샘플 회의록
 ├── docker-compose.yml
 ├── .env.example
@@ -127,4 +163,3 @@ PaiM/
 | `risk` | 잠재적 위험 요소 |
 
 `date` 필드는 항상 **회의/문서 날짜** (`YYYY-MM-DD`). 액션 마감일은 `content` 필드 텍스트에 포함.
-
