@@ -26,7 +26,14 @@ def upload_document(project_id: int, body: DocumentUpload):
             cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
             if not cursor.fetchone():
                 raise HTTPException(status_code=404, detail="Project not found")
-
+            cursor.execute(
+                "SELECT id FROM documents WHERE project_id = %s AND filename = %s",
+                (project_id, body.filename)
+            )
+            existing_doc = cursor.fetchone()
+            if existing_doc:
+                # 중복 방지를 위해 기존 도큐먼트 ID와 연관된 MySQL/ChromaDB 데이터 모두 삭제
+                _delete_document(existing_doc[0])
             cursor.execute(
                 "INSERT INTO documents (project_id, filename, doc_type) VALUES (%s, %s, %s)",
                 (project_id, body.filename, body.doc_type),
@@ -37,6 +44,7 @@ def upload_document(project_id: int, body: DocumentUpload):
         conn.close()
 
     source = body.source or body.filename
+    
     try:
         items = extract(body.content, default_source=source)
         ingest(
@@ -70,6 +78,13 @@ def _delete_document(doc_id: int):
         pass
     finally:
         conn.close()
+    try:
+        from ..db.chroma import get_collection
+        collection = get_collection()
+        # 해당 doc_id를 메타데이터로 가진 벡터 삭제
+        collection.delete(where={"doc_id": doc_id})
+    except Exception:
+        pass
 
 
 @router.get("/projects/{project_id}/memory")
