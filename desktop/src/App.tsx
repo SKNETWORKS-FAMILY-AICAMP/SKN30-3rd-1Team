@@ -5,21 +5,26 @@ import {
   FileUp,
   FolderOpen,
   FolderPlus,
+  LayoutDashboard,
   Ellipsis,
   Lightbulb,
   MessageSquare,
+  Minus,
   PanelLeft,
   Plus,
+  Square,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   type CSSProperties,
   FormEvent,
   KeyboardEvent,
   MouseEvent,
+  PointerEvent as ReactPointerEvent,
   useEffect,
   useMemo,
   useRef,
@@ -124,10 +129,15 @@ const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
+const ZOOM_STORAGE_KEY = "paim.zoomScale.v1";
 const DEFAULT_SIDEBAR_WIDTH = 272;
-const COLLAPSED_SIDEBAR_WIDTH = 64;
+const COLLAPSED_SIDEBAR_WIDTH = 44;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
+const DEFAULT_ZOOM_SCALE = 1;
+const MIN_ZOOM_SCALE = 0.8;
+const MAX_ZOOM_SCALE = 1.6;
+const ZOOM_STEP = 0.1;
 const OVERVIEW_SUGGESTIONS = [
   "이번 주 액션 알려줘",
   "프로젝트 리스크 정리해줘",
@@ -150,6 +160,65 @@ function TablerIcon({ className = "", label, svg }: TablerIconProps) {
       role={label ? "img" : undefined}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
+  );
+}
+
+function isWindowsHost() {
+  return window.navigator.userAgent.includes("Windows");
+}
+
+function WindowsTitlebar() {
+  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    void getCurrentWindow().startDragging();
+  }
+
+  function handleToggleMaximize(event: MouseEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    void getCurrentWindow().toggleMaximize();
+  }
+
+  return (
+    <div
+      className="windows-titlebar"
+      onDoubleClick={handleToggleMaximize}
+      onPointerDown={handleDragStart}
+    >
+      <div className="windows-titlebar-title">PaiM</div>
+      <div className="windows-titlebar-controls">
+        <button
+          aria-label="최소화"
+          onClick={() => void getCurrentWindow().minimize()}
+          title="최소화"
+          type="button"
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          aria-label="최대화"
+          onClick={() => void getCurrentWindow().toggleMaximize()}
+          title="최대화"
+          type="button"
+        >
+          <Square size={12} />
+        </button>
+        <button
+          aria-label="닫기"
+          className="windows-close-button"
+          onClick={() => void getCurrentWindow().close()}
+          title="닫기"
+          type="button"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -299,6 +368,44 @@ function loadCollapsedProjectIds() {
   } catch {
     return [];
   }
+}
+
+function clampZoomScale(scale: number) {
+  return Math.min(MAX_ZOOM_SCALE, Math.max(MIN_ZOOM_SCALE, scale));
+}
+
+function loadZoomScale() {
+  const savedScale = Number(window.localStorage.getItem(ZOOM_STORAGE_KEY));
+
+  if (!Number.isFinite(savedScale)) {
+    return DEFAULT_ZOOM_SCALE;
+  }
+
+  return clampZoomScale(savedScale);
+}
+
+function getZoomShortcutDirection(event: globalThis.KeyboardEvent, isWindows: boolean) {
+  if (isWindows ? !event.ctrlKey : !event.metaKey) {
+    return null;
+  }
+
+  if (event.altKey) {
+    return null;
+  }
+
+  if (event.key === "+" || event.key === "=") {
+    return "in";
+  }
+
+  if (event.key === "-") {
+    return "out";
+  }
+
+  if (event.key === "0") {
+    return "reset";
+  }
+
+  return null;
 }
 
 function getFileName(path: string) {
@@ -611,6 +718,7 @@ function wait(ms: number) {
 
 // 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
 export function App() {
+  const isWindows = useMemo(isWindowsHost, []);
   const [initialProjectState] = useState(loadProjectState);
   const [projects, setProjects] = useState<ProjectWorkspace[]>(initialProjectState.projects);
   const [selectedProjectId, setSelectedProjectId] = useState(
@@ -637,6 +745,7 @@ export function App() {
   const projectCreateRef = useRef<HTMLDivElement | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const didHydrateAttachmentPreviewsRef = useRef(false);
+  const zoomScaleRef = useRef(loadZoomScale());
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
@@ -701,6 +810,48 @@ export function App() {
       JSON.stringify(collapsedProjectIds),
     );
   }, [collapsedProjectIds]);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    const webview = getCurrentWebview();
+
+    function setZoomScale(scale: number) {
+      const nextScale = Math.round(clampZoomScale(scale) * 100) / 100;
+      zoomScaleRef.current = nextScale;
+      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(nextScale));
+      void webview.setZoom(nextScale).catch(() => undefined);
+    }
+
+    setZoomScale(zoomScaleRef.current);
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      const direction = getZoomShortcutDirection(event, isWindows);
+
+      if (!direction) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (direction === "reset") {
+        setZoomScale(DEFAULT_ZOOM_SCALE);
+        return;
+      }
+
+      setZoomScale(
+        zoomScaleRef.current + (direction === "in" ? ZOOM_STEP : -ZOOM_STEP),
+      );
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isWindows]);
 
   useEffect(() => {
     if (!isSidebarResizing) {
@@ -1512,11 +1663,13 @@ export function App() {
     <div
       className="app-shell"
       data-drag-active={isDragActive}
+      data-platform={isWindows ? "windows" : "native"}
       data-sidebar-collapsed={isSidebarCollapsed}
       data-sidebar-resizing={isSidebarResizing}
       onClick={() => setOpenActionMenu(null)}
       style={appShellStyle}
     >
+      {isWindows ? <WindowsTitlebar /> : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
@@ -1877,12 +2030,13 @@ export function App() {
                   <Plus size={17} />
                 </button>
                 <button
-                  aria-label="프로젝트 Overview 열기"
+                  aria-label="프로젝트 개요"
+                  className="overview-button"
                   onClick={handleOpenProjectOverview}
-                  title="프로젝트 Overview 열기"
+                  title="프로젝트 개요"
                   type="button"
                 >
-                  <FolderOpen size={17} />
+                  <LayoutDashboard size={17} />
                 </button>
                 <button
                   aria-label="메시지 보내기"
@@ -1898,127 +2052,129 @@ export function App() {
           </>
         ) : selectedProject ? (
           <div className="project-overview" aria-label="프로젝트 개요">
-            <div className="project-overview-header">
-              <div>
-                <p className="project-overview-kicker">PROJECT OVERVIEW</p>
-                <h1>{selectedProject.name}</h1>
-                <p className="project-overview-meta">
-                  {selectedProjectAttachments.length} FILES ·{" "}
-                  {getProjectMessageCount(selectedProject)} MESSAGES · LAST UPDATE{" "}
-                  {formatOverviewDate(getProjectLastUpdatedAt(selectedProject))}
-                </p>
+            <div className="project-overview-scroll">
+              <div className="project-overview-header">
+                <div>
+                  <p className="project-overview-kicker">PROJECT OVERVIEW</p>
+                  <h1>{selectedProject.name}</h1>
+                  <p className="project-overview-meta">
+                    {selectedProjectAttachments.length} FILES ·{" "}
+                    {getProjectMessageCount(selectedProject)} MESSAGES · LAST UPDATE{" "}
+                    {formatOverviewDate(getProjectLastUpdatedAt(selectedProject))}
+                  </p>
+                </div>
+                <div className="project-overview-actions">
+                  <button
+                    className="project-overview-file-action"
+                    onClick={() => void handleAddFilesToProject(selectedProject.id)}
+                    title="프로젝트 파일 추가"
+                    type="button"
+                  >
+                    <TablerIcon svg={tablerFilePlus} />
+                    <span>파일 추가</span>
+                  </button>
+                </div>
               </div>
-              <div className="project-overview-actions">
-                <button
-                  className="project-overview-file-action"
-                  onClick={() => void handleAddFilesToProject(selectedProject.id)}
-                  title="프로젝트 파일 추가"
-                  type="button"
-                >
-                  <TablerIcon svg={tablerFilePlus} />
-                  <span>파일 추가</span>
-                </button>
-              </div>
-            </div>
 
-            <section className="overview-memory" aria-label="프로젝트 메모">
-              <h2>PROJECT MEMORY</h2>
-              <div className="overview-memory-grid">
-                {overviewMemoryCards.map((card) => (
-                  <article className="overview-memory-card" data-tone={card.tone} key={card.label}>
-                    <div className="overview-memory-label">
-                      <TablerIcon svg={card.icon} />
-                      <span>{card.label}</span>
+              <section className="overview-memory" aria-label="프로젝트 메모">
+                <h2>PROJECT MEMORY</h2>
+                <div className="overview-memory-grid">
+                  {overviewMemoryCards.map((card) => (
+                    <article className="overview-memory-card" data-tone={card.tone} key={card.label}>
+                      <div className="overview-memory-label">
+                        <TablerIcon svg={card.icon} />
+                        <span>{card.label}</span>
+                      </div>
+                      {card.items.map((item) => (
+                        <p key={item}>
+                          <span>·</span>
+                          {item}
+                        </p>
+                      ))}
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <div className="overview-columns">
+                <section className="overview-panel" aria-label="프로젝트 파일">
+                  <h2>FILES</h2>
+                  {selectedProjectAttachments.length > 0 ? (
+                    <div className="overview-file-list">
+                      {selectedProjectAttachments.map((attachment) => (
+                        <div className="overview-file-row" key={attachment.id}>
+                          <TablerIcon svg={getAttachmentIconSvg(attachment.name)} />
+                          <div>
+                            <p>{attachment.name}</p>
+                            <small>{getAttachmentMeta(attachment.name)}</small>
+                          </div>
+                          <button
+                            aria-label={`${attachment.name} 삭제`}
+                            onClick={() => handleDeleteProjectFile(selectedProject.id, attachment.id)}
+                            title={`${attachment.name} 삭제`}
+                            type="button"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    {card.items.map((item) => (
-                      <p key={item}>
-                        <span>·</span>
-                        {item}
-                      </p>
-                    ))}
-                  </article>
-                ))}
+                  ) : (
+                    <p className="overview-empty-text">
+                      <TablerIcon svg={tablerAlertCircle} />
+                      아직 프로젝트에 연결된 첨부 파일이 없습니다.
+                    </p>
+                  )}
+                </section>
+
+                <section className="overview-panel" aria-label="GitHub 타임라인">
+                  <h2>GITHUB TIMELINE</h2>
+                  {selectedProject.githubRepository ? (
+                    <p className="overview-github-meta">
+                      {selectedProject.githubRepository.name} ·{" "}
+                      {selectedProject.githubRepository.branch} ·{" "}
+                      {selectedProject.githubRepository.isDirty ? "변경 있음" : "clean"}
+                      {selectedProject.githubRepository.remoteRepo
+                        ? ` · ${selectedProject.githubRepository.remoteRepo}`
+                        : ""}
+                      {" · "}
+                      {selectedProject.githubRepository.issuePrStatus}
+                    </p>
+                  ) : null}
+                  {selectedProjectGithubEvents.length > 0 ? (
+                    <div className="overview-timeline-list">
+                      {selectedProjectGithubEvents.map((event, index) => (
+                        <div className="overview-timeline-row" key={event.id}>
+                          <div className="overview-timeline-icon" data-event-type={event.type}>
+                            <TablerIcon svg={getGithubEventIconSvg(event.type)} />
+                            {index < selectedProjectGithubEvents.length - 1 ? <span /> : null}
+                          </div>
+                          <div>
+                            <p>{event.title}</p>
+                            <small>{getGithubEventMeta(event)}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : selectedProject.githubConnected ? (
+                    <p className="overview-empty-text">
+                      <TablerIcon svg={tablerAlertCircle} />
+                      아직 GitHub 이벤트가 없습니다.
+                    </p>
+                  ) : (
+                    <div className="overview-github-empty">
+                      <TablerIcon svg={tablerAlertCircle} />
+                      <p>GitHub 연동이 필요합니다.</p>
+                      <button
+                        onClick={() => void handleConnectGithub(selectedProject.id)}
+                        type="button"
+                      >
+                        GitHub 연동
+                      </button>
+                    </div>
+                  )}
+                </section>
               </div>
-            </section>
-
-            <div className="overview-columns">
-              <section className="overview-panel" aria-label="프로젝트 파일">
-                <h2>FILES</h2>
-                {selectedProjectAttachments.length > 0 ? (
-                  <div className="overview-file-list">
-                    {selectedProjectAttachments.map((attachment) => (
-                      <div className="overview-file-row" key={attachment.id}>
-                        <TablerIcon svg={getAttachmentIconSvg(attachment.name)} />
-                        <div>
-                          <p>{attachment.name}</p>
-                          <small>{getAttachmentMeta(attachment.name)}</small>
-                        </div>
-                        <button
-                          aria-label={`${attachment.name} 삭제`}
-                          onClick={() => handleDeleteProjectFile(selectedProject.id, attachment.id)}
-                          title={`${attachment.name} 삭제`}
-                          type="button"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="overview-empty-text">
-                    <TablerIcon svg={tablerAlertCircle} />
-                    아직 프로젝트에 연결된 첨부 파일이 없습니다.
-                  </p>
-                )}
-              </section>
-
-              <section className="overview-panel" aria-label="GitHub 타임라인">
-                <h2>GITHUB TIMELINE</h2>
-                {selectedProject.githubRepository ? (
-                  <p className="overview-github-meta">
-                    {selectedProject.githubRepository.name} ·{" "}
-                    {selectedProject.githubRepository.branch} ·{" "}
-                    {selectedProject.githubRepository.isDirty ? "변경 있음" : "clean"}
-                    {selectedProject.githubRepository.remoteRepo
-                      ? ` · ${selectedProject.githubRepository.remoteRepo}`
-                      : ""}
-                    {" · "}
-                    {selectedProject.githubRepository.issuePrStatus}
-                  </p>
-                ) : null}
-                {selectedProjectGithubEvents.length > 0 ? (
-                  <div className="overview-timeline-list">
-                    {selectedProjectGithubEvents.map((event, index) => (
-                      <div className="overview-timeline-row" key={event.id}>
-                        <div className="overview-timeline-icon" data-event-type={event.type}>
-                          <TablerIcon svg={getGithubEventIconSvg(event.type)} />
-                          {index < selectedProjectGithubEvents.length - 1 ? <span /> : null}
-                        </div>
-                        <div>
-                          <p>{event.title}</p>
-                          <small>{getGithubEventMeta(event)}</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : selectedProject.githubConnected ? (
-                  <p className="overview-empty-text">
-                    <TablerIcon svg={tablerAlertCircle} />
-                    아직 GitHub 이벤트가 없습니다.
-                  </p>
-                ) : (
-                  <div className="overview-github-empty">
-                    <TablerIcon svg={tablerAlertCircle} />
-                    <p>GitHub 연동이 필요합니다.</p>
-                    <button
-                      onClick={() => void handleConnectGithub(selectedProject.id)}
-                      type="button"
-                    >
-                      GitHub 연동
-                    </button>
-                  </div>
-                )}
-              </section>
             </div>
 
             <form

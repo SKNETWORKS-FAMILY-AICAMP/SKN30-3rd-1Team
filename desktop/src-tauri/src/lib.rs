@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use std::path::Path;
 use std::process::Command;
+use tauri::Manager;
 
 const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -292,6 +293,18 @@ fn days_from_civil(mut year: i32, month: u32, day: u32) -> i64 {
 // PaiM 데스크톱 앱의 Tauri 런타임을 시작한다.
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "windows")]
+                window
+                    .set_decorations(false)
+                    .expect("Windows should use the app titlebar");
+
+                window.show().expect("main window should be visible");
+            }
+
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             create_attachment_preview,
