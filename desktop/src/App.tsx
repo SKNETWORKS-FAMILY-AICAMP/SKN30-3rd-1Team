@@ -1,19 +1,23 @@
 import {
   ArrowUp,
+  Check,
   ChevronDown,
   Copy,
   FileUp,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   LayoutDashboard,
   Ellipsis,
+  Link2,
   Lightbulb,
-  LogIn,
+  LogOut,
   MessageSquare,
   Minus,
   PanelLeft,
   Plus,
   RefreshCcw,
+  Search,
   Square,
   X,
 } from "lucide-react";
@@ -32,6 +36,7 @@ import {
   useRef,
   useState,
 } from "react";
+import githubMark from "../assets/github/github-mark.svg";
 import paimWatermark from "./assets/paim-watermark.png";
 import tablerAlertCircle from "./assets/tabler-icons/alert-circle.svg?raw";
 import tablerAlertTriangle from "./assets/tabler-icons/alert-triangle.svg?raw";
@@ -140,6 +145,8 @@ type GithubAvailableRepository = {
 type GithubRepositoriesResponse = {
   repositories: GithubAvailableRepository[];
 };
+
+type GithubPanelState = "signedout" | "authing" | "repos" | "connected";
 
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
@@ -759,12 +766,26 @@ function getGithubEventMeta(event: GitHubTimelineEvent) {
   return `${eventLabel} · ${status}${formatRelativeAge(event.createdAt)}`;
 }
 
-function getGithubAuthLabel(session: GithubAppSessionState | null) {
-  if (!session) {
-    return "로그인 필요";
-  }
+// GitHub 패널은 참조 HTML의 4단계 흐름을 실제 세션 상태에 맞춰 표시한다.
+function getGithubPanelStateLabel(panelState: GithubPanelState) {
+  const labels: Record<GithubPanelState, string> = {
+    signedout: "로그아웃",
+    authing: "로그인 중",
+    repos: "로그인됨",
+    connected: "연결됨",
+  };
 
-  return session.status === "connected" ? "로그인됨" : "설치 확인 대기";
+  return labels[panelState];
+}
+
+// Repo 선택 목록의 공개 범위 badge는 GitHub API 값을 그대로 짧게 보여준다.
+function getGithubAvailableRepositoryVisibility(repository: GithubAvailableRepository) {
+  return repository.private ? "PRIVATE" : "PUBLIC";
+}
+
+// 연결된 repo를 동기화할 때는 저장된 GitHub URL을 우선 재사용한다.
+function getConnectedGithubRepositoryUrl(repository: GitRepositoryInfo) {
+  return repository.path || `https://github.com/${repository.remoteRepo ?? repository.name}`;
 }
 
 function getGithubRepoLabel(repository: GitRepositoryInfo) {
@@ -989,10 +1010,9 @@ export function App() {
   const [openActionMenu, setOpenActionMenu] = useState<ActionMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
-  const [githubConnectProjectId, setGithubConnectProjectId] = useState<string | null>(null);
-  const [githubRepositoryUrl, setGithubRepositoryUrl] = useState("");
   const [githubAppSessions, setGithubAppSessions] = useState<Record<string, GithubAppSessionState>>({});
   const [githubRepositories, setGithubRepositories] = useState<Record<string, GithubAvailableRepository[]>>({});
+  const [githubRepositoryQuery, setGithubRepositoryQuery] = useState("");
   const [isGithubAuthStarting, setIsGithubAuthStarting] = useState(false);
   const [isGithubAuthChecking, setIsGithubAuthChecking] = useState(false);
   const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
@@ -1027,6 +1047,24 @@ export function App() {
   const selectedProjectGithubRepositories = selectedProject
     ? githubRepositories[selectedProject.id] ?? []
     : [];
+  const selectedProjectGithubPanelState: GithubPanelState = selectedProject?.githubRepository
+    ? "connected"
+    : selectedProjectGithubSession?.status === "connected"
+      ? "repos"
+      : selectedProjectGithubSession?.status === "pending"
+        ? "authing"
+        : "signedout";
+  const filteredSelectedProjectGithubRepositories = useMemo(() => {
+    const query = githubRepositoryQuery.trim().toLowerCase();
+
+    if (!query) {
+      return selectedProjectGithubRepositories;
+    }
+
+    return selectedProjectGithubRepositories.filter((repository) =>
+      `${repository.fullName} ${repository.name}`.toLowerCase().includes(query),
+    );
+  }, [githubRepositoryQuery, selectedProjectGithubRepositories]);
   const overviewMemoryCards = useMemo(
     () =>
       selectedProject
@@ -1517,7 +1555,7 @@ export function App() {
 
     setSelectedProjectId(projectId);
     setSelectedSessionId(null);
-    setGithubConnectProjectId(projectId);
+    setGithubRepositoryQuery("");
     setIsGithubAuthStarting(true);
     setDemoStatus({
       ok: true,
@@ -1569,17 +1607,33 @@ export function App() {
         },
       }));
       if (nextSession.status === "connected") {
-        setGithubRepositories((currentRepositories) => ({
-          ...currentRepositories,
-          [projectId]: currentRepositories[projectId] ?? [],
-        }));
+        try {
+          const repositories = await fetchGithubAppRepositories(session.state);
+
+          setGithubRepositories((currentRepositories) => ({
+            ...currentRepositories,
+            [projectId]: repositories.repositories,
+          }));
+          setDemoStatus({
+            ok: true,
+            message: `${repositories.repositories.length}개 repo를 불러왔습니다`,
+            scope: "github",
+          });
+        } catch (error) {
+          setDemoStatus({
+            ok: false,
+            message: getErrorMessage(
+              error,
+              "GitHub 로그인은 확인됐지만 repo 목록을 불러올 수 없습니다",
+            ),
+            scope: "github",
+          });
+        }
+        return;
       }
       setDemoStatus({
-        ok: nextSession.status === "connected",
-        message:
-          nextSession.status === "connected"
-            ? "GitHub 로그인이 확인되었습니다"
-            : "아직 GitHub 설치가 완료되지 않았습니다",
+        ok: false,
+        message: "아직 GitHub 설치가 완료되지 않았습니다",
         scope: "github",
       });
     } catch (error) {
@@ -1604,6 +1658,7 @@ export function App() {
       delete nextRepositories[projectId];
       return nextRepositories;
     });
+    setGithubRepositoryQuery("");
     setDemoStatus({
       ok: true,
       message: "GitHub 로그인을 해제했습니다",
@@ -1656,8 +1711,6 @@ export function App() {
 
     setSelectedProjectId(projectId);
     setSelectedSessionId(null);
-    setGithubConnectProjectId(projectId);
-    setGithubRepositoryUrl(trimmedRepositoryUrl);
     setIsGithubConnecting(true);
     setDemoStatus({
       ok: true,
@@ -1682,8 +1735,7 @@ export function App() {
         message: `${repository.remoteRepo ?? repository.name} repo 연결됨`,
         scope: "github",
       });
-      setGithubConnectProjectId(null);
-      setGithubRepositoryUrl("");
+      setGithubRepositoryQuery("");
     } catch (error) {
       setDemoStatus({
         ok: false,
@@ -1695,25 +1747,16 @@ export function App() {
     }
   }
 
-  async function handleSubmitGithubConnection(event: FormEvent<HTMLFormElement>, projectId: string) {
-    event.preventDefault();
-    const repositoryUrl = githubRepositoryUrl.trim();
-
-    await connectGithubRepository(projectId, repositoryUrl);
-  }
-
-  function handleDisconnectGithub(projectId: string) {
+  function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
     updateProject(projectId, (project) => ({
       ...project,
       githubConnected: false,
       githubEvents: undefined,
       githubRepository: undefined,
     }));
-    setGithubConnectProjectId(null);
-    setGithubRepositoryUrl("");
     setDemoStatus({
       ok: true,
-      message: "GitHub 연동이 취소되었습니다",
+      message,
       scope: "github",
     });
   }
@@ -2571,9 +2614,9 @@ export function App() {
                     <h2>GITHUB</h2>
                     <span
                       className="overview-github-state"
-                      data-state={selectedProject.githubRepository ? "connected" : "empty"}
+                      data-state={selectedProjectGithubPanelState}
                     >
-                      {selectedProject.githubRepository ? "Repo 연결됨" : "Repo 미연결"}
+                      {getGithubPanelStateLabel(selectedProjectGithubPanelState)}
                     </span>
                   </div>
                   {demoStatus?.scope === "github" ? (
@@ -2587,113 +2630,231 @@ export function App() {
                     </p>
                   ) : null}
 
-                  <div className="overview-github-controls">
-                    <div className="overview-github-action-row">
-                      <div>
-                        <small>LOGIN</small>
-                        <p>{getGithubAuthLabel(selectedProjectGithubSession)}</p>
+                  {selectedProjectGithubPanelState === "signedout" ? (
+                    <div className="overview-github-card overview-github-login-card">
+                      <div className="overview-github-brand">
+                        <span className="overview-github-logo-box" aria-hidden="true">
+                          <img className="overview-github-logo" src={githubMark} alt="" />
+                        </span>
+                        <div className="overview-github-copy">
+                          <p>GitHub 연결</p>
+                          <small>
+                            GitHub으로 로그인하면 repo의 커밋·PR·이슈를 타임라인으로
+                            가져옵니다. private repo도 지원됩니다.
+                          </small>
+                        </div>
                       </div>
-                      <div className="overview-github-button-row">
+                      <button
+                        className="overview-github-primary-button"
+                        disabled={isGithubAuthStarting}
+                        onClick={() => void handleStartGithubLogin(selectedProject.id)}
+                        type="button"
+                      >
+                        <img className="overview-github-button-logo" src={githubMark} alt="" />
+                        <span>{isGithubAuthStarting ? "여는 중..." : "GitHub 로그인"}</span>
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {selectedProjectGithubPanelState === "authing" ? (
+                    <div className="overview-github-card overview-github-auth-card">
+                      <span className="overview-github-logo-box" aria-hidden="true">
+                        <img className="overview-github-logo" src={githubMark} alt="" />
+                      </span>
+                      <p>브라우저에서 로그인을 완료해 주세요</p>
+                      <small>
+                        GitHub 인증 페이지를 새 창에서 열었습니다.
+                        <br />
+                        로그인하고 PaiM 접근을 승인하면 자동으로 돌아옵니다.
+                      </small>
+                      <span className="overview-github-loader">
+                        <RefreshCcw size={16} />
+                        로그인 대기 중...
+                      </span>
+                      <div className="overview-github-action-buttons">
                         <button
-                          disabled={isGithubAuthStarting}
-                          onClick={() => void handleStartGithubLogin(selectedProject.id)}
+                          className="overview-github-secondary-button"
+                          disabled={isGithubAuthChecking}
+                          onClick={() => void handleCheckGithubLogin(selectedProject.id)}
                           type="button"
                         >
-                          <LogIn size={14} />
-                          <span>{isGithubAuthStarting ? "여는 중..." : "GitHub 로그인"}</span>
+                          <Check size={14} />
+                          <span>{isGithubAuthChecking ? "확인 중..." : "로그인 완료했어요"}</span>
                         </button>
-                        {selectedProjectGithubSession?.status === "pending" ? (
+                        <button
+                          className="overview-github-ghost-button"
+                          onClick={() => handleResetGithubLogin(selectedProject.id)}
+                          type="button"
+                        >
+                          <X size={14} />
+                          <span>취소</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedProjectGithubPanelState === "repos" ? (
+                    <div className="overview-github-card overview-github-repos-card">
+                      <div className="overview-github-toolbar">
+                        <div className="overview-github-account">
+                          <img className="overview-github-toolbar-logo" src={githubMark} alt="" />
+                          <span>GitHub App</span>
+                          <span className="overview-github-login-badge">
+                            <Check size={12} />
+                            로그인됨
+                          </span>
+                        </div>
+                        <button
+                          className="overview-github-ghost-button"
+                          onClick={() => handleResetGithubLogin(selectedProject.id)}
+                          type="button"
+                        >
+                          <LogOut size={13} />
+                          <span>로그아웃</span>
+                        </button>
+                      </div>
+                      <label className="overview-github-search">
+                        <Search size={15} />
+                        <input
+                          aria-label="GitHub repo 검색"
+                          onChange={(event) => setGithubRepositoryQuery(event.target.value)}
+                          placeholder="repo 검색..."
+                          type="text"
+                          value={githubRepositoryQuery}
+                        />
+                        {githubRepositoryQuery ? (
                           <button
-                            disabled={isGithubAuthChecking}
-                            onClick={() => void handleCheckGithubLogin(selectedProject.id)}
+                            aria-label="repo 검색어 지우기"
+                            onClick={() => setGithubRepositoryQuery("")}
+                            title="repo 검색어 지우기"
                             type="button"
                           >
-                            <RefreshCcw size={14} />
-                            <span>{isGithubAuthChecking ? "확인 중..." : "설치 확인"}</span>
+                            <X size={15} />
                           </button>
                         ) : null}
-                        {selectedProjectGithubSession?.status === "connected" ? (
+                      </label>
+                      <p className="overview-github-list-label">
+                        YOUR REPOS · {filteredSelectedProjectGithubRepositories.length}
+                      </p>
+                      {selectedProjectGithubRepositories.length > 0 ? (
+                        <div className="overview-github-repo-list" aria-label="접근 가능한 GitHub repo">
+                          {filteredSelectedProjectGithubRepositories.length > 0 ? (
+                            filteredSelectedProjectGithubRepositories.map((repository, index) => (
+                              <div
+                                className="overview-github-repo-row"
+                                data-last={index === filteredSelectedProjectGithubRepositories.length - 1}
+                                key={repository.fullName}
+                              >
+                                <GitBranch size={16} />
+                                <div className="overview-github-repo-copy">
+                                  <div>
+                                    <p>{repository.fullName}</p>
+                                    <span className="overview-github-repo-visibility">
+                                      {getGithubAvailableRepositoryVisibility(repository)}
+                                    </span>
+                                  </div>
+                                  <small>기본 브랜치 {repository.defaultBranch}</small>
+                                </div>
+                                <button
+                                  className="overview-github-secondary-button"
+                                  disabled={isGithubConnecting}
+                                  onClick={() =>
+                                    void connectGithubRepository(selectedProject.id, repository.url)
+                                  }
+                                  type="button"
+                                >
+                                  <Link2 size={14} />
+                                  <span>{isGithubConnecting ? "연결 중..." : "연결"}</span>
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="overview-github-empty">
+                              "{githubRepositoryQuery}" 검색 결과가 없습니다
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="overview-github-empty">
+                          <p>아직 불러온 repo가 없습니다.</p>
                           <button
+                            className="overview-github-secondary-button"
                             disabled={isGithubRepoLoading}
                             onClick={() => void handleLoadGithubRepositories(selectedProject.id)}
                             type="button"
                           >
                             <RefreshCcw size={14} />
-                            <span>{isGithubRepoLoading ? "불러오는 중..." : "Repo 목록"}</span>
+                            <span>{isGithubRepoLoading ? "불러오는 중..." : "Repo 목록 불러오기"}</span>
                           </button>
-                        ) : null}
-                        {selectedProjectGithubSession ? (
-                          <button
-                            onClick={() => handleResetGithubLogin(selectedProject.id)}
-                            type="button"
-                          >
-                            <X size={14} />
-                            <span>로그인 해제</span>
-                          </button>
-                        ) : null}
-                      </div>
+                        </div>
+                      )}
                     </div>
-
-                    <form
-                      className="overview-github-connect-form"
-                      onSubmit={(event) => void handleSubmitGithubConnection(event, selectedProject.id)}
-                    >
-                      <input
-                        aria-label="GitHub repository URL"
-                        onChange={(event) => {
-                          setGithubConnectProjectId(selectedProject.id);
-                          setGithubRepositoryUrl(event.target.value);
-                        }}
-                        onFocus={() => setGithubConnectProjectId(selectedProject.id)}
-                        placeholder="https://github.com/org/repo"
-                        type="url"
-                        value={githubConnectProjectId === selectedProject.id ? githubRepositoryUrl : ""}
-                      />
-                      <button disabled={isGithubConnecting} type="submit">
-                        <LogIn size={14} />
-                        <span>{isGithubConnecting ? "연결 중..." : "Repo 연결"}</span>
-                      </button>
-                    </form>
-
-                    {selectedProjectGithubRepositories.length > 0 ? (
-                      <div className="overview-github-repo-list" aria-label="접근 가능한 GitHub repo">
-                        {selectedProjectGithubRepositories.map((repository) => (
-                          <button
-                            key={repository.fullName}
-                            onClick={() => void connectGithubRepository(selectedProject.id, repository.url)}
-                            type="button"
-                          >
-                            <span>{repository.fullName}</span>
-                            <small>
-                              {repository.private ? "Private" : "Public"} ·{" "}
-                              {repository.defaultBranch}
-                            </small>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : null}
 
                   {selectedProject.githubRepository ? (
-                    <div className="overview-github-meta-row">
-                      <div>
-                        <p className="overview-github-repo-name">
-                          {selectedProject.githubRepository.remoteRepo ??
-                            selectedProject.githubRepository.name}
-                        </p>
-                        <p className="overview-github-meta">
-                          {selectedProject.githubRepository.branch} ·{" "}
-                          {getGithubRepoLabel(selectedProject.githubRepository)} ·{" "}
-                          {selectedProject.githubRepository.issuePrStatus}
-                        </p>
+                    <div className="overview-github-card overview-github-connected-card">
+                      <div className="overview-github-brand">
+                        <span className="overview-github-logo-box" data-tone="connected" aria-hidden="true">
+                          <img className="overview-github-logo" src={githubMark} alt="" />
+                        </span>
+                        <div className="overview-github-copy">
+                          <div className="overview-github-repo-title">
+                            <p className="overview-github-repo-name">
+                              {selectedProject.githubRepository.remoteRepo ??
+                                selectedProject.githubRepository.name}
+                            </p>
+                            <span className="overview-github-repo-visibility">
+                              {selectedProject.githubRepository.visibility === "private"
+                                ? "PRIVATE"
+                                : "PUBLIC"}
+                            </span>
+                          </div>
+                          <p className="overview-github-meta">
+                            SYNCED · {selectedProject.githubRepository.branch} ·{" "}
+                            {getGithubRepoLabel(selectedProject.githubRepository)} ·{" "}
+                            {selectedProject.githubRepository.issuePrStatus}
+                          </p>
+                        </div>
                       </div>
-                      <button
-                        className="overview-github-disconnect-button"
-                        onClick={() => handleDisconnectGithub(selectedProject.id)}
-                        type="button"
-                      >
-                        연동 취소
-                      </button>
+                      <div className="overview-github-action-buttons">
+                        <button
+                          className="overview-github-secondary-button"
+                          disabled={isGithubConnecting}
+                          onClick={() =>
+                            selectedProject.githubRepository
+                              ? void connectGithubRepository(
+                                  selectedProject.id,
+                                  getConnectedGithubRepositoryUrl(selectedProject.githubRepository),
+                                )
+                              : undefined
+                          }
+                          type="button"
+                        >
+                          <RefreshCcw size={15} />
+                          <span>{isGithubConnecting ? "동기화 중..." : "동기화"}</span>
+                        </button>
+                        <button
+                          className="overview-github-secondary-button"
+                          onClick={() =>
+                            handleDisconnectGithub(
+                              selectedProject.id,
+                              "repo 연결을 해제했습니다. 새 repo를 선택하세요",
+                            )
+                          }
+                          type="button"
+                        >
+                          <GitBranch size={15} />
+                          <span>repo 변경</span>
+                        </button>
+                        <button
+                          className="overview-github-danger-button"
+                          onClick={() => handleDisconnectGithub(selectedProject.id)}
+                          type="button"
+                        >
+                          <X size={15} />
+                          <span>연결 해제</span>
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                   {selectedProjectGithubEvents.length > 0 ? (
@@ -2716,12 +2877,7 @@ export function App() {
                       <TablerIcon svg={tablerAlertCircle} />
                       아직 GitHub 이벤트가 없습니다.
                     </p>
-                  ) : (
-                    <div className="overview-github-empty">
-                      <TablerIcon svg={tablerAlertCircle} />
-                      <p>Repo URL을 입력하면 public repo는 바로 연결됩니다.</p>
-                    </div>
-                  )}
+                  ) : null}
                 </section>
               </div>
             </div>
