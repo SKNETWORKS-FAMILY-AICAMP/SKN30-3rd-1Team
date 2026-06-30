@@ -234,6 +234,8 @@ const GITHUB_CLIENT_ID = (
   ""
 ).trim();
 const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
+const GITHUB_LOGIN_CONFIG_ERROR_MESSAGE =
+  "이 앱 빌드에는 GitHub 로그인이 아직 설정되어 있지 않습니다. 개발팀에 문의해 주세요.";
 const GITHUB_LOGIN_SCOPE = "repo read:user";
 const OVERVIEW_SUGGESTIONS = [
   "이번 주 액션 알려줘",
@@ -628,7 +630,7 @@ async function createGithubDeviceCode() {
   const clientId = getGithubClientId();
 
   if (!clientId) {
-    throw new Error("VITE_GITHUB_CLIENT_ID가 설정되어 있지 않습니다");
+    throw new Error(GITHUB_LOGIN_CONFIG_ERROR_MESSAGE);
   }
 
   if (!canUseTauriDialog()) {
@@ -651,7 +653,7 @@ async function fetchGithubAccessToken(deviceCode: string) {
   const clientId = getGithubClientId();
 
   if (!clientId) {
-    throw new Error("VITE_GITHUB_CLIENT_ID가 설정되어 있지 않습니다");
+    throw new Error(GITHUB_LOGIN_CONFIG_ERROR_MESSAGE);
   }
 
   if (!canUseTauriDialog()) {
