@@ -128,10 +128,3 @@ PaiM/
 
 `date` 필드는 항상 **회의/문서 날짜** (`YYYY-MM-DD`). 액션 마감일은 `content` 필드 텍스트에 포함.
 
----
-
-## 문서
-
-- [`HANDOVER.md`](./HANDOVER.md) — 에이전트 인수인계 (현재 상태, 미완료 작업, 버그 이력)
-- [`HANDOVER.html`](./HANDOVER.html) — 인간용 인수인계 문서
-- [`AGENT_LOG.md`](./AGENT_LOG.md) — Claude Code + Codex CLI 협업 이력
