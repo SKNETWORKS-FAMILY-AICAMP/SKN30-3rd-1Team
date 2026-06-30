@@ -4,7 +4,7 @@
 #   chromadb 기본 임베딩(all-MiniLM)으로 통일한다(어댑터 사용).
 # - 생성은 LangChain ChatPromptTemplate + ChatOpenAI 체인(LCEL).
 import os
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import chromadb
 from chromadb.utils import embedding_functions
@@ -57,6 +57,31 @@ class _ChromaDefaultEmbeddings(Embeddings):
         return list(map(float, self._ef([text])[0]))
 
 
+# 질문에서 category 필터를 추출하기 위한 키워드 사전.
+# 한 유형만 매칭될 때만 좁히고, 여러 유형이 섞이면 필터를 걸지 않는다(정보 누락 방지).
+_CATEGORY_KEYWORDS = {
+    "decision": ["결정", "의사결정", "확정", "합의"],
+    "action":   ["액션", "할 일", "할일", "작업", "태스크"],
+    "issue":    ["이슈", "문제", "쟁점"],
+    "risk":     ["리스크", "위험"],
+}
+
+
+def _extract_category(question: str) -> Optional[str]:
+    """질문에서 category 필터를 추출한다. 한 유형의 키워드만 매칭되면 그 category,
+    여러 유형이 섞이거나 없으면 None(전체 조회)을 반환해 정보 누락을 막는다.
+
+    owner(담당자) 필터는 사용하지 않는다 — 회의록 원문에서는 발화자/담당자 귀속이
+    불확실해 `owner` 컬럼을 신뢰하기 어렵고, 정확매칭으로 거르면 관련 행을 놓칠 수 있다.
+    (같은 이유로 답변 시스템 프롬프트에서도 담당자 인용 의존을 제외했다.)
+    """
+    matched = [
+        cat for cat, kws in _CATEGORY_KEYWORDS.items()
+        if any(k in question for k in kws)
+    ]
+    return matched[0] if len(matched) == 1 else None
+
+
 _vectorstore = None
 
 
@@ -91,8 +116,10 @@ def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict
     sources: List[str] = []
     debug: dict = {"mysql_rows": [], "chroma_chunks": []}
 
-    # 1) 구조화 기록 — MySQL memory 테이블
-    rows = mysql_search.search(project_id)
+    # 1) 구조화 기록 — MySQL memory 테이블 (질문에서 추출한 category로 좁혀 조회)
+    category = _extract_category(question)
+    debug["filters"] = {"category": category}
+    rows = mysql_search.search(project_id, category=category)
     mysql_ctx = "\n".join(
         f"[{r['category']}] {r['content']} (출처: {r['source']})"
         for r in rows
