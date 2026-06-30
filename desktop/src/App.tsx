@@ -87,10 +87,6 @@ type GitRepositoryInfo = {
   issuePrStatus: string;
 };
 
-type GitRepositorySnapshot = GitRepositoryInfo & {
-  events: GitHubTimelineEvent[];
-};
-
 type ProjectWorkspace = {
   id: string;
   name: string;
@@ -111,6 +107,7 @@ type ProjectState = {
 type DemoStatus = {
   ok: boolean;
   message: string;
+  scope?: "github" | "overview";
 };
 
 type ActionMenuState =
@@ -120,6 +117,42 @@ type ActionMenuState =
 type RenameDraft =
   | { type: "project"; projectId: string; value: string }
   | { type: "session"; projectId: string; sessionId: string; value: string };
+
+type GitHubRepoApiResponse = {
+  default_branch: string;
+  full_name: string;
+  html_url: string;
+  name: string;
+  private: boolean;
+};
+
+type GitHubCommitApiResponse = {
+  html_url: string;
+  sha: string;
+  commit: {
+    author?: {
+      date?: string;
+    };
+    message: string;
+  };
+};
+
+type GitHubIssueApiResponse = {
+  html_url: string;
+  number: number;
+  pull_request?: unknown;
+  state: string;
+  title: string;
+  updated_at: string;
+};
+
+type GitHubPullApiResponse = {
+  html_url: string;
+  number: number;
+  state: string;
+  title: string;
+  updated_at: string;
+};
 
 const DEMO_REPLY_DELAY_MS = 360;
 const ACTION_MENU_WIDTH = 132;
@@ -439,6 +472,114 @@ function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
 }
 
+function parseGithubRepositoryUrl(rawUrl: string) {
+  const trimmedUrl = rawUrl.trim().replace(/\.git$/, "");
+  const sshMatch = trimmedUrl.match(/^git@github\.com:([^/]+)\/([^/]+)$/);
+
+  if (sshMatch) {
+    return { owner: sshMatch[1], repo: sshMatch[2] };
+  }
+
+  try {
+    const url = new URL(trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`);
+
+    if (url.hostname !== "github.com") {
+      return null;
+    }
+
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+
+    return owner && repo ? { owner, repo } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGithubJson<T>(path: string): Promise<T> {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub API ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function githubTimestamp(value: string | undefined) {
+  const timestamp = value ? Date.parse(value) : NaN;
+  return Number.isFinite(timestamp) ? timestamp : Date.now();
+}
+
+function createGithubEvents(
+  commits: GitHubCommitApiResponse[],
+  issues: GitHubIssueApiResponse[],
+  pulls: GitHubPullApiResponse[],
+) {
+  const commitEvents = commits.map((commit) => ({
+    id: `commit-${commit.sha}`,
+    type: "commit" as const,
+    title: commit.commit.message.split("\n")[0] || commit.sha.slice(0, 7),
+    createdAt: githubTimestamp(commit.commit.author?.date),
+    status: commit.sha.slice(0, 7),
+    url: commit.html_url,
+  }));
+  const issueEvents = issues
+    .filter((issue) => !issue.pull_request)
+    .map((issue) => ({
+      id: `issue-${issue.number}`,
+      type: "issue" as const,
+      title: `issue #${issue.number} ${issue.title}`,
+      createdAt: githubTimestamp(issue.updated_at),
+      status: issue.state,
+      url: issue.html_url,
+    }));
+  const pullEvents = pulls.map((pull) => ({
+    id: `pull_request-${pull.number}`,
+    type: "pull_request" as const,
+    title: `PR #${pull.number} ${pull.title}`,
+    createdAt: githubTimestamp(pull.updated_at),
+    status: pull.state,
+    url: pull.html_url,
+  }));
+
+  return [...commitEvents, ...issueEvents, ...pullEvents]
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, 10);
+}
+
+async function fetchGithubRepository(rawUrl: string) {
+  const parsedRepo = parseGithubRepositoryUrl(rawUrl);
+
+  if (!parsedRepo) {
+    throw new Error("GitHub repository URL을 확인할 수 없습니다");
+  }
+
+  const repoPath = `/repos/${parsedRepo.owner}/${parsedRepo.repo}`;
+  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath);
+  const [commits, issues, pulls] = await Promise.all([
+    fetchGithubJson<GitHubCommitApiResponse[]>(
+      `${repoPath}/commits?sha=${encodeURIComponent(repo.default_branch)}&per_page=6`,
+    ),
+    fetchGithubJson<GitHubIssueApiResponse[]>(`${repoPath}/issues?state=open&per_page=6`),
+    fetchGithubJson<GitHubPullApiResponse[]>(`${repoPath}/pulls?state=open&per_page=6`),
+  ]);
+  const openIssues = issues.filter((issue) => !issue.pull_request);
+
+  return {
+    events: createGithubEvents(commits, issues, pulls),
+    repository: {
+      path: repo.html_url,
+      name: repo.name,
+      branch: repo.default_branch,
+      isDirty: false,
+      remoteRepo: repo.full_name,
+      issuePrStatus: `${openIssues.length} open issues · ${pulls.length} open PRs`,
+    },
+  };
+}
+
 function formatRelativeAge(createdAt: number) {
   const diffMs = Math.max(0, Date.now() - createdAt);
   const minuteMs = 60 * 1000;
@@ -736,10 +877,14 @@ export function App() {
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null);
+  const [statusRevision, setStatusRevision] = useState(0);
   const [isProjectCreateMenuOpen, setIsProjectCreateMenuOpen] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState<ActionMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
+  const [githubConnectProjectId, setGithubConnectProjectId] = useState<string | null>(null);
+  const [githubRepositoryUrl, setGithubRepositoryUrl] = useState("");
+  const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const projectCreateRef = useRef<HTMLDivElement | null>(null);
@@ -882,6 +1027,12 @@ export function App() {
       document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isSidebarResizing]);
+
+  useEffect(() => {
+    if (demoStatus) {
+      setStatusRevision((currentRevision) => currentRevision + 1);
+    }
+  }, [demoStatus]);
 
   useEffect(() => {
     if (didHydrateAttachmentPreviewsRef.current) {
@@ -1078,6 +1229,7 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "프로젝트 폴더를 열 수 없습니다",
+        scope: "overview",
       });
     }
   }
@@ -1106,6 +1258,7 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "프로젝트 파일을 열 수 없습니다",
+        scope: "overview",
       });
     }
   }
@@ -1197,6 +1350,7 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "데스크톱 앱에서 파일을 추가할 수 있습니다",
+        scope: "overview",
       });
       return;
     }
@@ -1225,6 +1379,7 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "프로젝트 파일을 추가할 수 없습니다",
+        scope: "overview",
       });
     }
   }
@@ -1240,31 +1395,27 @@ export function App() {
   async function handleConnectGithub(projectId: string) {
     setSelectedProjectId(projectId);
     setSelectedSessionId(null);
+    setGithubConnectProjectId(projectId);
+    setGithubRepositoryUrl("");
+  }
 
-    if (!canUseTauriDialog()) {
-      setDemoStatus({
-        ok: false,
-        message: "데스크톱 앱에서 GitHub repo를 연결할 수 있습니다",
-      });
+  async function handleSubmitGithubConnection(event: FormEvent<HTMLFormElement>, projectId: string) {
+    event.preventDefault();
+    const repositoryUrl = githubRepositoryUrl.trim();
+
+    if (!repositoryUrl || isGithubConnecting) {
       return;
     }
 
+    setIsGithubConnecting(true);
+    setDemoStatus({
+      ok: true,
+      message: "GitHub repo 연결 중...",
+      scope: "github",
+    });
+
     try {
-      const selectedPaths = await open({
-        directory: true,
-        multiple: false,
-        title: "GitHub repo 폴더 선택",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
-
-      if (paths.length === 0) {
-        return;
-      }
-
-      const snapshot = await invoke<GitRepositorySnapshot>("inspect_git_repository", {
-        path: paths[0],
-      });
-      const { events, ...repository } = snapshot;
+      const { events, repository } = await fetchGithubRepository(repositoryUrl);
 
       updateProject(projectId, (project) => ({
         ...project,
@@ -1274,14 +1425,35 @@ export function App() {
       }));
       setDemoStatus({
         ok: true,
-        message: `${snapshot.name} repo 연결됨`,
+        message: `${repository.remoteRepo ?? repository.name} repo 연결됨`,
+        scope: "github",
       });
+      setGithubConnectProjectId(null);
     } catch {
       setDemoStatus({
         ok: false,
         message: "GitHub repo를 연결할 수 없습니다",
+        scope: "github",
       });
+    } finally {
+      setIsGithubConnecting(false);
     }
+  }
+
+  function handleDisconnectGithub(projectId: string) {
+    updateProject(projectId, (project) => ({
+      ...project,
+      githubConnected: false,
+      githubEvents: undefined,
+      githubRepository: undefined,
+    }));
+    setGithubConnectProjectId(null);
+    setGithubRepositoryUrl("");
+    setDemoStatus({
+      ok: true,
+      message: "GitHub 연동이 취소되었습니다",
+      scope: "github",
+    });
   }
 
   function handleOverviewPromptSubmit(event: FormEvent<HTMLFormElement>, projectId: string) {
@@ -1723,12 +1895,6 @@ export function App() {
           </div>
         </nav>
 
-        {demoStatus ? (
-          <p className="runtime-status" data-ok={demoStatus.ok} role="status">
-            {demoStatus.message}
-          </p>
-        ) : null}
-
         <section className="projects project-tree" aria-label="프로젝트">
           <h2>Projects</h2>
           <div className="project-tree-list">
@@ -2076,6 +2242,17 @@ export function App() {
                 </div>
               </div>
 
+              {demoStatus && demoStatus.scope !== "github" ? (
+                <p
+                  className="runtime-status project-overview-status"
+                  data-ok={demoStatus.ok}
+                  key={statusRevision}
+                  role="status"
+                >
+                  {demoStatus.message}
+                </p>
+              ) : null}
+
               <section className="overview-memory" aria-label="프로젝트 메모">
                 <h2>PROJECT MEMORY</h2>
                 <div className="overview-memory-grid">
@@ -2129,17 +2306,36 @@ export function App() {
 
                 <section className="overview-panel" aria-label="GitHub 타임라인">
                   <h2>GITHUB TIMELINE</h2>
-                  {selectedProject.githubRepository ? (
-                    <p className="overview-github-meta">
-                      {selectedProject.githubRepository.name} ·{" "}
-                      {selectedProject.githubRepository.branch} ·{" "}
-                      {selectedProject.githubRepository.isDirty ? "변경 있음" : "clean"}
-                      {selectedProject.githubRepository.remoteRepo
-                        ? ` · ${selectedProject.githubRepository.remoteRepo}`
-                        : ""}
-                      {" · "}
-                      {selectedProject.githubRepository.issuePrStatus}
+                  {demoStatus?.scope === "github" ? (
+                    <p
+                      className="runtime-status overview-github-status"
+                      data-ok={demoStatus.ok}
+                      key={statusRevision}
+                      role="status"
+                    >
+                      {demoStatus.message}
                     </p>
+                  ) : null}
+                  {selectedProject.githubRepository ? (
+                    <div className="overview-github-meta-row">
+                      <p className="overview-github-meta">
+                        {selectedProject.githubRepository.name} ·{" "}
+                        {selectedProject.githubRepository.branch} ·{" "}
+                        {selectedProject.githubRepository.isDirty ? "변경 있음" : "clean"}
+                        {selectedProject.githubRepository.remoteRepo
+                          ? ` · ${selectedProject.githubRepository.remoteRepo}`
+                          : ""}
+                        {" · "}
+                        {selectedProject.githubRepository.issuePrStatus}
+                      </p>
+                      <button
+                        className="overview-github-disconnect-button"
+                        onClick={() => handleDisconnectGithub(selectedProject.id)}
+                        type="button"
+                      >
+                        연동 취소
+                      </button>
+                    </div>
                   ) : null}
                   {selectedProjectGithubEvents.length > 0 ? (
                     <div className="overview-timeline-list">
@@ -2165,12 +2361,30 @@ export function App() {
                     <div className="overview-github-empty">
                       <TablerIcon svg={tablerAlertCircle} />
                       <p>GitHub 연동이 필요합니다.</p>
-                      <button
-                        onClick={() => void handleConnectGithub(selectedProject.id)}
-                        type="button"
-                      >
-                        GitHub 연동
-                      </button>
+                      {githubConnectProjectId === selectedProject.id ? (
+                        <form
+                          className="overview-github-connect-form"
+                          onSubmit={(event) => void handleSubmitGithubConnection(event, selectedProject.id)}
+                        >
+                          <input
+                            aria-label="GitHub repository URL"
+                            onChange={(event) => setGithubRepositoryUrl(event.target.value)}
+                            placeholder="https://github.com/org/repo"
+                            type="url"
+                            value={githubRepositoryUrl}
+                          />
+                          <button disabled={isGithubConnecting} type="submit">
+                            {isGithubConnecting ? "연결 중..." : "연결"}
+                          </button>
+                        </form>
+                      ) : (
+                        <button
+                          onClick={() => void handleConnectGithub(selectedProject.id)}
+                          type="button"
+                        >
+                          GitHub 연동
+                        </button>
+                      )}
                     </div>
                   )}
                 </section>
@@ -2220,6 +2434,16 @@ export function App() {
                 src={paimWatermark}
                 alt="PaiM AI Project Manager"
               />
+              {demoStatus && demoStatus.scope !== "github" ? (
+                <p
+                  className="runtime-status project-start-status"
+                  data-ok={demoStatus.ok}
+                  key={statusRevision}
+                  role="status"
+                >
+                  {demoStatus.message}
+                </p>
+              ) : null}
               <button
                 className="project-start-button"
                 onClick={() => void handleCreateProjectFromFolder()}
