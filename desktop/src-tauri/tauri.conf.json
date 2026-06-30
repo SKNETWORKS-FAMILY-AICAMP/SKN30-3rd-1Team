@@ -30,8 +30,8 @@
     "targets": "all",
     "icon": [
       "icons/icon.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "../app_icon/PaiM_logo.icns",
+      "../app_icon/PaiM_logo.ico"
     ]
   }
 }
