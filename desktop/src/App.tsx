@@ -131,11 +131,13 @@ type GithubLoginSessionState = {
 };
 
 type GithubDeviceCodeResponse = {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
+  device_code?: string;
+  user_code?: string;
+  verification_uri?: string;
+  expires_in?: number;
+  interval?: number;
+  error?: string;
+  error_description?: string;
 };
 
 type GithubAccessTokenResponse = {
@@ -581,7 +583,27 @@ async function fetchPaimJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "string" && error) {
+    return error;
+  }
+
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function getGithubOAuthErrorMessage(
+  error: string | undefined,
+  description: string | undefined,
+  fallback: string,
+) {
+  if (error === "device_flow_disabled") {
+    return "GitHub App 설정에서 Device Flow를 켜야 로그인할 수 있습니다.";
+  }
+
+  if (error === "incorrect_client_credentials") {
+    return "GitHub 로그인 설정이 올바르지 않습니다. 개발팀에 문의해 주세요.";
+  }
+
+  return description || fallback;
 }
 
 function githubTimestamp(value: string | undefined) {
@@ -1660,11 +1682,27 @@ export function App() {
 
     try {
       const deviceCode = await createGithubDeviceCode();
+
+      if (
+        deviceCode.error ||
+        !deviceCode.device_code ||
+        !deviceCode.user_code ||
+        !deviceCode.verification_uri
+      ) {
+        throw new Error(
+          getGithubOAuthErrorMessage(
+            deviceCode.error,
+            deviceCode.error_description,
+            "GitHub 로그인을 시작할 수 없습니다",
+          ),
+        );
+      }
+
       const session: GithubLoginSessionState = {
         deviceCode: deviceCode.device_code,
         userCode: deviceCode.user_code,
         verificationUri: deviceCode.verification_uri,
-        interval: deviceCode.interval,
+        interval: deviceCode.interval ?? 5,
         status: "pending",
       };
 
@@ -1708,7 +1746,11 @@ export function App() {
           ok: false,
           message: isPending
             ? "아직 GitHub 인증이 완료되지 않았습니다"
-            : tokenResponse.error_description ?? "GitHub 인증을 완료할 수 없습니다",
+            : getGithubOAuthErrorMessage(
+                tokenResponse.error,
+                tokenResponse.error_description,
+                "GitHub 인증을 완료할 수 없습니다",
+              ),
           scope: "github",
         });
         return;

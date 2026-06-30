@@ -10,11 +10,13 @@ const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_tok
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 struct GithubDeviceCodeResponse {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    expires_in: u64,
-    interval: u64,
+    device_code: Option<String>,
+    user_code: Option<String>,
+    verification_uri: Option<String>,
+    expires_in: Option<u64>,
+    interval: Option<u64>,
+    error: Option<String>,
+    error_description: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
