@@ -769,7 +769,7 @@ function getGithubEventMeta(event: GitHubTimelineEvent) {
 // GitHub 패널은 참조 HTML의 4단계 흐름을 실제 세션 상태에 맞춰 표시한다.
 function getGithubPanelStateLabel(panelState: GithubPanelState) {
   const labels: Record<GithubPanelState, string> = {
-    signedout: "로그아웃",
+    signedout: "미연결",
     authing: "로그인 중",
     repos: "로그인됨",
     connected: "연결됨",
@@ -786,6 +786,14 @@ function getGithubAvailableRepositoryVisibility(repository: GithubAvailableRepos
 // 연결된 repo를 동기화할 때는 저장된 GitHub URL을 우선 재사용한다.
 function getConnectedGithubRepositoryUrl(repository: GitRepositoryInfo) {
   return repository.path || `https://github.com/${repository.remoteRepo ?? repository.name}`;
+}
+
+function getGithubLoginErrorMessage(error: unknown) {
+  const message = getErrorMessage(error, "GitHub App 로그인을 시작할 수 없습니다");
+
+  return /failed to fetch|load failed/i.test(message)
+    ? "PaiM API 서버에 연결할 수 없습니다. 서버를 실행한 뒤 다시 시도하세요."
+    : message;
 }
 
 function getGithubRepoLabel(repository: GitRepositoryInfo) {
@@ -1579,7 +1587,7 @@ export function App() {
     } catch (error) {
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "GitHub App 로그인을 시작할 수 없습니다"),
+        message: getGithubLoginErrorMessage(error),
         scope: "github",
       });
     } finally {

@@ -1812,7 +1812,7 @@ async function verifyGithubTimelineState(send) {
       window.__paimOriginalFetch = window.fetch.bind(window);
       window.fetch = async (input) => {
         if (String(input).includes('/github/app/sessions')) {
-          throw new Error('smoke GitHub login failure');
+          throw new Error('Load failed');
         }
 
         return window.__paimOriginalFetch(input);
@@ -2016,7 +2016,7 @@ async function verifyGithubTimelineState(send) {
   };
   const failures = [];
 
-  if (value.unlinked.stateText !== "로그아웃" ||
+  if (value.unlinked.stateText !== "미연결" ||
       !value.unlinked.hasLoginCard ||
       !value.unlinked.hasLoginTitle ||
       !value.unlinked.hasPrivateCopy ||
@@ -2029,7 +2029,7 @@ async function verifyGithubTimelineState(send) {
 
   if (!value.failedLogin.githubPanelHasStatus ||
       value.failedLogin.githubStatusOk !== "false" ||
-      !value.failedLogin.githubStatusText.includes("smoke GitHub login failure") ||
+      !value.failedLogin.githubStatusText.includes("PaiM API 서버에 연결할 수 없습니다") ||
       value.failedLogin.sidebarHasRuntimeStatus ||
       value.failedLogin.runtimeStatusCount !== 1) {
     failures.push("GitHub login failure status should render inside the GitHub panel only");
