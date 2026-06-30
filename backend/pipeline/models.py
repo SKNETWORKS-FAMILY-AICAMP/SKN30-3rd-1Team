@@ -1,0 +1,16 @@
+from typing import List, Optional, Literal
+from pydantic import BaseModel, Field
+
+
+class MemoryItem(BaseModel):
+    category: Literal["decision", "action", "issue", "risk"]
+    content: str = Field(description="Full description of the decision/action/issue/risk")
+    reason: Optional[str] = Field(default=None, description="Only for decision: why this was decided")
+    topic: Optional[str] = Field(default=None, description="Short keyword theme, e.g. '기술스택', '일정', 'UI설계'")
+    owner: Optional[str] = Field(default=None, description="Person responsible or who mentioned it")
+    date: Optional[str] = Field(default=None, description="Meeting or document date in YYYY-MM-DD format only")
+    source: Optional[str] = Field(default=None, description="Document filename or source identifier")
+
+
+class ExtractionResult(BaseModel):
+    items: List[MemoryItem]

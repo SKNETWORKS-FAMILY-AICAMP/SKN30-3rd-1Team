@@ -1,0 +1,16 @@
+# FastAPI
+fastapi
+uvicorn
+
+# LLM providers
+anthropic
+openai
+google-generativeai
+
+# DB
+pymysql
+chromadb
+
+# 유틸
+pydantic
+python-dotenv

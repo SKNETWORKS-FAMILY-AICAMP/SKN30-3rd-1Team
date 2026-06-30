@@ -1,0 +1,333 @@
+# Claude Code + Codex CLI 협업 사용 가이드
+
+## 1. 목적
+
+이 문서는 Git을 사용하지 않는 상황에서 Claude Code와 Codex CLI를 같은 프로젝트 디렉토리에서 안전하게 함께 사용하는 방법을 정리한 가이드입니다.
+
+기본 운영 방식은 다음과 같습니다.
+
+```text
+Claude Code = 코드 작성 담당
+Codex CLI = 코드 검수 담당
+사용자 = 전체 작업 순서 조율 담당
+```
+
+---
+
+## 2. 프로젝트 루트에 둘 파일
+
+프로젝트 루트 디렉토리에 아래 파일을 둡니다.
+
+```text
+AGENTS.md
+AGENT_LOG.md
+USAGE_GUIDE_KO.md
+```
+
+예시 구조:
+
+```text
+WorkSpace/
+├── AGENTS.md
+├── AGENT_LOG.md
+├── USAGE_GUIDE_KO.md
+├── app/
+├── backend/
+├── frontend/
+└── ...
+```
+
+---
+
+## 3. 전체 작업 흐름
+
+권장 순서는 다음과 같습니다.
+
+```text
+1. Claude Code에 구현 작업 요청
+2. Claude가 스냅샷 생성
+3. Claude가 코드 작성
+4. Claude가 AGENT_LOG.md에 작업 내용 기록
+5. Codex CLI에 리뷰 요청
+6. Codex가 Claude 변경사항 검수
+7. 사용자가 리뷰 결과 확인
+8. 필요한 경우에만 Codex에게 최소 수정 요청
+```
+
+핵심은 **Claude가 바로 작성하고, Codex는 먼저 검수만 수행**하는 것입니다.
+
+---
+
+## 4. Claude Code 실행 전 확인
+
+Claude에게 작업을 요청하기 전에 현재 프로젝트 루트로 이동합니다.
+
+```bash
+cd ~/SKN_project/WorkSpace
+```
+
+Claude Code 실행:
+
+```bash
+claude
+```
+
+---
+
+## 5. Claude Code에 넣을 기본 프롬프트
+
+아래 문장을 Claude Code 대화창에 붙여넣고, 마지막 `Task:` 아래에 실제 작업 내용을 작성합니다.
+
+```text
+Session label: claude-implementation-[task-name]-[date]
+
+Read AGENTS.md and AGENT_LOG.md first.
+
+You are the primary implementation agent for this project.
+
+Before modifying files:
+1. Create a full project snapshot according to AGENTS.md.
+2. Record the snapshot path in AGENT_LOG.md.
+3. Inspect relevant files.
+4. Summarize the implementation plan clearly.
+
+Then:
+- Implement only the requested task.
+- Keep modifications minimal and scoped.
+- Do not rewrite unrelated code.
+- Do not alter secrets/config files unless explicitly requested.
+
+After implementation:
+- Update AGENT_LOG.md.
+- Record files inspected.
+- Record files modified.
+- Record changes made.
+- Record remaining concerns.
+- Recommend next step for Codex review.
+
+Task:
+[여기에 실제 작업 내용 작성]
+```
+
+---
+
+## 6. Claude 작업 시 주의할 점
+
+Claude에게는 아래 원칙을 지키게 하는 것이 좋습니다.
+
+```text
+- 작업 전 스냅샷 생성
+- 수정 전 구현 계획 설명
+- 요청 범위 밖의 코드 수정 금지
+- .env, 비밀번호, API Key, 배포 설정 파일 임의 수정 금지
+- 작업 후 AGENT_LOG.md 업데이트
+```
+
+Git을 사용하지 않는 경우 스냅샷은 사실상 수동 버전관리 역할을 합니다.
+
+---
+
+## 7. Codex CLI 실행
+
+Claude 작업이 끝나면 같은 프로젝트 루트에서 Codex를 실행합니다.
+
+```bash
+cd ~/SKN_project/WorkSpace
+codex
+```
+
+기존 세션을 이어서 열고 싶으면:
+
+```bash
+codex resume --last
+```
+
+세션 목록에서 선택하고 싶으면:
+
+```bash
+codex resume
+```
+
+---
+
+## 8. Codex에 넣을 리뷰 프롬프트
+
+아래 문장을 Codex 대화창에 붙여넣습니다.
+
+```text
+Session label: codex-review-[task-name]-[date]
+
+Read AGENTS.md and AGENT_LOG.md first.
+
+You are the review and validation agent for this project.
+
+Your role:
+- Review Claude Code's latest implementation.
+- Validate correctness, safety, and maintainability.
+- Identify only meaningful issues.
+- Avoid unnecessary rewrites.
+
+Before reviewing:
+1. Read Claude's latest AGENT_LOG.md entry.
+2. Identify files modified by Claude.
+3. Inspect relevant files carefully.
+
+Review for:
+- Bugs
+- Logic errors
+- Runtime failures
+- Broken imports
+- Missing dependencies
+- Edge cases
+- Security concerns
+- Performance inefficiencies
+- Over-complex implementations
+- Impactful style inconsistencies
+
+Do not modify files yet.
+
+Report:
+1. Files reviewed
+2. Issues found
+3. Severity:
+   - High
+   - Medium
+   - Low
+4. Recommended fixes
+5. Whether direct code modification is recommended
+
+After review:
+- Update AGENT_LOG.md.
+- Record findings.
+- Record remaining concerns.
+- Recommend whether fix phase should proceed.
+```
+
+---
+
+## 9. Codex 리뷰 결과 해석
+
+Codex가 리뷰 결과를 주면 심각도를 기준으로 판단합니다.
+
+```text
+High   = 실행 실패, 보안 문제, 주요 로직 오류 등 반드시 수정 필요
+Medium = 엣지 케이스, 유지보수성, 성능 문제 등 수정 권장
+Low    = 스타일, 가독성, 선택적 개선 사항
+```
+
+처음에는 `High`와 `Medium` 위주로 수정하고, `Low`는 꼭 필요할 때만 반영하는 것이 안전합니다.
+
+---
+
+## 10. Codex에게 수정까지 맡길 때
+
+리뷰 결과를 확인한 뒤, 실제로 수정해도 된다고 판단되면 아래 프롬프트를 Codex에 입력합니다.
+
+```text
+Apply only the necessary fixes from your review.
+
+Do not rewrite unrelated code.
+
+After fixing:
+- Update AGENT_LOG.md.
+- Record files modified.
+- Record changes made.
+- Record remaining concerns.
+```
+
+이 프롬프트의 의미는 다음과 같습니다.
+
+```text
+리뷰에서 발견한 문제 중 꼭 필요한 수정만 적용해라.
+관련 없는 코드는 다시 작성하거나 리팩토링하지 마라.
+수정 후 AGENT_LOG.md에 수정 파일, 변경 내용, 남은 우려 사항을 기록해라.
+```
+
+---
+
+## 11. 스냅샷 복구 방법
+
+Claude 또는 Codex 작업 후 문제가 생기면 스냅샷에서 복구할 수 있습니다.
+
+예시:
+
+```bash
+cp -r ../snapshots/pre_claude_2026-05-26_1430 ./WorkSpace_recovered
+```
+
+또는 특정 파일만 복구할 수도 있습니다.
+
+```bash
+cp ../snapshots/pre_claude_2026-05-26_1430/path/to/file.py ./path/to/file.py
+```
+
+복구 전에는 현재 상태도 별도 백업하는 것이 안전합니다.
+
+---
+
+## 12. 추천 운영 방식
+
+처음에는 아래 흐름을 권장합니다.
+
+```text
+1. Claude에게 작은 단위 작업 요청
+2. Claude 완료 후 AGENT_LOG.md 확인
+3. Codex에게 리뷰만 요청
+4. Codex 리뷰 결과 확인
+5. 필요한 경우에만 Codex 수정 요청
+6. 실행 테스트
+```
+
+한 번에 큰 리팩토링을 맡기기보다 작은 작업 단위로 반복하는 것이 안정적입니다.
+
+---
+
+## 13. 자주 쓰는 명령어
+
+현재 위치 확인:
+
+```bash
+pwd
+```
+
+파일 목록 확인:
+
+```bash
+ls -al
+```
+
+스냅샷 폴더 확인:
+
+```bash
+ls -al ../snapshots
+```
+
+Codex 실행:
+
+```bash
+codex
+```
+
+Codex 최근 세션 재개:
+
+```bash
+codex resume --last
+```
+
+---
+
+## 14. 최종 권장 원칙
+
+```text
+Claude = 구현
+Codex = 검수
+사용자 = 승인 및 조율
+```
+
+가장 안전한 흐름은 다음과 같습니다.
+
+```text
+Claude 구현 → Codex 리뷰 → 사용자 확인 → Codex 최소 수정 → 실행 테스트
+```
+
+Git 없이 운영하는 경우에는 스냅샷과 AGENT_LOG.md가 핵심 안전장치입니다.
