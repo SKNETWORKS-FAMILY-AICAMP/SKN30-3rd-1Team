@@ -11,6 +11,7 @@ dependencies = [
     "google-generativeai",
     "pymysql",
     "chromadb",
+    "cryptography",
     "pydantic",
     "python-dotenv",
     "streamlit>=1.58.0",

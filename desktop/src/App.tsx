@@ -8,10 +8,12 @@ import {
   LayoutDashboard,
   Ellipsis,
   Lightbulb,
+  LogIn,
   MessageSquare,
   Minus,
   PanelLeft,
   Plus,
+  RefreshCcw,
   Square,
   X,
 } from "lucide-react";
@@ -85,6 +87,8 @@ type GitRepositoryInfo = {
   isDirty: boolean;
   remoteRepo?: string;
   issuePrStatus: string;
+  visibility?: "public" | "private";
+  authProvider?: "public" | "github_app";
 };
 
 type ProjectWorkspace = {
@@ -108,6 +112,33 @@ type DemoStatus = {
   ok: boolean;
   message: string;
   scope?: "github" | "overview";
+};
+
+type GithubAppSessionState = {
+  state: string;
+  installUrl: string;
+  status: "pending" | "connected";
+};
+
+type GithubAppSessionResponse = GithubAppSessionState & {
+  expiresIn?: number;
+};
+
+type GithubRepositoryPreviewResponse = {
+  events: GitHubTimelineEvent[];
+  repository: GitRepositoryInfo;
+};
+
+type GithubAvailableRepository = {
+  fullName: string;
+  name: string;
+  private: boolean;
+  defaultBranch: string;
+  url: string;
+};
+
+type GithubRepositoriesResponse = {
+  repositories: GithubAvailableRepository[];
 };
 
 type ActionMenuState =
@@ -171,6 +202,9 @@ const DEFAULT_ZOOM_SCALE = 1;
 const MIN_ZOOM_SCALE = 0.8;
 const MAX_ZOOM_SCALE = 1.6;
 const ZOOM_STEP = 0.1;
+const PAIM_API_BASE_URL = (
+  (import.meta.env.VITE_PAIM_API_BASE_URL as string | undefined) || "http://127.0.0.1:8000"
+).replace(/\/$/, "");
 const OVERVIEW_SUGGESTIONS = [
   "이번 주 액션 알려줘",
   "프로젝트 리스크 정리해줘",
@@ -507,6 +541,29 @@ async function fetchGithubJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function fetchPaimJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${PAIM_API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    const detail = typeof payload?.detail === "string" ? payload.detail : "PaiM API 요청 실패";
+
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function githubTimestamp(value: string | undefined) {
   const timestamp = value ? Date.parse(value) : NaN;
   return Number.isFinite(timestamp) ? timestamp : Date.now();
@@ -549,7 +606,40 @@ function createGithubEvents(
     .slice(0, 10);
 }
 
-async function fetchGithubRepository(rawUrl: string) {
+async function createGithubAppSession() {
+  return fetchPaimJson<GithubAppSessionResponse>("/github/app/sessions", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+async function fetchGithubAppSession(state: string) {
+  return fetchPaimJson<Pick<GithubAppSessionResponse, "state" | "status">>(
+    `/github/app/sessions/${encodeURIComponent(state)}`,
+  );
+}
+
+async function fetchGithubAppRepository(rawUrl: string, state: string) {
+  return fetchPaimJson<GithubRepositoryPreviewResponse>("/github/app/repository-preview", {
+    method: "POST",
+    body: JSON.stringify({
+      repository_url: rawUrl,
+      state,
+    }),
+  });
+}
+
+async function fetchGithubAppRepositories(state: string) {
+  return fetchPaimJson<GithubRepositoriesResponse>(
+    `/github/app/sessions/${encodeURIComponent(state)}/repositories`,
+  );
+}
+
+async function fetchGithubRepository(rawUrl: string, githubAppState?: string | null) {
+  if (githubAppState) {
+    return fetchGithubAppRepository(rawUrl, githubAppState);
+  }
+
   const parsedRepo = parseGithubRepositoryUrl(rawUrl);
 
   if (!parsedRepo) {
@@ -576,6 +666,8 @@ async function fetchGithubRepository(rawUrl: string) {
       isDirty: false,
       remoteRepo: repo.full_name,
       issuePrStatus: `${openIssues.length} open issues · ${pulls.length} open PRs`,
+      visibility: repo.private ? "private" as const : "public" as const,
+      authProvider: "public" as const,
     },
   };
 }
@@ -665,6 +757,21 @@ function getGithubEventMeta(event: GitHubTimelineEvent) {
   const status = event.status ? `${event.status} · ` : "";
 
   return `${eventLabel} · ${status}${formatRelativeAge(event.createdAt)}`;
+}
+
+function getGithubAuthLabel(session: GithubAppSessionState | null) {
+  if (!session) {
+    return "로그인 필요";
+  }
+
+  return session.status === "connected" ? "로그인됨" : "설치 확인 대기";
+}
+
+function getGithubRepoLabel(repository: GitRepositoryInfo) {
+  const visibility = repository.visibility === "private" ? "Private" : "Public";
+  const provider = repository.authProvider === "github_app" ? "GitHub App" : "Public API";
+
+  return `${visibility} · ${provider}`;
 }
 
 // 프로젝트 Overview의 PM 카드에는 아직 연결된 분석 결과 대신 현재 앱 상태를 담는다.
@@ -884,6 +991,11 @@ export function App() {
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
   const [githubConnectProjectId, setGithubConnectProjectId] = useState<string | null>(null);
   const [githubRepositoryUrl, setGithubRepositoryUrl] = useState("");
+  const [githubAppSessions, setGithubAppSessions] = useState<Record<string, GithubAppSessionState>>({});
+  const [githubRepositories, setGithubRepositories] = useState<Record<string, GithubAvailableRepository[]>>({});
+  const [isGithubAuthStarting, setIsGithubAuthStarting] = useState(false);
+  const [isGithubAuthChecking, setIsGithubAuthChecking] = useState(false);
+  const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -909,6 +1021,12 @@ export function App() {
     () => (selectedProject ? getProjectGithubEvents(selectedProject) : []),
     [selectedProject],
   );
+  const selectedProjectGithubSession = selectedProject
+    ? githubAppSessions[selectedProject.id] ?? null
+    : null;
+  const selectedProjectGithubRepositories = selectedProject
+    ? githubRepositories[selectedProject.id] ?? []
+    : [];
   const overviewMemoryCards = useMemo(
     () =>
       selectedProject
@@ -1392,21 +1510,154 @@ export function App() {
     }));
   }
 
-  async function handleConnectGithub(projectId: string) {
-    setSelectedProjectId(projectId);
-    setSelectedSessionId(null);
-    setGithubConnectProjectId(projectId);
-    setGithubRepositoryUrl("");
-  }
-
-  async function handleSubmitGithubConnection(event: FormEvent<HTMLFormElement>, projectId: string) {
-    event.preventDefault();
-    const repositoryUrl = githubRepositoryUrl.trim();
-
-    if (!repositoryUrl || isGithubConnecting) {
+  async function handleStartGithubLogin(projectId: string) {
+    if (isGithubAuthStarting) {
       return;
     }
 
+    setSelectedProjectId(projectId);
+    setSelectedSessionId(null);
+    setGithubConnectProjectId(projectId);
+    setIsGithubAuthStarting(true);
+    setDemoStatus({
+      ok: true,
+      message: "GitHub 로그인 준비 중...",
+      scope: "github",
+    });
+
+    try {
+      const session = await createGithubAppSession();
+
+      setGithubAppSessions((currentSessions) => ({
+        ...currentSessions,
+        [projectId]: session,
+      }));
+      window.open(session.installUrl, "_blank", "noopener,noreferrer");
+      setDemoStatus({
+        ok: true,
+        message: "GitHub 설치 화면을 열었습니다",
+        scope: "github",
+      });
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "GitHub App 로그인을 시작할 수 없습니다"),
+        scope: "github",
+      });
+    } finally {
+      setIsGithubAuthStarting(false);
+    }
+  }
+
+  async function handleCheckGithubLogin(projectId: string) {
+    const session = githubAppSessions[projectId];
+
+    if (!session || isGithubAuthChecking) {
+      return;
+    }
+
+    setIsGithubAuthChecking(true);
+
+    try {
+      const nextSession = await fetchGithubAppSession(session.state);
+
+      setGithubAppSessions((currentSessions) => ({
+        ...currentSessions,
+        [projectId]: {
+          ...session,
+          status: nextSession.status,
+        },
+      }));
+      if (nextSession.status === "connected") {
+        setGithubRepositories((currentRepositories) => ({
+          ...currentRepositories,
+          [projectId]: currentRepositories[projectId] ?? [],
+        }));
+      }
+      setDemoStatus({
+        ok: nextSession.status === "connected",
+        message:
+          nextSession.status === "connected"
+            ? "GitHub 로그인이 확인되었습니다"
+            : "아직 GitHub 설치가 완료되지 않았습니다",
+        scope: "github",
+      });
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "GitHub 로그인 상태를 확인할 수 없습니다"),
+        scope: "github",
+      });
+    } finally {
+      setIsGithubAuthChecking(false);
+    }
+  }
+
+  function handleResetGithubLogin(projectId: string) {
+    setGithubAppSessions((currentSessions) => {
+      const nextSessions = { ...currentSessions };
+      delete nextSessions[projectId];
+      return nextSessions;
+    });
+    setGithubRepositories((currentRepositories) => {
+      const nextRepositories = { ...currentRepositories };
+      delete nextRepositories[projectId];
+      return nextRepositories;
+    });
+    setDemoStatus({
+      ok: true,
+      message: "GitHub 로그인을 해제했습니다",
+      scope: "github",
+    });
+  }
+
+  async function handleLoadGithubRepositories(projectId: string) {
+    const session = githubAppSessions[projectId];
+
+    if (!session || session.status !== "connected" || isGithubRepoLoading) {
+      return;
+    }
+
+    setIsGithubRepoLoading(true);
+
+    try {
+      const response = await fetchGithubAppRepositories(session.state);
+
+      setGithubRepositories((currentRepositories) => ({
+        ...currentRepositories,
+        [projectId]: response.repositories,
+      }));
+      setDemoStatus({
+        ok: true,
+        message: `${response.repositories.length}개 repo를 불러왔습니다`,
+        scope: "github",
+      });
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "GitHub repo 목록을 불러올 수 없습니다"),
+        scope: "github",
+      });
+    } finally {
+      setIsGithubRepoLoading(false);
+    }
+  }
+
+  async function connectGithubRepository(projectId: string, repositoryUrl: string) {
+    const trimmedRepositoryUrl = repositoryUrl.trim();
+    const githubAppState =
+      githubAppSessions[projectId]?.status === "connected"
+        ? githubAppSessions[projectId].state
+        : null;
+
+    if (!trimmedRepositoryUrl || isGithubConnecting) {
+      return;
+    }
+
+    setSelectedProjectId(projectId);
+    setSelectedSessionId(null);
+    setGithubConnectProjectId(projectId);
+    setGithubRepositoryUrl(trimmedRepositoryUrl);
     setIsGithubConnecting(true);
     setDemoStatus({
       ok: true,
@@ -1415,7 +1666,10 @@ export function App() {
     });
 
     try {
-      const { events, repository } = await fetchGithubRepository(repositoryUrl);
+      const { events, repository } = await fetchGithubRepository(
+        trimmedRepositoryUrl,
+        githubAppState,
+      );
 
       updateProject(projectId, (project) => ({
         ...project,
@@ -1429,15 +1683,23 @@ export function App() {
         scope: "github",
       });
       setGithubConnectProjectId(null);
-    } catch {
+      setGithubRepositoryUrl("");
+    } catch (error) {
       setDemoStatus({
         ok: false,
-        message: "GitHub repo를 연결할 수 없습니다",
+        message: getErrorMessage(error, "GitHub repo를 연결할 수 없습니다"),
         scope: "github",
       });
     } finally {
       setIsGithubConnecting(false);
     }
+  }
+
+  async function handleSubmitGithubConnection(event: FormEvent<HTMLFormElement>, projectId: string) {
+    event.preventDefault();
+    const repositoryUrl = githubRepositoryUrl.trim();
+
+    await connectGithubRepository(projectId, repositoryUrl);
   }
 
   function handleDisconnectGithub(projectId: string) {
@@ -2305,7 +2567,15 @@ export function App() {
                 </section>
 
                 <section className="overview-panel" aria-label="GitHub 타임라인">
-                  <h2>GITHUB TIMELINE</h2>
+                  <div className="overview-github-header">
+                    <h2>GITHUB</h2>
+                    <span
+                      className="overview-github-state"
+                      data-state={selectedProject.githubRepository ? "connected" : "empty"}
+                    >
+                      {selectedProject.githubRepository ? "Repo 연결됨" : "Repo 미연결"}
+                    </span>
+                  </div>
                   {demoStatus?.scope === "github" ? (
                     <p
                       className="runtime-status overview-github-status"
@@ -2316,18 +2586,107 @@ export function App() {
                       {demoStatus.message}
                     </p>
                   ) : null}
+
+                  <div className="overview-github-controls">
+                    <div className="overview-github-action-row">
+                      <div>
+                        <small>LOGIN</small>
+                        <p>{getGithubAuthLabel(selectedProjectGithubSession)}</p>
+                      </div>
+                      <div className="overview-github-button-row">
+                        <button
+                          disabled={isGithubAuthStarting}
+                          onClick={() => void handleStartGithubLogin(selectedProject.id)}
+                          type="button"
+                        >
+                          <LogIn size={14} />
+                          <span>{isGithubAuthStarting ? "여는 중..." : "GitHub 로그인"}</span>
+                        </button>
+                        {selectedProjectGithubSession?.status === "pending" ? (
+                          <button
+                            disabled={isGithubAuthChecking}
+                            onClick={() => void handleCheckGithubLogin(selectedProject.id)}
+                            type="button"
+                          >
+                            <RefreshCcw size={14} />
+                            <span>{isGithubAuthChecking ? "확인 중..." : "설치 확인"}</span>
+                          </button>
+                        ) : null}
+                        {selectedProjectGithubSession?.status === "connected" ? (
+                          <button
+                            disabled={isGithubRepoLoading}
+                            onClick={() => void handleLoadGithubRepositories(selectedProject.id)}
+                            type="button"
+                          >
+                            <RefreshCcw size={14} />
+                            <span>{isGithubRepoLoading ? "불러오는 중..." : "Repo 목록"}</span>
+                          </button>
+                        ) : null}
+                        {selectedProjectGithubSession ? (
+                          <button
+                            onClick={() => handleResetGithubLogin(selectedProject.id)}
+                            type="button"
+                          >
+                            <X size={14} />
+                            <span>로그인 해제</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <form
+                      className="overview-github-connect-form"
+                      onSubmit={(event) => void handleSubmitGithubConnection(event, selectedProject.id)}
+                    >
+                      <input
+                        aria-label="GitHub repository URL"
+                        onChange={(event) => {
+                          setGithubConnectProjectId(selectedProject.id);
+                          setGithubRepositoryUrl(event.target.value);
+                        }}
+                        onFocus={() => setGithubConnectProjectId(selectedProject.id)}
+                        placeholder="https://github.com/org/repo"
+                        type="url"
+                        value={githubConnectProjectId === selectedProject.id ? githubRepositoryUrl : ""}
+                      />
+                      <button disabled={isGithubConnecting} type="submit">
+                        <LogIn size={14} />
+                        <span>{isGithubConnecting ? "연결 중..." : "Repo 연결"}</span>
+                      </button>
+                    </form>
+
+                    {selectedProjectGithubRepositories.length > 0 ? (
+                      <div className="overview-github-repo-list" aria-label="접근 가능한 GitHub repo">
+                        {selectedProjectGithubRepositories.map((repository) => (
+                          <button
+                            key={repository.fullName}
+                            onClick={() => void connectGithubRepository(selectedProject.id, repository.url)}
+                            type="button"
+                          >
+                            <span>{repository.fullName}</span>
+                            <small>
+                              {repository.private ? "Private" : "Public"} ·{" "}
+                              {repository.defaultBranch}
+                            </small>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
                   {selectedProject.githubRepository ? (
                     <div className="overview-github-meta-row">
-                      <p className="overview-github-meta">
-                        {selectedProject.githubRepository.name} ·{" "}
-                        {selectedProject.githubRepository.branch} ·{" "}
-                        {selectedProject.githubRepository.isDirty ? "변경 있음" : "clean"}
-                        {selectedProject.githubRepository.remoteRepo
-                          ? ` · ${selectedProject.githubRepository.remoteRepo}`
-                          : ""}
-                        {" · "}
-                        {selectedProject.githubRepository.issuePrStatus}
-                      </p>
+                      <div>
+                        <p className="overview-github-repo-name">
+                          {selectedProject.githubRepository.remoteRepo ??
+                            selectedProject.githubRepository.name}
+                        </p>
+                        <p className="overview-github-meta">
+                          {selectedProject.githubRepository.branch} ·{" "}
+                          {getGithubRepoLabel(selectedProject.githubRepository)} ·{" "}
+                          {selectedProject.githubRepository.issuePrStatus}
+                        </p>
+                      </div>
                       <button
                         className="overview-github-disconnect-button"
                         onClick={() => handleDisconnectGithub(selectedProject.id)}
@@ -2360,31 +2719,7 @@ export function App() {
                   ) : (
                     <div className="overview-github-empty">
                       <TablerIcon svg={tablerAlertCircle} />
-                      <p>GitHub 연동이 필요합니다.</p>
-                      {githubConnectProjectId === selectedProject.id ? (
-                        <form
-                          className="overview-github-connect-form"
-                          onSubmit={(event) => void handleSubmitGithubConnection(event, selectedProject.id)}
-                        >
-                          <input
-                            aria-label="GitHub repository URL"
-                            onChange={(event) => setGithubRepositoryUrl(event.target.value)}
-                            placeholder="https://github.com/org/repo"
-                            type="url"
-                            value={githubRepositoryUrl}
-                          />
-                          <button disabled={isGithubConnecting} type="submit">
-                            {isGithubConnecting ? "연결 중..." : "연결"}
-                          </button>
-                        </form>
-                      ) : (
-                        <button
-                          onClick={() => void handleConnectGithub(selectedProject.id)}
-                          type="button"
-                        >
-                          GitHub 연동
-                        </button>
-                      )}
+                      <p>Repo URL을 입력하면 public repo는 바로 연결됩니다.</p>
                     </div>
                   )}
                 </section>

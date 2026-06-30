@@ -1769,7 +1769,7 @@ async function verifyProjectOverviewFiles(send) {
   return { value, failures };
 }
 
-// GitHub 연동 전에는 버튼을, 연동 데이터가 있으면 issue/PR/commit을 보여준다.
+// GitHub 섹션은 로그인, repo 입력, 연결 상태, timeline을 한 패널에서 보여준다.
 async function verifyGithubTimelineState(send) {
   const now = Date.now();
   const unlinkedState = createProjectStorage(
@@ -1836,15 +1836,15 @@ async function verifyGithubTimelineState(send) {
   const unlinkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
-      hasConnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-empty button')).find((button) => button.textContent.includes('GitHub 연동'))),
+      authText: document.querySelector('.overview-github-action-row p')?.textContent.trim() || "",
+      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
+      hasLoginButton: Boolean(Array.from(document.querySelectorAll('.overview-github-button-row button')).find((button) => button.textContent.includes('GitHub 로그인'))),
+      hasUrlInput: Boolean(document.querySelector('.overview-github-connect-form input')),
+      hasRepoConnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connect-form button')).find((button) => button.textContent.includes('Repo 연결'))),
+      hasDisconnectButton: Boolean(document.querySelector('.overview-github-disconnect-button')),
       hasTimelineRows: Boolean(document.querySelector('.overview-timeline-row')),
     }))()`,
   });
-
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.overview-github-empty button')?.click()`,
-  });
-  await sleep(100);
 
   const connectClickResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -1898,6 +1898,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => ({
       titles: Array.from(document.querySelectorAll('.overview-timeline-row p')).map((item) => item.textContent.trim()),
       meta: Array.from(document.querySelectorAll('.overview-timeline-row small')).map((item) => item.textContent.trim()),
+      repoName: document.querySelector('.overview-github-repo-name')?.textContent.trim() || "",
       repoMeta: document.querySelector('.overview-github-meta')?.textContent.trim() || "",
       visibleIconCount: Array.from(document.querySelectorAll('.overview-timeline-icon .tabler-icon')).filter((item) => {
         const rect = item.getBoundingClientRect();
@@ -1906,7 +1907,7 @@ async function verifyGithubTimelineState(send) {
       boxedIconCount: Array.from(document.querySelectorAll('.overview-timeline-icon .tabler-icon')).filter((item) => (
         getComputedStyle(item).backgroundColor !== 'rgba(0, 0, 0, 0)'
       )).length,
-      hasConnectButton: Boolean(document.querySelector('.overview-github-empty button')),
+      hasDisconnectButton: Boolean(document.querySelector('.overview-github-disconnect-button')),
     }))()`,
   });
 
@@ -1918,8 +1919,14 @@ async function verifyGithubTimelineState(send) {
   };
   const failures = [];
 
-  if (!value.unlinked.hasConnectButton || value.unlinked.hasTimelineRows) {
-    failures.push("unlinked GitHub timeline should show only a connect button");
+  if (value.unlinked.authText !== "로그인 필요" ||
+      value.unlinked.stateText !== "Repo 미연결" ||
+      !value.unlinked.hasLoginButton ||
+      !value.unlinked.hasUrlInput ||
+      !value.unlinked.hasRepoConnectButton ||
+      value.unlinked.hasDisconnectButton ||
+      value.unlinked.hasTimelineRows) {
+    failures.push("unlinked GitHub panel should show login and repo URL controls only");
   }
 
   if (!value.connectForm.hasUrlInput || value.connectForm.urlValue !== "" ||
@@ -1929,7 +1936,7 @@ async function verifyGithubTimelineState(send) {
 
   if (!value.invalidSubmit.githubPanelHasStatus ||
       value.invalidSubmit.githubStatusOk !== "false" ||
-      !value.invalidSubmit.githubStatusText.includes("GitHub repo를 연결할 수 없습니다") ||
+      !value.invalidSubmit.githubStatusText.includes("GitHub repository URL") ||
       value.invalidSubmit.sidebarHasRuntimeStatus ||
       value.invalidSubmit.runtimeStatusCount !== 1) {
     failures.push("GitHub connection failure status should render inside the GitHub panel only");
@@ -1939,7 +1946,7 @@ async function verifyGithubTimelineState(send) {
     failures.push("GitHub connection failure status should keep the shake animation");
   }
 
-  if (value.linked.hasConnectButton ||
+  if (!value.linked.hasDisconnectButton ||
       !value.linked.titles.includes("PR #18 프로젝트 Overview 연결") ||
       !value.linked.titles.includes("issue #21 파일 목록 스크롤") ||
       !value.linked.titles.includes("feat: project file management")) {
@@ -1960,9 +1967,10 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline icons should not render boxed backgrounds");
   }
 
-  if (!value.linked.repoMeta.includes("stampy") ||
+  if (!value.linked.repoName.includes("j3s30p/Stampy") ||
       !value.linked.repoMeta.includes("main") ||
-      !value.linked.repoMeta.includes("j3s30p/Stampy") ||
+      !value.linked.repoMeta.includes("Public") ||
+      !value.linked.repoMeta.includes("Public API") ||
       !value.linked.repoMeta.includes("GitHub issue/PR 연동됨")) {
     failures.push("linked GitHub timeline should show repository metadata");
   }

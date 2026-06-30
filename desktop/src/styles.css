@@ -1017,10 +1017,104 @@ button {
   margin-bottom: 12px;
 }
 
+.overview-github-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.overview-github-header h2 {
+  margin-bottom: 0;
+}
+
+.overview-github-state {
+  flex: 0 0 auto;
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.overview-github-state[data-state="connected"] {
+  border-color: color-mix(in srgb, var(--accent-green) 34%, var(--border));
+  color: color-mix(in srgb, var(--accent-green) 76%, var(--text));
+}
+
 .overview-github-status {
   flex: 0 0 auto;
   margin-top: -4px;
   margin-bottom: 12px;
+}
+
+.overview-github-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.overview-github-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overview-github-action-row small {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.overview-github-action-row p,
+.overview-github-repo-name {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.overview-github-button-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.overview-github-button-row button,
+.overview-github-connect-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.overview-github-button-row button:hover,
+.overview-github-connect-form button:hover {
+  background: var(--surface-strong);
+}
+
+.overview-github-button-row button:disabled,
+.overview-github-connect-form button:disabled {
+  color: var(--faint);
+  cursor: progress;
 }
 
 .overview-github-meta-row {
@@ -1033,7 +1127,7 @@ button {
 
 .overview-github-meta {
   min-width: 0;
-  margin: 0;
+  margin: 3px 0 0;
   color: var(--faint);
   font-size: 10px;
   font-weight: 700;
@@ -1202,6 +1296,47 @@ button {
 
 .overview-github-connect-form input::placeholder {
   color: var(--faint);
+}
+
+.overview-github-repo-list {
+  display: grid;
+  gap: 6px;
+  max-height: 118px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.overview-github-repo-list button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.overview-github-repo-list button:hover {
+  background: var(--surface-hover);
+}
+
+.overview-github-repo-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.overview-github-repo-list small {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
 }
 
 .overview-timeline-row {

@@ -2028,6 +2028,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "chromadb" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-generativeai" },
     { name = "openai" },
@@ -2050,6 +2051,7 @@ dev = [
 requires-dist = [
     { name = "anthropic" },
     { name = "chromadb" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-generativeai" },
     { name = "openai" },
