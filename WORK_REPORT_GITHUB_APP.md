@@ -30,5 +30,7 @@
 - `uv run pytest`
 - `cargo test`
 
-## 남은 설정
-- 실제 private repo 연결 테스트에는 `.env`의 `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` 설정이 필요
+## 남은 서버 설정
+- `.env`의 `GITHUB_APP_SLUG`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`는 사용자가 입력하는 값이 아님
+- 위 값들은 PaiM 서버 운영자가 GitHub App을 만들고 AWS/서버 환경변수로 한 번만 설정
+- 사용자는 데스크톱 앱에서 `GitHub 로그인`을 누른 뒤 GitHub 화면에서 repo 접근을 승인
