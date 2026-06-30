@@ -93,7 +93,7 @@ type GitRepositoryInfo = {
   remoteRepo?: string;
   issuePrStatus: string;
   visibility?: "public" | "private";
-  authProvider?: "public" | "github_app";
+  authProvider?: "public" | "github_oauth";
 };
 
 type ProjectWorkspace = {
@@ -119,19 +119,31 @@ type DemoStatus = {
   scope?: "github" | "overview";
 };
 
-type GithubAppSessionState = {
-  state: string;
-  installUrl: string;
+type GithubLoginSessionState = {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  interval: number;
   status: "pending" | "connected";
+  accessToken?: string;
+  scope?: string;
+  tokenType?: string;
 };
 
-type GithubAppSessionResponse = GithubAppSessionState & {
-  expiresIn?: number;
+type GithubDeviceCodeResponse = {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
 };
 
-type GithubRepositoryPreviewResponse = {
-  events: GitHubTimelineEvent[];
-  repository: GitRepositoryInfo;
+type GithubAccessTokenResponse = {
+  access_token?: string;
+  token_type?: string;
+  scope?: string;
+  error?: string;
+  error_description?: string;
 };
 
 type GithubAvailableRepository = {
@@ -162,6 +174,10 @@ type GitHubRepoApiResponse = {
   html_url: string;
   name: string;
   private: boolean;
+};
+
+type GitHubUserRepoApiResponse = GitHubRepoApiResponse & {
+  updated_at?: string;
 };
 
 type GitHubCommitApiResponse = {
@@ -212,6 +228,13 @@ const ZOOM_STEP = 0.1;
 const PAIM_API_BASE_URL = (
   (import.meta.env.VITE_PAIM_API_BASE_URL as string | undefined) || "http://127.0.0.1:8000"
 ).replace(/\/$/, "");
+const GITHUB_CLIENT_ID = (
+  (import.meta.env.VITE_GITHUB_CLIENT_ID as string | undefined) ||
+  (import.meta.env.VITE_GITHUB_APP_CLIENT_ID as string | undefined) ||
+  ""
+).trim();
+const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
+const GITHUB_LOGIN_SCOPE = "repo read:user";
 const OVERVIEW_SUGGESTIONS = [
   "이번 주 액션 알려줘",
   "프로젝트 리스크 정리해줘",
@@ -536,18 +559,6 @@ function parseGithubRepositoryUrl(rawUrl: string) {
   }
 }
 
-async function fetchGithubJson<T>(path: string): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 async function fetchPaimJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${PAIM_API_BASE_URL}${path}`, {
     ...init,
@@ -613,40 +624,111 @@ function createGithubEvents(
     .slice(0, 10);
 }
 
-async function createGithubAppSession() {
-  return fetchPaimJson<GithubAppSessionResponse>("/github/app/sessions", {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-}
+async function createGithubDeviceCode() {
+  const clientId = getGithubClientId();
 
-async function fetchGithubAppSession(state: string) {
-  return fetchPaimJson<Pick<GithubAppSessionResponse, "state" | "status">>(
-    `/github/app/sessions/${encodeURIComponent(state)}`,
-  );
-}
-
-async function fetchGithubAppRepository(rawUrl: string, state: string) {
-  return fetchPaimJson<GithubRepositoryPreviewResponse>("/github/app/repository-preview", {
-    method: "POST",
-    body: JSON.stringify({
-      repository_url: rawUrl,
-      state,
-    }),
-  });
-}
-
-async function fetchGithubAppRepositories(state: string) {
-  return fetchPaimJson<GithubRepositoriesResponse>(
-    `/github/app/sessions/${encodeURIComponent(state)}/repositories`,
-  );
-}
-
-async function fetchGithubRepository(rawUrl: string, githubAppState?: string | null) {
-  if (githubAppState) {
-    return fetchGithubAppRepository(rawUrl, githubAppState);
+  if (!clientId) {
+    throw new Error("VITE_GITHUB_CLIENT_ID가 설정되어 있지 않습니다");
   }
 
+  if (!canUseTauriDialog()) {
+    return postGithubOAuthForm<GithubDeviceCodeResponse>(
+      "https://github.com/login/device/code",
+      {
+        client_id: clientId,
+        scope: GITHUB_LOGIN_SCOPE,
+      },
+    );
+  }
+
+  return invoke<GithubDeviceCodeResponse>("github_oauth_device_code", {
+    clientId,
+    scope: GITHUB_LOGIN_SCOPE,
+  });
+}
+
+async function fetchGithubAccessToken(deviceCode: string) {
+  const clientId = getGithubClientId();
+
+  if (!clientId) {
+    throw new Error("VITE_GITHUB_CLIENT_ID가 설정되어 있지 않습니다");
+  }
+
+  if (!canUseTauriDialog()) {
+    return postGithubOAuthForm<GithubAccessTokenResponse>(
+      "https://github.com/login/oauth/access_token",
+      {
+        client_id: clientId,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      },
+    );
+  }
+
+  return invoke<GithubAccessTokenResponse>("github_oauth_access_token", {
+    clientId,
+    deviceCode,
+  });
+}
+
+function getGithubClientId() {
+  return GITHUB_CLIENT_ID || localStorage.getItem(GITHUB_CLIENT_ID_STORAGE_KEY)?.trim() || "";
+}
+
+async function postGithubOAuthForm<T>(url: string, params: Record<string, string>) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(params),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub OAuth ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+function getGithubHeaders(accessToken?: string | null) {
+  return {
+    Accept: "application/vnd.github+json",
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+  };
+}
+
+async function fetchGithubJson<T>(path: string, accessToken?: string | null): Promise<T> {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: getGithubHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub API ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function fetchGithubRepositories(accessToken: string) {
+  const repositories = await fetchGithubJson<GitHubUserRepoApiResponse[]>(
+    "/user/repos?affiliation=owner,collaborator,organization_member&sort=updated&per_page=100",
+    accessToken,
+  );
+
+  return {
+    repositories: repositories.map((repository) => ({
+      fullName: repository.full_name,
+      name: repository.name,
+      private: repository.private,
+      defaultBranch: repository.default_branch,
+      url: repository.html_url,
+    })),
+  };
+}
+
+async function fetchGithubRepository(rawUrl: string, accessToken?: string | null) {
   const parsedRepo = parseGithubRepositoryUrl(rawUrl);
 
   if (!parsedRepo) {
@@ -654,13 +736,20 @@ async function fetchGithubRepository(rawUrl: string, githubAppState?: string | n
   }
 
   const repoPath = `/repos/${parsedRepo.owner}/${parsedRepo.repo}`;
-  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath);
+  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath, accessToken);
   const [commits, issues, pulls] = await Promise.all([
     fetchGithubJson<GitHubCommitApiResponse[]>(
       `${repoPath}/commits?sha=${encodeURIComponent(repo.default_branch)}&per_page=6`,
+      accessToken,
     ),
-    fetchGithubJson<GitHubIssueApiResponse[]>(`${repoPath}/issues?state=open&per_page=6`),
-    fetchGithubJson<GitHubPullApiResponse[]>(`${repoPath}/pulls?state=open&per_page=6`),
+    fetchGithubJson<GitHubIssueApiResponse[]>(
+      `${repoPath}/issues?state=open&per_page=6`,
+      accessToken,
+    ),
+    fetchGithubJson<GitHubPullApiResponse[]>(
+      `${repoPath}/pulls?state=open&per_page=6`,
+      accessToken,
+    ),
   ]);
   const openIssues = issues.filter((issue) => !issue.pull_request);
 
@@ -674,7 +763,7 @@ async function fetchGithubRepository(rawUrl: string, githubAppState?: string | n
       remoteRepo: repo.full_name,
       issuePrStatus: `${openIssues.length} open issues · ${pulls.length} open PRs`,
       visibility: repo.private ? "private" as const : "public" as const,
-      authProvider: "public" as const,
+      authProvider: accessToken ? "github_oauth" as const : "public" as const,
     },
   };
 }
@@ -783,22 +872,17 @@ function getGithubAvailableRepositoryVisibility(repository: GithubAvailableRepos
   return repository.private ? "PRIVATE" : "PUBLIC";
 }
 
-// 연결된 repo를 동기화할 때는 저장된 GitHub URL을 우선 재사용한다.
-function getConnectedGithubRepositoryUrl(repository: GitRepositoryInfo) {
-  return repository.path || `https://github.com/${repository.remoteRepo ?? repository.name}`;
-}
-
 function getGithubLoginErrorMessage(error: unknown) {
-  const message = getErrorMessage(error, "GitHub App 로그인을 시작할 수 없습니다");
+  const message = getErrorMessage(error, "GitHub 로그인을 시작할 수 없습니다");
 
   return /failed to fetch|load failed/i.test(message)
-    ? "PaiM API 서버에 연결할 수 없습니다. 서버를 실행한 뒤 다시 시도하세요."
+    ? "GitHub 로그인 서버에 연결할 수 없습니다. 네트워크를 확인해 주세요."
     : message;
 }
 
 function getGithubRepoLabel(repository: GitRepositoryInfo) {
   const visibility = repository.visibility === "private" ? "Private" : "Public";
-  const provider = repository.authProvider === "github_app" ? "GitHub App" : "Public API";
+  const provider = repository.authProvider === "github_oauth" ? "GitHub Login" : "Public API";
 
   return `${visibility} · ${provider}`;
 }
@@ -1018,13 +1102,14 @@ export function App() {
   const [openActionMenu, setOpenActionMenu] = useState<ActionMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
-  const [githubAppSessions, setGithubAppSessions] = useState<Record<string, GithubAppSessionState>>({});
+  const [githubLoginSessions, setGithubLoginSessions] = useState<Record<string, GithubLoginSessionState>>({});
   const [githubRepositories, setGithubRepositories] = useState<Record<string, GithubAvailableRepository[]>>({});
   const [githubRepositoryQuery, setGithubRepositoryQuery] = useState("");
   const [isGithubAuthStarting, setIsGithubAuthStarting] = useState(false);
   const [isGithubAuthChecking, setIsGithubAuthChecking] = useState(false);
   const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
+  const [isGithubSyncing, setIsGithubSyncing] = useState(false);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const projectCreateRef = useRef<HTMLDivElement | null>(null);
@@ -1050,7 +1135,7 @@ export function App() {
     [selectedProject],
   );
   const selectedProjectGithubSession = selectedProject
-    ? githubAppSessions[selectedProject.id] ?? null
+    ? githubLoginSessions[selectedProject.id] ?? null
     : null;
   const selectedProjectGithubRepositories = selectedProject
     ? githubRepositories[selectedProject.id] ?? []
@@ -1572,16 +1657,23 @@ export function App() {
     });
 
     try {
-      const session = await createGithubAppSession();
+      const deviceCode = await createGithubDeviceCode();
+      const session: GithubLoginSessionState = {
+        deviceCode: deviceCode.device_code,
+        userCode: deviceCode.user_code,
+        verificationUri: deviceCode.verification_uri,
+        interval: deviceCode.interval,
+        status: "pending",
+      };
 
-      setGithubAppSessions((currentSessions) => ({
+      setGithubLoginSessions((currentSessions) => ({
         ...currentSessions,
         [projectId]: session,
       }));
-      window.open(session.installUrl, "_blank", "noopener,noreferrer");
+      window.open(session.verificationUri, "_blank", "noopener,noreferrer");
       setDemoStatus({
         ok: true,
-        message: "GitHub 설치 화면을 열었습니다",
+        message: `GitHub 인증 화면을 열었습니다. 코드: ${session.userCode}`,
         scope: "github",
       });
     } catch (error) {
@@ -1596,7 +1688,7 @@ export function App() {
   }
 
   async function handleCheckGithubLogin(projectId: string) {
-    const session = githubAppSessions[projectId];
+    const session = githubLoginSessions[projectId];
 
     if (!session || isGithubAuthChecking) {
       return;
@@ -1605,43 +1697,41 @@ export function App() {
     setIsGithubAuthChecking(true);
 
     try {
-      const nextSession = await fetchGithubAppSession(session.state);
+      const tokenResponse = await fetchGithubAccessToken(session.deviceCode);
 
-      setGithubAppSessions((currentSessions) => ({
-        ...currentSessions,
-        [projectId]: {
-          ...session,
-          status: nextSession.status,
-        },
-      }));
-      if (nextSession.status === "connected") {
-        try {
-          const repositories = await fetchGithubAppRepositories(session.state);
+      if (!tokenResponse.access_token) {
+        const isPending = tokenResponse.error === "authorization_pending";
 
-          setGithubRepositories((currentRepositories) => ({
-            ...currentRepositories,
-            [projectId]: repositories.repositories,
-          }));
-          setDemoStatus({
-            ok: true,
-            message: `${repositories.repositories.length}개 repo를 불러왔습니다`,
-            scope: "github",
-          });
-        } catch (error) {
-          setDemoStatus({
-            ok: false,
-            message: getErrorMessage(
-              error,
-              "GitHub 로그인은 확인됐지만 repo 목록을 불러올 수 없습니다",
-            ),
-            scope: "github",
-          });
-        }
+        setDemoStatus({
+          ok: false,
+          message: isPending
+            ? "아직 GitHub 인증이 완료되지 않았습니다"
+            : tokenResponse.error_description ?? "GitHub 인증을 완료할 수 없습니다",
+          scope: "github",
+        });
         return;
       }
+
+      const nextSession: GithubLoginSessionState = {
+        ...session,
+        accessToken: tokenResponse.access_token,
+        scope: tokenResponse.scope,
+        tokenType: tokenResponse.token_type,
+        status: "connected",
+      };
+      const repositories = await fetchGithubRepositories(tokenResponse.access_token);
+
+      setGithubLoginSessions((currentSessions) => ({
+        ...currentSessions,
+        [projectId]: nextSession,
+      }));
+      setGithubRepositories((currentRepositories) => ({
+        ...currentRepositories,
+        [projectId]: repositories.repositories,
+      }));
       setDemoStatus({
-        ok: false,
-        message: "아직 GitHub 설치가 완료되지 않았습니다",
+        ok: true,
+        message: `${repositories.repositories.length}개 repo를 불러왔습니다`,
         scope: "github",
       });
     } catch (error) {
@@ -1656,7 +1746,7 @@ export function App() {
   }
 
   function handleResetGithubLogin(projectId: string) {
-    setGithubAppSessions((currentSessions) => {
+    setGithubLoginSessions((currentSessions) => {
       const nextSessions = { ...currentSessions };
       delete nextSessions[projectId];
       return nextSessions;
@@ -1675,16 +1765,16 @@ export function App() {
   }
 
   async function handleLoadGithubRepositories(projectId: string) {
-    const session = githubAppSessions[projectId];
+    const session = githubLoginSessions[projectId];
 
-    if (!session || session.status !== "connected" || isGithubRepoLoading) {
+    if (!session?.accessToken || isGithubRepoLoading) {
       return;
     }
 
     setIsGithubRepoLoading(true);
 
     try {
-      const response = await fetchGithubAppRepositories(session.state);
+      const response = await fetchGithubRepositories(session.accessToken);
 
       setGithubRepositories((currentRepositories) => ({
         ...currentRepositories,
@@ -1708,10 +1798,7 @@ export function App() {
 
   async function connectGithubRepository(projectId: string, repositoryUrl: string) {
     const trimmedRepositoryUrl = repositoryUrl.trim();
-    const githubAppState =
-      githubAppSessions[projectId]?.status === "connected"
-        ? githubAppSessions[projectId].state
-        : null;
+    const accessToken = githubLoginSessions[projectId]?.accessToken ?? null;
 
     if (!trimmedRepositoryUrl || isGithubConnecting) {
       return;
@@ -1729,7 +1816,7 @@ export function App() {
     try {
       const { events, repository } = await fetchGithubRepository(
         trimmedRepositoryUrl,
-        githubAppState,
+        accessToken,
       );
 
       updateProject(projectId, (project) => ({
@@ -1752,6 +1839,46 @@ export function App() {
       });
     } finally {
       setIsGithubConnecting(false);
+    }
+  }
+
+  async function handleSyncGithubRepository(projectId: string) {
+    const project = projects.find((currentProject) => currentProject.id === projectId);
+
+    if (!project?.githubRepository || isGithubSyncing) {
+      return;
+    }
+
+    setIsGithubSyncing(true);
+    setDemoStatus({
+      ok: true,
+      message: "GitHub repo 서버 동기화 중...",
+      scope: "github",
+    });
+
+    try {
+      await fetchPaimJson("/github/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: project.id,
+          projectName: project.name,
+          repository: project.githubRepository,
+          events: project.githubEvents ?? [],
+        }),
+      });
+      setDemoStatus({
+        ok: true,
+        message: "GitHub repo 서버 동기화 완료",
+        scope: "github",
+      });
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "GitHub sync API에 연결할 수 없습니다"),
+        scope: "github",
+      });
+    } finally {
+      setIsGithubSyncing(false);
     }
   }
 
@@ -2673,7 +2800,7 @@ export function App() {
                       <small>
                         GitHub 인증 페이지를 새 창에서 열었습니다.
                         <br />
-                        로그인하고 PaiM 접근을 승인하면 자동으로 돌아옵니다.
+                        코드 {selectedProjectGithubSession?.userCode ?? ""} 입력 후 완료 버튼을 눌러 주세요.
                       </small>
                       <span className="overview-github-loader">
                         <RefreshCcw size={16} />
@@ -2706,7 +2833,7 @@ export function App() {
                       <div className="overview-github-toolbar">
                         <div className="overview-github-account">
                           <img className="overview-github-toolbar-logo" src={githubMark} alt="" />
-                          <span>GitHub App</span>
+                          <span>GitHub</span>
                           <span className="overview-github-login-badge">
                             <Check size={12} />
                             로그인됨
@@ -2818,7 +2945,7 @@ export function App() {
                             </span>
                           </div>
                           <p className="overview-github-meta">
-                            SYNCED · {selectedProject.githubRepository.branch} ·{" "}
+                            LOCAL · {selectedProject.githubRepository.branch} ·{" "}
                             {getGithubRepoLabel(selectedProject.githubRepository)} ·{" "}
                             {selectedProject.githubRepository.issuePrStatus}
                           </p>
@@ -2827,19 +2954,12 @@ export function App() {
                       <div className="overview-github-action-buttons">
                         <button
                           className="overview-github-secondary-button"
-                          disabled={isGithubConnecting}
-                          onClick={() =>
-                            selectedProject.githubRepository
-                              ? void connectGithubRepository(
-                                  selectedProject.id,
-                                  getConnectedGithubRepositoryUrl(selectedProject.githubRepository),
-                                )
-                              : undefined
-                          }
+                          disabled={isGithubSyncing}
+                          onClick={() => void handleSyncGithubRepository(selectedProject.id)}
                           type="button"
                         >
                           <RefreshCcw size={15} />
-                          <span>{isGithubConnecting ? "동기화 중..." : "동기화"}</span>
+                          <span>{isGithubSyncing ? "Sync 중..." : "Sync"}</span>
                         </button>
                         <button
                           className="overview-github-secondary-button"

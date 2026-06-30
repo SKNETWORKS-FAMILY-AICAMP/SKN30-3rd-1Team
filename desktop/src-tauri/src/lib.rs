@@ -1,8 +1,31 @@
 use base64::{engine::general_purpose, Engine as _};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::Manager;
 
 const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
+const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct GithubDeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct GithubAccessTokenResponse {
+    access_token: Option<String>,
+    token_type: Option<String>,
+    scope: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
 
 // 로컬 이미지 파일을 프론트 미리보기용 data URL로 변환한다.
 #[tauri::command]
@@ -21,6 +44,41 @@ fn create_attachment_preview(path: String) -> Result<Option<String>, String> {
     let encoded = general_purpose::STANDARD.encode(bytes);
 
     Ok(Some(format!("data:{mime_type};base64,{encoded}")))
+}
+
+// GitHub OAuth device flow 시작은 브라우저 CORS를 피하려고 Tauri에서 호출한다.
+#[tauri::command]
+fn github_oauth_device_code(
+    client_id: String,
+    scope: String,
+) -> Result<GithubDeviceCodeResponse, String> {
+    ureq::post(GITHUB_DEVICE_CODE_URL)
+        .set("Accept", "application/json")
+        .send_form(&[("client_id", client_id.as_str()), ("scope", scope.as_str())])
+        .map_err(|error| error.to_string())?
+        .into_json()
+        .map_err(|error| error.to_string())
+}
+
+// 사용자가 브라우저 인증을 끝냈는지 확인하고 access token을 받는다.
+#[tauri::command]
+fn github_oauth_access_token(
+    client_id: String,
+    device_code: String,
+) -> Result<GithubAccessTokenResponse, String> {
+    ureq::post(GITHUB_ACCESS_TOKEN_URL)
+        .set("Accept", "application/json")
+        .send_form(&[
+            ("client_id", client_id.as_str()),
+            ("device_code", device_code.as_str()),
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:device_code",
+            ),
+        ])
+        .map_err(|error| error.to_string())?
+        .into_json()
+        .map_err(|error| error.to_string())
 }
 
 // 확장자를 기준으로 미리보기 가능한 이미지 MIME 타입을 반환한다.
@@ -56,7 +114,11 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![create_attachment_preview])
+        .invoke_handler(tauri::generate_handler![
+            create_attachment_preview,
+            github_oauth_device_code,
+            github_oauth_access_token
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run PaiM desktop application");
 }

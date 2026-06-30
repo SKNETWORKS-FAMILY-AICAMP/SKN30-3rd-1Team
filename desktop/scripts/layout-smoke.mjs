@@ -7,6 +7,7 @@ const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
+const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
 const VITE_BIN = "node_modules/vite/bin/vite.js";
 const DEBUG_PORT = 9336;
 const USER_DATA_DIR = "/tmp/paim-layout-smoke";
@@ -1788,7 +1789,7 @@ async function verifyGithubTimelineState(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
   });
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
@@ -1811,7 +1812,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => {
       window.__paimOriginalFetch = window.fetch.bind(window);
       window.fetch = async (input) => {
-        if (String(input).includes('/github/app/sessions')) {
+        if (String(input).includes('github.com/login/device/code')) {
           throw new Error('Load failed');
         }
 
@@ -1848,11 +1849,13 @@ async function verifyGithubTimelineState(send) {
       window.fetch = async (input, init) => {
         const url = String(input);
 
-        if (url.includes('/github/app/sessions') && init?.method === 'POST') {
+        if (url.includes('github.com/login/device/code') && init?.method === 'POST') {
           return new Response(JSON.stringify({
-            state: 'smoke-state',
-            installUrl: 'https://github.com/apps/paim-smoke/installations/new',
-            status: 'pending',
+            device_code: 'smoke-device',
+            user_code: 'SMOKE-123',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 5,
           }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -1905,54 +1908,100 @@ async function verifyGithubTimelineState(send) {
       window.fetch = async (input, init) => {
         const url = String(input);
 
-        if (url.includes('/github/app/sessions/smoke-state/repositories')) {
+        if (url.includes('github.com/login/oauth/access_token') && init?.method === 'POST') {
           return new Response(JSON.stringify({
-            repositories: [
-              {
-                fullName: 'j3s30p/Stampy',
-                name: 'Stampy',
-                private: true,
-                defaultBranch: 'main',
-                url: 'https://github.com/j3s30p/Stampy',
-              },
-              {
-                fullName: 'j3s30p/PaiM',
-                name: 'PaiM',
-                private: false,
-                defaultBranch: 'main',
-                url: 'https://github.com/j3s30p/PaiM',
-              },
-            ],
+            access_token: 'smoke-token',
+            token_type: 'bearer',
+            scope: 'repo read:user',
           }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
         }
 
-        if (url.includes('/github/app/sessions/smoke-state')) {
-          return new Response(JSON.stringify({
-            state: 'smoke-state',
-            status: 'connected',
-          }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-
-        if (url.includes('/github/app/repository-preview')) {
-          return new Response(JSON.stringify({
-            events,
-            repository: {
-              path: 'https://github.com/j3s30p/Stampy',
+        if (url.includes('api.github.com/user/repos')) {
+          return new Response(JSON.stringify([
+            {
+              full_name: 'j3s30p/Stampy',
               name: 'Stampy',
-              branch: 'main',
-              isDirty: false,
-              remoteRepo: 'j3s30p/Stampy',
-              issuePrStatus: 'GitHub issue/PR 연동됨',
-              visibility: 'private',
-              authProvider: 'github_app',
+              private: true,
+              default_branch: 'main',
+              html_url: 'https://github.com/j3s30p/Stampy',
             },
+            {
+              full_name: 'j3s30p/PaiM',
+              name: 'PaiM',
+              private: false,
+              default_branch: 'main',
+              html_url: 'https://github.com/j3s30p/PaiM',
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/commits')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/commit/smoke',
+              sha: 'abcdef123456',
+              commit: {
+                author: { date: new Date(${now - 1000 * 60 * 60 * 8}).toISOString() },
+                message: 'feat: project file management',
+              },
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/issues')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/issues/21',
+              number: 21,
+              title: '파일 목록 스크롤',
+              state: 'open',
+              updated_at: new Date(${now - 1000 * 60 * 60 * 3}).toISOString(),
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/pulls')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/pull/18',
+              number: 18,
+              title: '프로젝트 Overview 연결',
+              state: 'open',
+              updated_at: new Date(${now - 1000 * 60 * 30}).toISOString(),
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy')) {
+          return new Response(JSON.stringify({
+            default_branch: 'main',
+            full_name: 'j3s30p/Stampy',
+            html_url: 'https://github.com/j3s30p/Stampy',
+            name: 'Stampy',
+            private: true,
           }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('/github/sync')) {
+          return new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
@@ -2001,7 +2050,7 @@ async function verifyGithubTimelineState(send) {
         getComputedStyle(item).backgroundColor !== 'rgba(0, 0, 0, 0)'
       )).length,
       hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
-      hasSyncButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('동기화'))),
+      hasSyncButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('Sync'))),
       hasChangeButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('repo 변경'))),
       hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('연결 해제'))),
     }))()`,
@@ -2029,7 +2078,7 @@ async function verifyGithubTimelineState(send) {
 
   if (!value.failedLogin.githubPanelHasStatus ||
       value.failedLogin.githubStatusOk !== "false" ||
-      !value.failedLogin.githubStatusText.includes("PaiM API 서버에 연결할 수 없습니다") ||
+      !value.failedLogin.githubStatusText.includes("GitHub 로그인 서버에 연결할 수 없습니다") ||
       value.failedLogin.sidebarHasRuntimeStatus ||
       value.failedLogin.runtimeStatusCount !== 1) {
     failures.push("GitHub login failure status should render inside the GitHub panel only");
@@ -2040,7 +2089,7 @@ async function verifyGithubTimelineState(send) {
   }
 
   if (value.authing.stateText !== "로그인 중" ||
-      !value.authing.openedUrl.includes("github.com/apps/paim-smoke") ||
+      !value.authing.openedUrl.includes("github.com/login/device") ||
       !value.authing.hasAuthCard ||
       !value.authing.hasWaitingText ||
       !value.authing.hasCheckButton) {
@@ -2087,8 +2136,9 @@ async function verifyGithubTimelineState(send) {
   if (!value.linked.repoName.includes("j3s30p/Stampy") ||
       !value.linked.repoMeta.includes("main") ||
       !value.linked.repoMeta.includes("Private") ||
-      !value.linked.repoMeta.includes("GitHub App") ||
-      !value.linked.repoMeta.includes("GitHub issue/PR 연동됨")) {
+      !value.linked.repoMeta.includes("GitHub Login") ||
+      !value.linked.repoMeta.includes("1 open issues") ||
+      !value.linked.repoMeta.includes("1 open PRs")) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
@@ -2596,7 +2646,8 @@ async function verifyDeleteSessionFlow(send) {
 const browserPath = findBrowserPath();
 rmSync(USER_DATA_DIR, { recursive: true, force: true });
 
-const vite = spawn(process.execPath, [VITE_BIN, "--host", "127.0.0.1", "--port", "1420", "--strictPort"], {
+const vite = spawn(process.execPath, [VITE_BIN, "--host", "127.0.0.1", "--port", "1420", "--strictPort", "--force"], {
+  env: { ...process.env, VITE_GITHUB_CLIENT_ID: "smoke-client" },
   stdio: "ignore",
 });
 
