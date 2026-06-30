@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose, Engine as _};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::Path;
 use tauri::Manager;
 
@@ -54,12 +54,10 @@ fn github_oauth_device_code(
     client_id: String,
     scope: String,
 ) -> Result<GithubDeviceCodeResponse, String> {
-    ureq::post(GITHUB_DEVICE_CODE_URL)
-        .set("Accept", "application/json")
-        .send_form(&[("client_id", client_id.as_str()), ("scope", scope.as_str())])
-        .map_err(|error| error.to_string())?
-        .into_json()
-        .map_err(|error| error.to_string())
+    post_github_oauth_form(
+        GITHUB_DEVICE_CODE_URL,
+        &[("client_id", client_id.as_str()), ("scope", scope.as_str())],
+    )
 }
 
 // 사용자가 브라우저 인증을 끝냈는지 확인하고 access token을 받는다.
@@ -68,19 +66,30 @@ fn github_oauth_access_token(
     client_id: String,
     device_code: String,
 ) -> Result<GithubAccessTokenResponse, String> {
-    ureq::post(GITHUB_ACCESS_TOKEN_URL)
-        .set("Accept", "application/json")
-        .send_form(&[
+    post_github_oauth_form(
+        GITHUB_ACCESS_TOKEN_URL,
+        &[
             ("client_id", client_id.as_str()),
             ("device_code", device_code.as_str()),
-            (
-                "grant_type",
-                "urn:ietf:params:oauth:grant-type:device_code",
-            ),
-        ])
-        .map_err(|error| error.to_string())?
-        .into_json()
-        .map_err(|error| error.to_string())
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ],
+    )
+}
+
+fn post_github_oauth_form<T: DeserializeOwned>(
+    url: &str,
+    form: &[(&str, &str)],
+) -> Result<T, String> {
+    let response = match ureq::post(url)
+        .set("Accept", "application/json")
+        .send_form(form)
+    {
+        Ok(response) => response,
+        Err(ureq::Error::Status(_, response)) => response,
+        Err(error) => return Err(error.to_string()),
+    };
+
+    response.into_json().map_err(|error| error.to_string())
 }
 
 // 확장자를 기준으로 미리보기 가능한 이미지 MIME 타입을 반환한다.
