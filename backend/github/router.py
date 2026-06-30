@@ -1,4 +1,5 @@
 import base64
+import calendar
 import json
 import os
 import secrets
@@ -30,10 +31,6 @@ class GithubAppSession:
 
 # ponytail: in-memory install sessions; move to DB/Redis when user auth or multi-worker API exists.
 _sessions: dict[str, GithubAppSession] = {}
-
-
-class GithubAppSessionCreate(BaseModel):
-    return_url: str | None = None
 
 
 class GithubRepositoryPreviewRequest(BaseModel):
@@ -140,7 +137,7 @@ def _install_url(state: str) -> str:
     if configured_url:
         base_url = configured_url
     elif app_slug:
-        base_url = f"{GITHUB_WEB_BASE}/apps/{app_slug}/installations/select_target"
+        base_url = f"{GITHUB_WEB_BASE}/apps/{app_slug}/installations/new"
     else:
         raise HTTPException(status_code=503, detail="GITHUB_APP_SLUG is not configured")
 
@@ -247,7 +244,7 @@ def _github_timestamp(value: str | None) -> int:
         return int(time.time() * 1000)
 
     try:
-        return int(time.mktime(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")) * 1000)
+        return int(calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ")) * 1000)
     except ValueError:
         return int(time.time() * 1000)
 
@@ -299,7 +296,7 @@ def _github_events(commits: list[dict[str, Any]], issues: list[dict[str, Any]], 
 
 
 @router.post("/sessions", status_code=201)
-def create_github_app_session(_: GithubAppSessionCreate):
+def create_github_app_session():
     _prune_sessions()
     state = secrets.token_urlsafe(32)
     _sessions[state] = GithubAppSession(created_at=time.time())

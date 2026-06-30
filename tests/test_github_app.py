@@ -14,7 +14,7 @@ def test_github_app_session_callback(monkeypatch):
     assert created.status_code == 201
     state = created.json()["state"]
     assert created.json()["installUrl"].startswith(
-        "https://github.com/apps/paim-test/installations/select_target?",
+        "https://github.com/apps/paim-test/installations/new?",
     )
     assert f"state={state}" in created.json()["installUrl"]
 
