@@ -12,7 +12,8 @@
     "app:build": "tauri build",
     "app:build:mac": "tauri build --bundles app",
     "app:open": "open -n src-tauri/target/release/bundle/macos/PaiM.app",
-    "demo": "npm run app:build:mac && npm run app:open",
+    "demo": "tauri dev",
+    "demo:mac": "npm run app:build:mac && npm run app:open",
     "tauri": "tauri"
   },
   "dependencies": {

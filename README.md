@@ -86,10 +86,10 @@ uv run streamlit run frontend/app.py --server.port 8502
 
 ```bash
 npm ci --prefix desktop
-npm run tauri --prefix desktop -- dev
+npm run demo --prefix desktop
 ```
 
-현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다. Windows 팀원은 Node.js, Rust, WebView2 런타임이 설치된 상태에서 위 dev 명령을 실행하면 됩니다.
+현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다. Windows 팀원은 Node.js, Rust, WebView2 런타임이 설치된 상태에서 위 `demo` 명령을 실행하면 됩니다.
 
 각자 OS용 설치 파일을 빌드하려면:
 
@@ -102,8 +102,7 @@ Windows에서는 빌드 결과가 보통 `desktop/src-tauri/target/release/bundl
 macOS에서 `.app`만 빌드하고 바로 실행하려면:
 
 ```bash
-npm run app:build:mac --prefix desktop
-npm run app:open --prefix desktop
+npm run demo:mac --prefix desktop
 ```
 
 데스크톱 앱 검증:
