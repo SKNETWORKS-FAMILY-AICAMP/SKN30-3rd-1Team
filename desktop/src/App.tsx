@@ -8,18 +8,22 @@ import {
   Ellipsis,
   Lightbulb,
   MessageSquare,
+  Minus,
   PanelLeft,
   Plus,
+  Square,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   type CSSProperties,
   FormEvent,
   KeyboardEvent,
   MouseEvent,
+  PointerEvent as ReactPointerEvent,
   useEffect,
   useMemo,
   useRef,
@@ -150,6 +154,65 @@ function TablerIcon({ className = "", label, svg }: TablerIconProps) {
       role={label ? "img" : undefined}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
+  );
+}
+
+function isWindowsHost() {
+  return window.navigator.userAgent.includes("Windows");
+}
+
+function WindowsTitlebar() {
+  function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    void getCurrentWindow().startDragging();
+  }
+
+  function handleToggleMaximize(event: MouseEvent<HTMLDivElement>) {
+    if ((event.target as HTMLElement).closest("button")) {
+      return;
+    }
+
+    void getCurrentWindow().toggleMaximize();
+  }
+
+  return (
+    <div
+      className="windows-titlebar"
+      onDoubleClick={handleToggleMaximize}
+      onPointerDown={handleDragStart}
+    >
+      <div className="windows-titlebar-title">PaiM</div>
+      <div className="windows-titlebar-controls">
+        <button
+          aria-label="최소화"
+          onClick={() => void getCurrentWindow().minimize()}
+          title="최소화"
+          type="button"
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          aria-label="최대화"
+          onClick={() => void getCurrentWindow().toggleMaximize()}
+          title="최대화"
+          type="button"
+        >
+          <Square size={12} />
+        </button>
+        <button
+          aria-label="닫기"
+          className="windows-close-button"
+          onClick={() => void getCurrentWindow().close()}
+          title="닫기"
+          type="button"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -611,6 +674,7 @@ function wait(ms: number) {
 
 // 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
 export function App() {
+  const isWindows = useMemo(isWindowsHost, []);
   const [initialProjectState] = useState(loadProjectState);
   const [projects, setProjects] = useState<ProjectWorkspace[]>(initialProjectState.projects);
   const [selectedProjectId, setSelectedProjectId] = useState(
@@ -1512,11 +1576,13 @@ export function App() {
     <div
       className="app-shell"
       data-drag-active={isDragActive}
+      data-platform={isWindows ? "windows" : "native"}
       data-sidebar-collapsed={isSidebarCollapsed}
       data-sidebar-resizing={isSidebarResizing}
       onClick={() => setOpenActionMenu(null)}
       style={appShellStyle}
     >
+      {isWindows ? <WindowsTitlebar /> : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
