@@ -7,6 +7,7 @@ const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
+const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
 const VITE_BIN = "node_modules/vite/bin/vite.js";
 const DEBUG_PORT = 9336;
 const USER_DATA_DIR = "/tmp/paim-layout-smoke";
@@ -1769,7 +1770,7 @@ async function verifyProjectOverviewFiles(send) {
   return { value, failures };
 }
 
-// GitHub 연동 전에는 버튼을, 연동 데이터가 있으면 issue/PR/commit을 보여준다.
+// GitHub 섹션은 로그인, repo 선택, 연결 상태, timeline을 한 패널에서 보여준다.
 async function verifyGithubTimelineState(send) {
   const now = Date.now();
   const unlinkedState = createProjectStorage(
@@ -1777,46 +1778,6 @@ async function verifyGithubTimelineState(send) {
     "GitHub Unlinked",
     [],
     null,
-  );
-  const linkedState = createProjectStorage(
-    "project-github-linked",
-    "GitHub Linked",
-    [],
-    null,
-    [],
-    {
-      githubConnected: true,
-      githubRepository: {
-        path: "/tmp/stampy",
-        name: "stampy",
-        branch: "main",
-        isDirty: true,
-        remoteRepo: "j3s30p/Stampy",
-        issuePrStatus: "GitHub issue/PR 연동됨",
-      },
-      githubEvents: [
-        {
-          id: "github-pr",
-          type: "pull_request",
-          title: "PR #18 프로젝트 Overview 연결",
-          status: "open",
-          createdAt: now - 1000 * 60 * 30,
-        },
-        {
-          id: "github-issue",
-          type: "issue",
-          title: "issue #21 파일 목록 스크롤",
-          status: "open",
-          createdAt: now - 1000 * 60 * 60 * 3,
-        },
-        {
-          id: "github-commit",
-          type: "commit",
-          title: "feat: project file management",
-          createdAt: now - 1000 * 60 * 60 * 8,
-        },
-      ],
-    },
   );
 
   await send("Emulation.setDeviceMetricsOverride", {
@@ -1828,7 +1789,7 @@ async function verifyGithubTimelineState(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
   });
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
@@ -1836,41 +1797,33 @@ async function verifyGithubTimelineState(send) {
   const unlinkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
-      hasConnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-empty button')).find((button) => button.textContent.includes('GitHub 연동'))),
+      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
+      hasLoginCard: Boolean(document.querySelector('.overview-github-login-card')),
+      hasLoginTitle: document.body.textContent.includes('GitHub 연결'),
+      hasPrivateCopy: document.body.textContent.includes('private repo도 지원됩니다'),
+      hasLoginButton: Boolean(Array.from(document.querySelectorAll('.overview-github-primary-button')).find((button) => button.textContent.includes('GitHub 로그인'))),
+      hasUrlInput: Boolean(document.querySelector('.overview-github-connect-form input')),
+      hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
       hasTimelineRows: Boolean(document.querySelector('.overview-timeline-row')),
     }))()`,
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.overview-github-empty button')?.click()`,
-  });
-  await sleep(100);
-
-  const connectClickResult = await send("Runtime.evaluate", {
-    returnByValue: true,
     expression: `(() => {
-      const input = document.querySelector('.overview-github-connect-form input');
-      return {
-        hasUrlInput: Boolean(input),
-        urlValue: input?.value ?? null,
-        hasRuntimeStatus: Boolean(document.querySelector('.runtime-status')),
-        sidebarHasRuntimeStatus: Boolean(document.querySelector('.sidebar .runtime-status')),
+      window.__paimOriginalFetch = window.fetch.bind(window);
+      window.fetch = async (input) => {
+        if (String(input).includes('github.com/login/device/code')) {
+          throw new Error('Load failed');
+        }
+
+        return window.__paimOriginalFetch(input);
       };
-    })()`,
-  });
-
-  await send("Runtime.evaluate", {
-    expression: `(() => {
-      const input = document.querySelector('.overview-github-connect-form input');
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(input, 'https://example.com/not-a-github-repo');
-      input?.dispatchEvent(new Event('input', { bubbles: true }));
-      document.querySelector('.overview-github-connect-form button')?.click();
+      document.querySelector('.overview-github-primary-button')?.click();
     })()`,
   });
   await sleep(250);
 
-  const invalidSubmitResult = await send("Runtime.evaluate", {
+  const failedLoginResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
       const githubPanel = document.querySelector('section[aria-label="GitHub 타임라인"]');
@@ -1888,17 +1841,207 @@ async function verifyGithubTimelineState(send) {
   });
 
   await send("Runtime.evaluate", {
-    expression: `localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(linkedState)})`,
+    expression: `(() => {
+      window.open = (url) => {
+        window.__paimOpenedUrl = String(url);
+        return null;
+      };
+      window.fetch = async (input, init) => {
+        const url = String(input);
+
+        if (url.includes('github.com/login/device/code') && init?.method === 'POST') {
+          return new Response(JSON.stringify({
+            device_code: 'smoke-device',
+            user_code: 'SMOKE-123',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 5,
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        return window.__paimOriginalFetch(input, init);
+      };
+      document.querySelector('.overview-github-primary-button')?.click();
+    })()`,
   });
-  await send("Page.navigate", { url: APP_URL });
-  await sleep(700);
+  await sleep(300);
+
+  const authingResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
+      openedUrl: window.__paimOpenedUrl || "",
+      hasAuthCard: Boolean(document.querySelector('.overview-github-auth-card')),
+      hasWaitingText: document.body.textContent.includes('브라우저에서 로그인을 완료해 주세요'),
+      hasCheckButton: Boolean(Array.from(document.querySelectorAll('.overview-github-auth-card button')).find((button) => button.textContent.includes('로그인 완료했어요'))),
+    }))()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const events = [
+        {
+          id: 'github-pr',
+          type: 'pull_request',
+          title: 'PR #18 프로젝트 Overview 연결',
+          status: 'open',
+          createdAt: ${now - 1000 * 60 * 30},
+        },
+        {
+          id: 'github-issue',
+          type: 'issue',
+          title: 'issue #21 파일 목록 스크롤',
+          status: 'open',
+          createdAt: ${now - 1000 * 60 * 60 * 3},
+        },
+        {
+          id: 'github-commit',
+          type: 'commit',
+          title: 'feat: project file management',
+          createdAt: ${now - 1000 * 60 * 60 * 8},
+        },
+      ];
+
+      window.fetch = async (input, init) => {
+        const url = String(input);
+
+        if (url.includes('github.com/login/oauth/access_token') && init?.method === 'POST') {
+          return new Response(JSON.stringify({
+            access_token: 'smoke-token',
+            token_type: 'bearer',
+            scope: 'repo read:user',
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/user/repos')) {
+          return new Response(JSON.stringify([
+            {
+              full_name: 'j3s30p/Stampy',
+              name: 'Stampy',
+              private: true,
+              default_branch: 'main',
+              html_url: 'https://github.com/j3s30p/Stampy',
+            },
+            {
+              full_name: 'j3s30p/PaiM',
+              name: 'PaiM',
+              private: false,
+              default_branch: 'main',
+              html_url: 'https://github.com/j3s30p/PaiM',
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/commits')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/commit/smoke',
+              sha: 'abcdef123456',
+              commit: {
+                author: { date: new Date(${now - 1000 * 60 * 60 * 8}).toISOString() },
+                message: 'feat: project file management',
+              },
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/issues')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/issues/21',
+              number: 21,
+              title: '파일 목록 스크롤',
+              state: 'open',
+              updated_at: new Date(${now - 1000 * 60 * 60 * 3}).toISOString(),
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy/pulls')) {
+          return new Response(JSON.stringify([
+            {
+              html_url: 'https://github.com/j3s30p/Stampy/pull/18',
+              number: 18,
+              title: '프로젝트 Overview 연결',
+              state: 'open',
+              updated_at: new Date(${now - 1000 * 60 * 30}).toISOString(),
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('api.github.com/repos/j3s30p/Stampy')) {
+          return new Response(JSON.stringify({
+            default_branch: 'main',
+            full_name: 'j3s30p/Stampy',
+            html_url: 'https://github.com/j3s30p/Stampy',
+            name: 'Stampy',
+            private: true,
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url.includes('/github/sync')) {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        return window.__paimOriginalFetch(input, init);
+      };
+      Array.from(document.querySelectorAll('.overview-github-auth-card button'))
+        .find((button) => button.textContent.includes('로그인 완료했어요'))?.click();
+    })()`,
+  });
+  await sleep(300);
+
+  const reposResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
+      hasReposCard: Boolean(document.querySelector('.overview-github-repos-card')),
+      hasSearchInput: Boolean(document.querySelector('input[aria-label="GitHub repo 검색"]')),
+      repoNames: Array.from(document.querySelectorAll('.overview-github-repo-copy p')).map((item) => item.textContent.trim()),
+      visibilityLabels: Array.from(document.querySelectorAll('.overview-github-repo-visibility')).map((item) => item.textContent.trim()),
+      hasLogoutButton: Boolean(Array.from(document.querySelectorAll('.overview-github-toolbar button')).find((button) => button.textContent.includes('로그아웃'))),
+      hasUrlInput: Boolean(document.querySelector('.overview-github-connect-form input')),
+    }))()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.overview-github-repo-row button'))
+      .find((button) => button.textContent.includes('연결'))?.click()`,
+  });
+  await sleep(300);
 
   const linkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
       titles: Array.from(document.querySelectorAll('.overview-timeline-row p')).map((item) => item.textContent.trim()),
       meta: Array.from(document.querySelectorAll('.overview-timeline-row small')).map((item) => item.textContent.trim()),
+      repoName: document.querySelector('.overview-github-repo-name')?.textContent.trim() || "",
       repoMeta: document.querySelector('.overview-github-meta')?.textContent.trim() || "",
+      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
       visibleIconCount: Array.from(document.querySelectorAll('.overview-timeline-icon .tabler-icon')).filter((item) => {
         const rect = item.getBoundingClientRect();
         return rect.width >= 12 && rect.height >= 12;
@@ -1906,40 +2049,70 @@ async function verifyGithubTimelineState(send) {
       boxedIconCount: Array.from(document.querySelectorAll('.overview-timeline-icon .tabler-icon')).filter((item) => (
         getComputedStyle(item).backgroundColor !== 'rgba(0, 0, 0, 0)'
       )).length,
-      hasConnectButton: Boolean(document.querySelector('.overview-github-empty button')),
+      hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
+      hasSyncButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('Sync'))),
+      hasChangeButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('repo 변경'))),
+      hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('연결 해제'))),
     }))()`,
   });
 
   const value = {
     unlinked: unlinkedResult.result.value,
-    connectForm: connectClickResult.result.value,
-    invalidSubmit: invalidSubmitResult.result.value,
+    failedLogin: failedLoginResult.result.value,
+    authing: authingResult.result.value,
+    repos: reposResult.result.value,
     linked: linkedResult.result.value,
   };
   const failures = [];
 
-  if (!value.unlinked.hasConnectButton || value.unlinked.hasTimelineRows) {
-    failures.push("unlinked GitHub timeline should show only a connect button");
+  if (value.unlinked.stateText !== "미연결" ||
+      !value.unlinked.hasLoginCard ||
+      !value.unlinked.hasLoginTitle ||
+      !value.unlinked.hasPrivateCopy ||
+      !value.unlinked.hasLoginButton ||
+      value.unlinked.hasUrlInput ||
+      value.unlinked.hasConnectedCard ||
+      value.unlinked.hasTimelineRows) {
+    failures.push("unlinked GitHub panel should show the reference login card only");
   }
 
-  if (!value.connectForm.hasUrlInput || value.connectForm.urlValue !== "" ||
-      value.connectForm.hasRuntimeStatus || value.connectForm.sidebarHasRuntimeStatus) {
-    failures.push("GitHub connect button should open an empty inline repository URL form");
+  if (!value.failedLogin.githubPanelHasStatus ||
+      value.failedLogin.githubStatusOk !== "false" ||
+      !value.failedLogin.githubStatusText.includes("GitHub 로그인 서버에 연결할 수 없습니다") ||
+      value.failedLogin.sidebarHasRuntimeStatus ||
+      value.failedLogin.runtimeStatusCount !== 1) {
+    failures.push("GitHub login failure status should render inside the GitHub panel only");
   }
 
-  if (!value.invalidSubmit.githubPanelHasStatus ||
-      value.invalidSubmit.githubStatusOk !== "false" ||
-      !value.invalidSubmit.githubStatusText.includes("GitHub repo를 연결할 수 없습니다") ||
-      value.invalidSubmit.sidebarHasRuntimeStatus ||
-      value.invalidSubmit.runtimeStatusCount !== 1) {
-    failures.push("GitHub connection failure status should render inside the GitHub panel only");
-  }
-
-  if (!value.invalidSubmit.animationName.includes("status-shake")) {
+  if (!value.failedLogin.animationName.includes("status-shake")) {
     failures.push("GitHub connection failure status should keep the shake animation");
   }
 
-  if (value.linked.hasConnectButton ||
+  if (value.authing.stateText !== "로그인 중" ||
+      !value.authing.openedUrl.includes("github.com/login/device") ||
+      !value.authing.hasAuthCard ||
+      !value.authing.hasWaitingText ||
+      !value.authing.hasCheckButton) {
+    failures.push("GitHub authing state should render the browser login waiting card");
+  }
+
+  if (value.repos.stateText !== "로그인됨" ||
+      !value.repos.hasReposCard ||
+      !value.repos.hasSearchInput ||
+      !value.repos.repoNames.includes("j3s30p/Stampy") ||
+      !value.repos.repoNames.includes("j3s30p/PaiM") ||
+      !value.repos.visibilityLabels.includes("PRIVATE") ||
+      !value.repos.visibilityLabels.includes("PUBLIC") ||
+      !value.repos.hasLogoutButton ||
+      value.repos.hasUrlInput) {
+    failures.push("GitHub repos state should render searchable repositories without the old URL form");
+  }
+
+  if (value.linked.stateText !== "연결됨" ||
+      !value.linked.hasConnectedCard ||
+      !value.linked.hasSyncButton ||
+      !value.linked.hasChangeButton ||
+      !value.linked.hasDisconnectButton ||
       !value.linked.titles.includes("PR #18 프로젝트 Overview 연결") ||
       !value.linked.titles.includes("issue #21 파일 목록 스크롤") ||
       !value.linked.titles.includes("feat: project file management")) {
@@ -1960,10 +2133,12 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline icons should not render boxed backgrounds");
   }
 
-  if (!value.linked.repoMeta.includes("stampy") ||
+  if (!value.linked.repoName.includes("j3s30p/Stampy") ||
       !value.linked.repoMeta.includes("main") ||
-      !value.linked.repoMeta.includes("j3s30p/Stampy") ||
-      !value.linked.repoMeta.includes("GitHub issue/PR 연동됨")) {
+      !value.linked.repoMeta.includes("Private") ||
+      !value.linked.repoMeta.includes("GitHub Login") ||
+      !value.linked.repoMeta.includes("1 open issues") ||
+      !value.linked.repoMeta.includes("1 open PRs")) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
@@ -2471,7 +2646,8 @@ async function verifyDeleteSessionFlow(send) {
 const browserPath = findBrowserPath();
 rmSync(USER_DATA_DIR, { recursive: true, force: true });
 
-const vite = spawn(process.execPath, [VITE_BIN, "--host", "127.0.0.1", "--port", "1420", "--strictPort"], {
+const vite = spawn(process.execPath, [VITE_BIN, "--host", "127.0.0.1", "--port", "1420", "--strictPort", "--force"], {
+  env: { ...process.env, VITE_GITHUB_CLIENT_ID: "smoke-client" },
   stdio: "ignore",
 });
 
