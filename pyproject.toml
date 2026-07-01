@@ -11,15 +11,16 @@ dependencies = [
     "google-generativeai",
     "pymysql",
     "chromadb",
+    "cryptography",
     "langchain-openai",
     "langchain-anthropic",
     "langchain-google-genai",
     "langchain-chroma",
+    "langgraph",
     "pydantic",
     "python-dotenv",
     "streamlit>=1.58.0",
     "pypdf>=6.14.2",
-    "cryptography",
     "tiktoken",
 ]
 
