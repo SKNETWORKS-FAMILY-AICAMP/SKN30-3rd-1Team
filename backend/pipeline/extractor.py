@@ -26,6 +26,11 @@ Rules:
 - For decision, owner is the proposer or speaker.
 - For issue, owner is the person who raised it.
 - For risk, owner is the person who mentioned it.
+[Category Definitions & Examples]
+- decision: Formally agreed or concluded matters. (e.g., "기술 스택을 FastAPI로 결정함")
+- action: Tasks assigned to a specific person with clear next steps. (e.g., "홍길동님이 API 명세서를 작성하겠습니다")
+- issue: Current problems that have already occurred and need immediate attention. (e.g., "MySQL 연결 테스트 중 타임아웃 발생")
+- risk: Potential future threats, uncertainties, or schedule bottlenecks. (e.g., "다음 달 백엔드 인력 부족으로 일정 지연 우려")
 - Do not infer unstated reasons.
 - reason field is only for decision category, leave null otherwise.
 - topic field: short keyword theme (2-5 words) summarizing what the item is about, e.g. "기술스택 선정", "일정 리스크", "UI 설계". Always fill this in.
