@@ -1,23 +1,22 @@
 import {
   ArrowUp,
-  Check,
+  Brain,
   ChevronDown,
+  ChevronRight,
   Copy,
-  FileUp,
+  Files,
   FolderOpen,
   FolderPlus,
   GitBranch,
-  LayoutDashboard,
   Ellipsis,
-  Link2,
   Lightbulb,
-  LogOut,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   Minus,
   PanelLeft,
+  PanelRight,
   Plus,
-  RefreshCcw,
-  Search,
   Square,
   X,
 } from "lucide-react";
@@ -32,136 +31,77 @@ import {
   KeyboardEvent,
   MouseEvent,
   PointerEvent as ReactPointerEvent,
+  type SetStateAction,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import githubMark from "../assets/github/github-mark.svg";
 import paimWatermark from "./assets/paim-watermark.png";
-import tablerAlertCircle from "./assets/tabler-icons/alert-circle.svg?raw";
 import tablerAlertTriangle from "./assets/tabler-icons/alert-triangle.svg?raw";
 import tablerArrowRight from "./assets/tabler-icons/arrow-right.svg?raw";
-import tablerArrowUp from "./assets/tabler-icons/arrow-up.svg?raw";
 import tablerCheck from "./assets/tabler-icons/check.svg?raw";
-import tablerCode from "./assets/tabler-icons/code.svg?raw";
-import tablerFilePlus from "./assets/tabler-icons/file-plus.svg?raw";
-import tablerFileText from "./assets/tabler-icons/file-text.svg?raw";
 import tablerFlame from "./assets/tabler-icons/flame.svg?raw";
-import tablerGitCommit from "./assets/tabler-icons/git-commit.svg?raw";
-import tablerGitPullRequest from "./assets/tabler-icons/git-pull-request.svg?raw";
-import tablerMicrophone from "./assets/tabler-icons/microphone.svg?raw";
-import tablerSparkles from "./assets/tabler-icons/sparkles.svg?raw";
-import tablerTable from "./assets/tabler-icons/table.svg?raw";
+import { GithubPanel } from "./GithubPanel";
+import { formatRelativeAge } from "./format";
+import {
+  createGithubDeviceCode,
+  createGithubAppSession,
+  fetchGithubAccessToken,
+  fetchGithubAppRepositories,
+  fetchGithubAppRepositoryPreview,
+  fetchGithubAppSession,
+  fetchGithubRepositories,
+  fetchGithubRepository,
+  fetchGithubUserProfile,
+  fetchPaimJson,
+  getErrorMessage,
+  getGithubOAuthErrorMessage,
+  getGithubPanelStateLabel,
+} from "./github";
+import {
+  clampProjectFileTreeWidth,
+  countProjectFileEntries,
+  createProjectFileEntry,
+  DEFAULT_PROJECT_FILE_TREE_WIDTH,
+  deleteProjectFileEntry,
+  filterProjectFileEntries,
+  getProjectFileVisualMeta,
+  groupProjectSourcesByUploadedDate,
+  MIN_PROJECT_FILE_TREE_WIDTH,
+  ProjectFilesPanel,
+  sortProjectSourcesByUploadedAt,
+  updateProjectFileEntry,
+  type ProjectFileVisualMeta,
+} from "./projectFiles";
+import type {
+  Attachment,
+  ChatSession,
+  DemoStatus,
+  DirectoryChildEntry,
+  GithubAvailableRepository,
+  GithubLoginSessionState,
+  GithubPanelState,
+  Message,
+  ProjectFilePreview,
+  ProjectSourcesMode,
+  ProjectState,
+  ProjectWorkspace,
+} from "./types";
 
-type Attachment = {
+const PROJECT_PANEL_TOOL_VIEWS = ["memory", "files", "github"] as const;
+type ProjectPanelToolView = (typeof PROJECT_PANEL_TOOL_VIEWS)[number];
+type ProjectPanelView = "menu" | ProjectPanelToolView;
+
+type ProjectPanelTab = {
   id: string;
-  name: string;
-  path: string;
-  previewUrl?: string;
+  view: ProjectPanelToolView;
+  fileQuery: string;
+  filePreview: ProjectFilePreview | null;
+  projectSourcesMode: ProjectSourcesMode;
+  selectedProjectSourceId: string | null;
+  pendingDeleteProjectFileId: string | null;
 };
-
-type Message = {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-  attachments?: Attachment[];
-};
-
-type ChatSession = {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-};
-
-type GitHubEventType = "issue" | "pull_request" | "commit";
-
-type GitHubTimelineEvent = {
-  id: string;
-  type: GitHubEventType;
-  title: string;
-  createdAt: number;
-  status?: string;
-  url?: string;
-};
-
-type GitRepositoryInfo = {
-  path: string;
-  name: string;
-  branch: string;
-  isDirty: boolean;
-  remoteRepo?: string;
-  issuePrStatus: string;
-  visibility?: "public" | "private";
-  authProvider?: "public" | "github_oauth";
-};
-
-type ProjectWorkspace = {
-  id: string;
-  name: string;
-  files?: Attachment[];
-  githubConnected?: boolean;
-  githubRepository?: GitRepositoryInfo;
-  githubEvents?: GitHubTimelineEvent[];
-  sessions: ChatSession[];
-  createdAt: number;
-};
-
-type ProjectState = {
-  projects: ProjectWorkspace[];
-  selectedProjectId: string | null;
-  selectedSessionId: string | null;
-};
-
-type DemoStatus = {
-  ok: boolean;
-  message: string;
-  scope?: "github" | "overview";
-};
-
-type GithubLoginSessionState = {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  interval: number;
-  status: "pending" | "connected";
-  accessToken?: string;
-  scope?: string;
-  tokenType?: string;
-};
-
-type GithubDeviceCodeResponse = {
-  device_code?: string;
-  user_code?: string;
-  verification_uri?: string;
-  expires_in?: number;
-  interval?: number;
-  error?: string;
-  error_description?: string;
-};
-
-type GithubAccessTokenResponse = {
-  access_token?: string;
-  token_type?: string;
-  scope?: string;
-  error?: string;
-  error_description?: string;
-};
-
-type GithubAvailableRepository = {
-  fullName: string;
-  name: string;
-  private: boolean;
-  defaultBranch: string;
-  url: string;
-};
-
-type GithubRepositoriesResponse = {
-  repositories: GithubAvailableRepository[];
-};
-
-type GithubPanelState = "signedout" | "authing" | "repos" | "connected";
 
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
@@ -171,46 +111,6 @@ type RenameDraft =
   | { type: "project"; projectId: string; value: string }
   | { type: "session"; projectId: string; sessionId: string; value: string };
 
-type GitHubRepoApiResponse = {
-  default_branch: string;
-  full_name: string;
-  html_url: string;
-  name: string;
-  private: boolean;
-};
-
-type GitHubUserRepoApiResponse = GitHubRepoApiResponse & {
-  updated_at?: string;
-};
-
-type GitHubCommitApiResponse = {
-  html_url: string;
-  sha: string;
-  commit: {
-    author?: {
-      date?: string;
-    };
-    message: string;
-  };
-};
-
-type GitHubIssueApiResponse = {
-  html_url: string;
-  number: number;
-  pull_request?: unknown;
-  state: string;
-  title: string;
-  updated_at: string;
-};
-
-type GitHubPullApiResponse = {
-  html_url: string;
-  number: number;
-  state: string;
-  title: string;
-  updated_at: string;
-};
-
 const DEMO_REPLY_DELAY_MS = 360;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
@@ -218,34 +118,22 @@ const ACTION_MENU_GAP = 6;
 const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const ZOOM_STORAGE_KEY = "paim.zoomScale.v1";
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const COLLAPSED_SIDEBAR_WIDTH = 44;
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 420;
+const DEFAULT_PROJECT_PANEL_WIDTH = 360;
+const MIN_PROJECT_PANEL_WIDTH = 300;
+const MAX_PROJECT_PANEL_WIDTH = 520;
+const COLLAPSED_PROJECT_PANEL_WIDTH = 44;
 const DEFAULT_ZOOM_SCALE = 1;
 const MIN_ZOOM_SCALE = 0.8;
 const MAX_ZOOM_SCALE = 1.6;
 const ZOOM_STEP = 0.1;
-const PAIM_API_BASE_URL = (
-  (import.meta.env.VITE_PAIM_API_BASE_URL as string | undefined) || "http://127.0.0.1:8000"
-).replace(/\/$/, "");
-const GITHUB_CLIENT_ID = (
-  (import.meta.env.VITE_GITHUB_CLIENT_ID as string | undefined) ||
-  (import.meta.env.VITE_GITHUB_APP_CLIENT_ID as string | undefined) ||
-  ""
-).trim();
-const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
-const GITHUB_LOGIN_CONFIG_ERROR_MESSAGE =
-  "이 앱 빌드에는 GitHub 로그인이 아직 설정되어 있지 않습니다. 개발팀에 문의해 주세요.";
-const GITHUB_LOGIN_SCOPE = "repo read:user";
-const OVERVIEW_SUGGESTIONS = [
-  "이번 주 액션 알려줘",
-  "프로젝트 리스크 정리해줘",
-  "최근 채팅 결정사항 요약",
-];
-
 type TablerIconProps = {
   className?: string;
   label?: string;
@@ -395,10 +283,14 @@ function createProjectState(
   selectedSessionId?: string | null,
 ): ProjectState {
   const validProjects = projects
-    .map((project) => ({
-      ...project,
-      sessions: project.sessions.filter((session) => session.messages.length > 0),
-    }));
+    .map((project) => {
+      const sessions = project.sessions.filter((session) => session.messages.length > 0);
+
+      return {
+        ...project,
+        sessions: sessions.length > 0 ? sessions : [createEmptySession()],
+      };
+    });
 
   if (validProjects.length === 0) {
     return {
@@ -411,9 +303,9 @@ function createProjectState(
   const selectedProject =
     validProjects.find((project) => project.id === selectedProjectId) ?? validProjects[0];
   const selectedSession =
-    selectedSessionId === null
-      ? null
-      : selectedProject.sessions.find((session) => session.id === selectedSessionId) ?? null;
+    selectedProject.sessions.find((session) => session.id === selectedSessionId) ??
+    selectedProject.sessions[0] ??
+    null;
 
   return {
     projects: validProjects,
@@ -444,8 +336,17 @@ function loadSidebarCollapsed() {
   return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
 }
 
+// 우측 프로젝트 패널 접힘 상태를 앱 재실행 후에도 유지한다.
+function loadProjectPanelCollapsed() {
+  return window.localStorage.getItem(PROJECT_PANEL_COLLAPSED_STORAGE_KEY) === "true";
+}
+
 function clampSidebarWidth(width: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width));
+}
+
+function clampProjectPanelWidth(width: number) {
+  return Math.min(MAX_PROJECT_PANEL_WIDTH, Math.max(MIN_PROJECT_PANEL_WIDTH, width));
 }
 
 function loadSidebarWidth() {
@@ -456,6 +357,16 @@ function loadSidebarWidth() {
   }
 
   return clampSidebarWidth(savedWidth);
+}
+
+function loadProjectPanelWidth() {
+  const savedWidth = Number(window.localStorage.getItem(PROJECT_PANEL_WIDTH_STORAGE_KEY));
+
+  if (!Number.isFinite(savedWidth)) {
+    return DEFAULT_PROJECT_PANEL_WIDTH;
+  }
+
+  return clampProjectPanelWidth(savedWidth);
 }
 
 function loadCollapsedProjectIds() {
@@ -523,20 +434,6 @@ function normalizeDialogPaths(selectedPaths: string | string[] | null) {
   return (Array.isArray(selectedPaths) ? selectedPaths : [selectedPaths]).filter(Boolean);
 }
 
-function createProjectNameFromPaths(paths: string[]) {
-  if (paths.length === 0) {
-    return "New Project";
-  }
-
-  const firstName = getFileName(paths[0]);
-
-  if (paths.length === 1) {
-    return firstName;
-  }
-
-  return `${firstName} 외 ${paths.length - 1}개`;
-}
-
 function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -550,315 +447,6 @@ async function openExternalUrl(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function parseGithubRepositoryUrl(rawUrl: string) {
-  const trimmedUrl = rawUrl.trim().replace(/\.git$/, "");
-  const sshMatch = trimmedUrl.match(/^git@github\.com:([^/]+)\/([^/]+)$/);
-
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-
-  try {
-    const url = new URL(trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`);
-
-    if (url.hostname !== "github.com") {
-      return null;
-    }
-
-    const [owner, repo] = url.pathname.split("/").filter(Boolean);
-
-    return owner && repo ? { owner, repo } : null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchPaimJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${PAIM_API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
-    const detail = typeof payload?.detail === "string" ? payload.detail : "PaiM API 요청 실패";
-
-    throw new Error(detail);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === "string" && error) {
-    return error;
-  }
-
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
-function getGithubOAuthErrorMessage(
-  error: string | undefined,
-  description: string | undefined,
-  fallback: string,
-) {
-  if (error === "device_flow_disabled") {
-    return "GitHub App 설정에서 Device Flow를 켜야 로그인할 수 있습니다.";
-  }
-
-  if (error === "incorrect_client_credentials") {
-    return "GitHub 로그인 설정이 올바르지 않습니다. 개발팀에 문의해 주세요.";
-  }
-
-  return description || fallback;
-}
-
-function githubTimestamp(value: string | undefined) {
-  const timestamp = value ? Date.parse(value) : NaN;
-  return Number.isFinite(timestamp) ? timestamp : Date.now();
-}
-
-function createGithubEvents(
-  commits: GitHubCommitApiResponse[],
-  issues: GitHubIssueApiResponse[],
-  pulls: GitHubPullApiResponse[],
-) {
-  const commitEvents = commits.map((commit) => ({
-    id: `commit-${commit.sha}`,
-    type: "commit" as const,
-    title: commit.commit.message.split("\n")[0] || commit.sha.slice(0, 7),
-    createdAt: githubTimestamp(commit.commit.author?.date),
-    status: commit.sha.slice(0, 7),
-    url: commit.html_url,
-  }));
-  const issueEvents = issues
-    .filter((issue) => !issue.pull_request)
-    .map((issue) => ({
-      id: `issue-${issue.number}`,
-      type: "issue" as const,
-      title: `issue #${issue.number} ${issue.title}`,
-      createdAt: githubTimestamp(issue.updated_at),
-      status: issue.state,
-      url: issue.html_url,
-    }));
-  const pullEvents = pulls.map((pull) => ({
-    id: `pull_request-${pull.number}`,
-    type: "pull_request" as const,
-    title: `PR #${pull.number} ${pull.title}`,
-    createdAt: githubTimestamp(pull.updated_at),
-    status: pull.state,
-    url: pull.html_url,
-  }));
-
-  return [...commitEvents, ...issueEvents, ...pullEvents]
-    .sort((left, right) => right.createdAt - left.createdAt)
-    .slice(0, 10);
-}
-
-async function createGithubDeviceCode() {
-  const clientId = getGithubClientId();
-
-  if (!clientId) {
-    throw new Error(GITHUB_LOGIN_CONFIG_ERROR_MESSAGE);
-  }
-
-  if (!canUseTauriDialog()) {
-    return postGithubOAuthForm<GithubDeviceCodeResponse>(
-      "https://github.com/login/device/code",
-      {
-        client_id: clientId,
-        scope: GITHUB_LOGIN_SCOPE,
-      },
-    );
-  }
-
-  return invoke<GithubDeviceCodeResponse>("github_oauth_device_code", {
-    clientId,
-    scope: GITHUB_LOGIN_SCOPE,
-  });
-}
-
-async function fetchGithubAccessToken(deviceCode: string) {
-  const clientId = getGithubClientId();
-
-  if (!clientId) {
-    throw new Error(GITHUB_LOGIN_CONFIG_ERROR_MESSAGE);
-  }
-
-  if (!canUseTauriDialog()) {
-    return postGithubOAuthForm<GithubAccessTokenResponse>(
-      "https://github.com/login/oauth/access_token",
-      {
-        client_id: clientId,
-        device_code: deviceCode,
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      },
-    );
-  }
-
-  return invoke<GithubAccessTokenResponse>("github_oauth_access_token", {
-    clientId,
-    deviceCode,
-  });
-}
-
-function getGithubClientId() {
-  return GITHUB_CLIENT_ID || localStorage.getItem(GITHUB_CLIENT_ID_STORAGE_KEY)?.trim() || "";
-}
-
-async function postGithubOAuthForm<T>(url: string, params: Record<string, string>) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams(params),
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub OAuth ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-function getGithubHeaders(accessToken?: string | null) {
-  return {
-    Accept: "application/vnd.github+json",
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-  };
-}
-
-async function fetchGithubJson<T>(path: string, accessToken?: string | null): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
-    headers: getGithubHeaders(accessToken),
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function fetchGithubRepositories(accessToken: string) {
-  const repositories = await fetchGithubJson<GitHubUserRepoApiResponse[]>(
-    "/user/repos?affiliation=owner,collaborator,organization_member&sort=updated&per_page=100",
-    accessToken,
-  );
-
-  return {
-    repositories: repositories.map((repository) => ({
-      fullName: repository.full_name,
-      name: repository.name,
-      private: repository.private,
-      defaultBranch: repository.default_branch,
-      url: repository.html_url,
-    })),
-  };
-}
-
-async function fetchGithubRepository(rawUrl: string, accessToken?: string | null) {
-  const parsedRepo = parseGithubRepositoryUrl(rawUrl);
-
-  if (!parsedRepo) {
-    throw new Error("GitHub repository URL을 확인할 수 없습니다");
-  }
-
-  const repoPath = `/repos/${parsedRepo.owner}/${parsedRepo.repo}`;
-  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath, accessToken);
-  const [commits, issues, pulls] = await Promise.all([
-    fetchGithubJson<GitHubCommitApiResponse[]>(
-      `${repoPath}/commits?sha=${encodeURIComponent(repo.default_branch)}&per_page=6`,
-      accessToken,
-    ),
-    fetchGithubJson<GitHubIssueApiResponse[]>(
-      `${repoPath}/issues?state=open&per_page=6`,
-      accessToken,
-    ),
-    fetchGithubJson<GitHubPullApiResponse[]>(
-      `${repoPath}/pulls?state=open&per_page=6`,
-      accessToken,
-    ),
-  ]);
-  const openIssues = issues.filter((issue) => !issue.pull_request);
-
-  return {
-    events: createGithubEvents(commits, issues, pulls),
-    repository: {
-      path: repo.html_url,
-      name: repo.name,
-      branch: repo.default_branch,
-      isDirty: false,
-      remoteRepo: repo.full_name,
-      issuePrStatus: `${openIssues.length} open issues · ${pulls.length} open PRs`,
-      visibility: repo.private ? "private" as const : "public" as const,
-      authProvider: accessToken ? "github_oauth" as const : "public" as const,
-    },
-  };
-}
-
-function formatRelativeAge(createdAt: number) {
-  const diffMs = Math.max(0, Date.now() - createdAt);
-  const minuteMs = 60 * 1000;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  const weekMs = 7 * dayMs;
-
-  if (diffMs < minuteMs) {
-    return "방금";
-  }
-
-  if (diffMs < hourMs) {
-    return `${Math.floor(diffMs / minuteMs)}분`;
-  }
-
-  if (diffMs < dayMs) {
-    return `${Math.floor(diffMs / hourMs)}시간`;
-  }
-
-  if (diffMs < weekMs) {
-    return `${Math.floor(diffMs / dayMs)}일`;
-  }
-
-  return `${Math.floor(diffMs / weekMs)}주`;
-}
-
-function getProjectMessageCount(project: ProjectWorkspace) {
-  return project.sessions.reduce((sum, session) => sum + session.messages.length, 0);
-}
-
-function getProjectLastActivity(project: ProjectWorkspace) {
-  const latestSession = project.sessions.reduce<ChatSession | null>((latest, session) => {
-    if (!latest || session.createdAt > latest.createdAt) {
-      return session;
-    }
-
-    return latest;
-  }, null);
-
-  return latestSession ? formatRelativeAge(latestSession.createdAt) : "아직 없음";
-}
-
-// 프로젝트 생성 시각과 채팅 생성 시각 중 가장 최근 값을 Overview 날짜로 사용한다.
-function getProjectLastUpdatedAt(project: ProjectWorkspace) {
-  return project.sessions.reduce(
-    (latest, session) => Math.max(latest, session.createdAt),
-    project.createdAt,
-  );
-}
-
-// mockup의 영문 날짜 표기를 유지한다.
-function formatOverviewDate(timestamp: number) {
-  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short" })
-    .format(timestamp)
-    .toUpperCase();
-}
-
 // Overview 파일 목록은 프로젝트에 직접 등록된 파일만 보여준다.
 function getProjectAttachments(project: ProjectWorkspace) {
   return project.files ?? [];
@@ -869,41 +457,53 @@ function getProjectGithubEvents(project: ProjectWorkspace) {
   return [...(project.githubEvents ?? [])].sort((left, right) => right.createdAt - left.createdAt);
 }
 
-function getGithubEventIconSvg(eventType: GitHubEventType) {
-  if (eventType === "pull_request") {
-    return tablerGitPullRequest;
-  }
-
-  if (eventType === "commit") {
-    return tablerGitCommit;
-  }
-
-  return tablerAlertCircle;
-}
-
-function getGithubEventMeta(event: GitHubTimelineEvent) {
-  const eventLabel =
-    event.type === "pull_request" ? "PR" : event.type === "issue" ? "ISSUE" : "COMMIT";
-  const status = event.status ? `${event.status} · ` : "";
-
-  return `${eventLabel} · ${status}${formatRelativeAge(event.createdAt)}`;
-}
-
-// GitHub 패널은 참조 HTML의 4단계 흐름을 실제 세션 상태에 맞춰 표시한다.
-function getGithubPanelStateLabel(panelState: GithubPanelState) {
-  const labels: Record<GithubPanelState, string> = {
-    signedout: "미연결",
-    authing: "로그인 중",
-    repos: "로그인됨",
-    connected: "연결됨",
+// 우측 패널은 Codex류 보조 패널처럼 메뉴와 상세 화면을 오간다.
+function getProjectPanelTitle(view: ProjectPanelView) {
+  const titles: Record<ProjectPanelView, string> = {
+    menu: "도구 선택",
+    memory: "프로젝트 메모리",
+    files: "자료",
+    github: "GitHub",
   };
 
-  return labels[panelState];
+  return titles[view];
 }
 
-// Repo 선택 목록의 공개 범위 badge는 GitHub API 값을 그대로 짧게 보여준다.
-function getGithubAvailableRepositoryVisibility(repository: GithubAvailableRepository) {
-  return repository.private ? "PRIVATE" : "PUBLIC";
+// 새 탭은 자료 탭일 때만 독립 상태를 사용한다. 다른 탭은 같은 화면을 여러 개 열 수만 있으면 충분하다.
+function createProjectPanelTab(view: ProjectPanelToolView): ProjectPanelTab {
+  return {
+    id: createId("project-panel-tab"),
+    view,
+    fileQuery: "",
+    filePreview: null,
+    projectSourcesMode: "library",
+    selectedProjectSourceId: null,
+    pendingDeleteProjectFileId: null,
+  };
+}
+
+function resolveStateAction<T>(action: SetStateAction<T>, currentValue: T) {
+  return typeof action === "function"
+    ? (action as (value: T) => T)(currentValue)
+    : action;
+}
+
+// 패널 탭은 열린 파일이 있으면 자료 탭 대신 파일명과 파일 아이콘을 보여준다.
+function getProjectPanelTabVisualMeta(
+  view: ProjectPanelToolView,
+  preview: ProjectFilePreview | null,
+) {
+  if (view === "files" && preview) {
+    return getProjectFileVisualMeta(preview.name);
+  }
+
+  const icons: Record<ProjectPanelToolView, ProjectFileVisualMeta> = {
+    memory: { Icon: Brain, color: "var(--muted)" },
+    files: { Icon: Files, color: "var(--muted)" },
+    github: { Icon: GitBranch, color: "var(--muted)" },
+  };
+
+  return icons[view];
 }
 
 function getGithubLoginErrorMessage(error: unknown) {
@@ -914,11 +514,16 @@ function getGithubLoginErrorMessage(error: unknown) {
     : message;
 }
 
-function getGithubRepoLabel(repository: GitRepositoryInfo) {
-  const visibility = repository.visibility === "private" ? "Private" : "Public";
-  const provider = repository.authProvider === "github_oauth" ? "GitHub Login" : "Public API";
+// private repo가 실제로 포함됐는지 로그인/새로고침 결과에서 바로 보이게 한다.
+function getGithubRepositoryLoadMessage(repositories: GithubAvailableRepository[]) {
+  const privateCount = repositories.filter((repository) => repository.private).length;
 
-  return `${visibility} · ${provider}`;
+  return `${repositories.length}개 repo를 불러왔습니다 · private ${privateCount}개`;
+}
+
+// GitHub App 설치는 user API가 없어서 repo owner를 계정 표시 fallback으로 쓴다.
+function getGithubRepositoryOwner(repositories: GithubAvailableRepository[]) {
+  return repositories.find((repository) => repository.owner)?.owner;
 }
 
 // 프로젝트 Overview의 PM 카드에는 아직 연결된 분석 결과 대신 현재 앱 상태를 담는다.
@@ -967,40 +572,19 @@ function createOverviewMemoryCards(project: ProjectWorkspace, attachmentCount: n
   ];
 }
 
-// 파일 확장자만 보고 Overview 파일 목록에 맞는 Tabler 아이콘을 고른다.
-function getAttachmentIconSvg(fileName: string) {
-  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-
-  if (["m4a", "mp3", "wav"].includes(extension)) {
-    return tablerMicrophone;
-  }
-
-  if (["csv", "xls", "xlsx"].includes(extension)) {
-    return tablerTable;
-  }
-
-  if (["js", "json", "md", "py", "ts", "tsx"].includes(extension)) {
-    return tablerCode;
-  }
-
-  return tablerFileText;
-}
-
-// 파일 크기는 아직 저장하지 않으므로 확장자 기반 메타만 표시한다.
-function getAttachmentMeta(fileName: string) {
-  const extension = fileName.split(".").pop()?.toUpperCase();
-
-  return extension ? `${extension} · 첨부 파일` : "첨부 파일";
-}
-
 // localStorage에는 큰 data URL을 저장하지 않도록 첨부 미리보기를 제외한다.
-function createStoredAttachments(attachments: Attachment[] = []) {
+function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
   return attachments.map((attachment) => ({
     id: attachment.id,
-    name: attachment.name,
-    path: attachment.path,
-  }));
-}
+	    name: attachment.name,
+	    path: attachment.path,
+	    kind: attachment.kind,
+	    children: attachment.children ? createStoredAttachments(attachment.children) : undefined,
+	    childrenLoaded: attachment.childrenLoaded,
+	    isExpanded: attachment.isExpanded,
+	    uploadedAt: attachment.uploadedAt,
+	  }));
+	}
 
 function createStoredSessions(sessions: ChatSession[]) {
   return sessions.map((session) => ({
@@ -1129,10 +713,22 @@ export function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(loadSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const [isProjectPanelCollapsed, setIsProjectPanelCollapsed] = useState(
+    loadProjectPanelCollapsed,
+  );
+  const [projectPanelWidth, setProjectPanelWidth] = useState(loadProjectPanelWidth);
+  const [isProjectPanelResizing, setIsProjectPanelResizing] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
-  const [demoStatus, setDemoStatus] = useState<DemoStatus | null>(null);
+  const [demoStatus, setDemoStatusState] = useState<DemoStatus | null>(null);
   const [statusRevision, setStatusRevision] = useState(0);
-  const [isProjectCreateMenuOpen, setIsProjectCreateMenuOpen] = useState(false);
+  const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
+  const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
+  const [isProjectPanelMaximized, setIsProjectPanelMaximized] = useState(false);
+  const [projectFileTreeWidth, setProjectFileTreeWidth] = useState(
+    DEFAULT_PROJECT_FILE_TREE_WIDTH,
+  );
+  const [isProjectFileTreeCollapsed, setIsProjectFileTreeCollapsed] = useState(false);
+  const [isProjectFileTreeResizing, setIsProjectFileTreeResizing] = useState(false);
   const [openActionMenu, setOpenActionMenu] = useState<ActionMenuState | null>(null);
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null);
   const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
@@ -1145,10 +741,18 @@ export function App() {
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
+  const projectPanelResizeRef = useRef({
+    startX: 0,
+    startWidth: DEFAULT_PROJECT_PANEL_WIDTH,
+  });
+  const projectFileTreeResizeRef = useRef({
+    startX: 0,
+    startWidth: DEFAULT_PROJECT_FILE_TREE_WIDTH,
+  });
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const projectCreateRef = useRef<HTMLDivElement | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const didHydrateAttachmentPreviewsRef = useRef(false);
+  const demoStatusTimeoutRef = useRef<number | null>(null);
   const zoomScaleRef = useRef(loadZoomScale());
 
   const selectedProject = useMemo(
@@ -1160,10 +764,55 @@ export function App() {
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
-  const selectedProjectAttachments = useMemo(
-    () => (selectedProject ? getProjectAttachments(selectedProject) : []),
-    [selectedProject],
+  const activeProjectPanelTab = useMemo(
+    () => projectPanelTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? null,
+    [activeProjectPanelTabId, projectPanelTabs],
   );
+  const projectPanelView: ProjectPanelView = activeProjectPanelTab?.view ?? "menu";
+  const activeProjectFileTab =
+    activeProjectPanelTab?.view === "files" ? activeProjectPanelTab : null;
+  const projectFileQuery = activeProjectFileTab?.fileQuery ?? "";
+  const projectFilePreview = activeProjectFileTab?.filePreview ?? null;
+  const projectSourcesMode = activeProjectFileTab?.projectSourcesMode ?? "library";
+  const selectedProjectSourceId = activeProjectFileTab?.selectedProjectSourceId ?? null;
+  const pendingDeleteProjectFileId = activeProjectFileTab?.pendingDeleteProjectFileId ?? null;
+	  const selectedProjectAttachments = useMemo(
+	    () => (selectedProject ? getProjectAttachments(selectedProject) : []),
+	    [selectedProject],
+	  );
+	  const sortedSelectedProjectAttachments = useMemo(
+	    () => sortProjectSourcesByUploadedAt(selectedProjectAttachments),
+	    [selectedProjectAttachments],
+	  );
+	  const selectedProjectFileCount = useMemo(
+	    () => countProjectFileEntries(selectedProjectAttachments),
+	    [selectedProjectAttachments],
+	  );
+	  const filteredSelectedProjectFiles = useMemo(
+	    () => filterProjectFileEntries(sortedSelectedProjectAttachments, projectFileQuery),
+	    [projectFileQuery, sortedSelectedProjectAttachments],
+	  );
+	  const groupedSelectedProjectFiles = useMemo(
+	    () => groupProjectSourcesByUploadedDate(filteredSelectedProjectFiles),
+	    [filteredSelectedProjectFiles],
+	  );
+	  const selectedProjectSource = useMemo(
+	    () => selectedProjectAttachments.find((source) => source.id === selectedProjectSourceId) ?? null,
+	    [selectedProjectAttachments, selectedProjectSourceId],
+	  );
+	  const isSelectedProjectSourceFile = selectedProjectSource?.kind === "file";
+	  const selectedProjectTreeAttachments = useMemo(
+	    () => (selectedProjectSource ? [selectedProjectSource] : selectedProjectAttachments),
+	    [selectedProjectAttachments, selectedProjectSource],
+	  );
+	  const selectedProjectTreeFileCount = useMemo(
+	    () => countProjectFileEntries(selectedProjectTreeAttachments),
+	    [selectedProjectTreeAttachments],
+	  );
+	  const filteredSelectedProjectTreeFiles = useMemo(
+	    () => filterProjectFileEntries(selectedProjectTreeAttachments, projectFileQuery),
+	    [projectFileQuery, selectedProjectTreeAttachments],
+	  );
   const selectedProjectGithubEvents = useMemo(
     () => (selectedProject ? getProjectGithubEvents(selectedProject) : []),
     [selectedProject],
@@ -1181,6 +830,31 @@ export function App() {
       : selectedProjectGithubSession?.status === "pending"
         ? "authing"
         : "signedout";
+  function clearDemoStatusTimeout() {
+    if (demoStatusTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(demoStatusTimeoutRef.current);
+    demoStatusTimeoutRef.current = null;
+  }
+
+  function queueDemoStatusClear() {
+    demoStatusTimeoutRef.current = window.setTimeout(() => {
+      setDemoStatusState(null);
+      demoStatusTimeoutRef.current = null;
+    }, 3200);
+  }
+
+  function setDemoStatus(nextStatus: DemoStatus | null) {
+    clearDemoStatusTimeout();
+    setDemoStatusState(nextStatus);
+
+    if (nextStatus) {
+      queueDemoStatusClear();
+    }
+  }
+
   const filteredSelectedProjectGithubRepositories = useMemo(() => {
     const query = githubRepositoryQuery.trim().toLowerCase();
 
@@ -1195,9 +869,9 @@ export function App() {
   const overviewMemoryCards = useMemo(
     () =>
       selectedProject
-        ? createOverviewMemoryCards(selectedProject, selectedProjectAttachments.length)
+        ? createOverviewMemoryCards(selectedProject, selectedProjectFileCount)
         : [],
-    [selectedProject, selectedProjectAttachments.length],
+    [selectedProject, selectedProjectFileCount],
   );
   const actionMenuProject = openActionMenu
     ? projects.find((project) => project.id === openActionMenu.projectId) ?? null
@@ -1215,6 +889,12 @@ export function App() {
     "--sidebar-width": `${
       isSidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth
     }px`,
+    "--project-panel-width": `${
+      isProjectPanelCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectPanelWidth
+    }px`,
+    "--project-file-tree-width": `${
+      isProjectFileTreeCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectFileTreeWidth
+    }px`,
   } as CSSProperties;
 
   useEffect(() => {
@@ -1231,6 +911,17 @@ export function App() {
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      PROJECT_PANEL_COLLAPSED_STORAGE_KEY,
+      String(isProjectPanelCollapsed),
+    );
+  }, [isProjectPanelCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem(PROJECT_PANEL_WIDTH_STORAGE_KEY, String(projectPanelWidth));
+  }, [projectPanelWidth]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -1312,10 +1003,83 @@ export function App() {
   }, [isSidebarResizing]);
 
   useEffect(() => {
-    if (demoStatus) {
-      setStatusRevision((currentRevision) => currentRevision + 1);
+    if (!isProjectPanelResizing) {
+      return;
+    }
+
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+
+    function handleMouseMove(event: globalThis.MouseEvent) {
+      const deltaX = projectPanelResizeRef.current.startX - event.clientX;
+      setProjectPanelWidth(
+        clampProjectPanelWidth(projectPanelResizeRef.current.startWidth + deltaX),
+      );
+    }
+
+    function handleMouseUp() {
+      setIsProjectPanelResizing(false);
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isProjectPanelResizing]);
+
+  useEffect(() => {
+    if (!isProjectFileTreeResizing) {
+      return;
+    }
+
+    const originalCursor = document.body.style.cursor;
+    const originalUserSelect = document.body.style.userSelect;
+
+    function handleMouseMove(event: globalThis.MouseEvent) {
+      const deltaX = projectFileTreeResizeRef.current.startX - event.clientX;
+      setProjectFileTreeWidth(
+        clampProjectFileTreeWidth(projectFileTreeResizeRef.current.startWidth + deltaX),
+      );
+    }
+
+    function handleMouseUp() {
+      setIsProjectFileTreeResizing(false);
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.body.style.cursor = originalCursor;
+      document.body.style.userSelect = originalUserSelect;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isProjectFileTreeResizing]);
+
+
+  useEffect(() => {
+    if (!demoStatus) {
+      return;
+    }
+
+    setStatusRevision((currentRevision) => currentRevision + 1);
+
+    if (demoStatusTimeoutRef.current === null) {
+      queueDemoStatusClear();
     }
   }, [demoStatus]);
+
+  useEffect(() => () => clearDemoStatusTimeout(), []);
 
   useEffect(() => {
     if (didHydrateAttachmentPreviewsRef.current) {
@@ -1380,36 +1144,76 @@ export function App() {
     focusPrompt();
   }, [selectedSessionId]);
 
+	  useEffect(() => {
+	    setProjectPanelTabs([]);
+	    setActiveProjectPanelTabId(null);
+	  }, [selectedProjectId]);
+
   useEffect(() => {
-    if (!isProjectCreateMenuOpen) {
+    setPendingDeleteProjectFileId(null);
+  }, [projectSourcesMode]);
+
+  function updateProjectPanelTab(
+    tabId: string,
+    updater: (tab: ProjectPanelTab) => ProjectPanelTab,
+  ) {
+    setProjectPanelTabs((currentTabs) =>
+      currentTabs.map((tab) => (tab.id === tabId ? updater(tab) : tab)),
+    );
+  }
+
+  function updateActiveProjectFileTab(updater: (tab: ProjectPanelTab) => ProjectPanelTab) {
+    if (!activeProjectFileTab) {
       return;
     }
 
-    // 프로젝트 생성 메뉴도 바깥 클릭과 Escape 키로 닫는다.
-    function handlePointerDown(event: PointerEvent) {
-      const projectCreate = projectCreateRef.current;
+    updateProjectPanelTab(activeProjectFileTab.id, updater);
+  }
 
-      if (!projectCreate || projectCreate.contains(event.target as Node)) {
-        return;
-      }
+  function setProjectFileQuery(action: SetStateAction<string>) {
+    updateActiveProjectFileTab((tab) => ({
+      ...tab,
+      fileQuery: resolveStateAction(action, tab.fileQuery),
+    }));
+  }
 
-      setIsProjectCreateMenuOpen(false);
-    }
+  function setProjectFilePreviewForTab(
+    tabId: string,
+    action: SetStateAction<ProjectFilePreview | null>,
+  ) {
+    updateProjectPanelTab(tabId, (tab) => ({
+      ...tab,
+      filePreview: resolveStateAction(action, tab.filePreview),
+    }));
+  }
 
-    function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsProjectCreateMenuOpen(false);
-      }
-    }
+  function setProjectFilePreview(action: SetStateAction<ProjectFilePreview | null>) {
+    updateActiveProjectFileTab((tab) => ({
+      ...tab,
+      filePreview: resolveStateAction(action, tab.filePreview),
+    }));
+  }
 
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
+  function setProjectSourcesMode(action: SetStateAction<ProjectSourcesMode>) {
+    updateActiveProjectFileTab((tab) => ({
+      ...tab,
+      projectSourcesMode: resolveStateAction(action, tab.projectSourcesMode),
+    }));
+  }
 
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isProjectCreateMenuOpen]);
+  function setSelectedProjectSourceId(action: SetStateAction<string | null>) {
+    updateActiveProjectFileTab((tab) => ({
+      ...tab,
+      selectedProjectSourceId: resolveStateAction(action, tab.selectedProjectSourceId),
+    }));
+  }
+
+  function setPendingDeleteProjectFileId(action: SetStateAction<string | null>) {
+    updateActiveProjectFileTab((tab) => ({
+      ...tab,
+      pendingDeleteProjectFileId: resolveStateAction(action, tab.pendingDeleteProjectFileId),
+    }));
+  }
 
   function updateProject(projectId: string, updater: (project: ProjectWorkspace) => ProjectWorkspace) {
     setProjects((currentProjects) =>
@@ -1438,29 +1242,32 @@ export function App() {
     }
 
     setSelectedProjectId(nextProject.id);
-    setSelectedSessionId(null);
+    setSelectedSessionId(nextProject.sessions[0]?.id ?? null);
     clearDraft();
   }
 
-  // 선택된 폴더나 파일 이름으로 프로젝트를 만들고, 선택 파일은 Overview 파일에 저장한다.
+  // 새 프로젝트는 자료 업로드 없이 바로 채팅을 시작할 수 있게 첫 채팅을 함께 만든다.
   function createProjectFromName(baseName: string, files: Attachment[] = []) {
-    const nextProject = createProject(createUniqueProjectName(projects, baseName), [], files);
+    const nextSession = createEmptySession();
+    const nextProject = createProject(createUniqueProjectName(projects, baseName), [nextSession], files);
 
     setProjects((currentProjects) => [nextProject, ...currentProjects]);
     setSelectedProjectId(nextProject.id);
-    setSelectedSessionId(null);
-    setIsProjectCreateMenuOpen(false);
+    setSelectedSessionId(nextSession.id);
+    setProjectPanelTabs([]);
+    setActiveProjectPanelTabId(null);
     clearDraft();
-  }
-
-  // New Project 버튼은 폴더/파일 선택 메뉴를 여닫는다.
-  function handleToggleProjectCreateMenu() {
-    setIsProjectCreateMenuOpen((current) => !current);
   }
 
   function handleToggleSidebar() {
     setIsSidebarCollapsed((current) => !current);
     setIsSidebarResizing(false);
+  }
+
+  function handleToggleProjectPanel() {
+    setIsProjectPanelCollapsed((current) => !current);
+    setIsProjectPanelResizing(false);
+    setIsProjectFileTreeResizing(false);
   }
 
   function handleSidebarResizeStart(event: MouseEvent<HTMLDivElement>) {
@@ -1477,6 +1284,29 @@ export function App() {
     setIsSidebarResizing(true);
   }
 
+  function handleProjectPanelResizeStart(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    projectPanelResizeRef.current = {
+      startX: event.clientX,
+      startWidth: projectPanelWidth,
+    };
+    setIsProjectPanelResizing(true);
+  }
+
+  function handleProjectFileTreeResizeStart(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    projectFileTreeResizeRef.current = {
+      startX: event.clientX,
+      startWidth: isProjectFileTreeCollapsed
+        ? MIN_PROJECT_FILE_TREE_WIDTH
+        : projectFileTreeWidth,
+    };
+    setIsProjectFileTreeCollapsed(false);
+    setIsProjectFileTreeResizing(true);
+  }
+
   function toggleProjectSessions(projectId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
     setCollapsedProjectIds((currentProjectIds) =>
@@ -1486,69 +1316,9 @@ export function App() {
     );
   }
 
-  // 데스크톱에서는 폴더명을 쓰고, 브라우저 smoke test에서는 fallback 이름으로 검증한다.
-  async function handleCreateProjectFromFolder() {
-    if (!canUseTauriDialog()) {
-      createProjectFromName(createNextProjectName(projects));
-      return;
-    }
-
-    try {
-      const selectedPaths = await open({
-        directory: true,
-        multiple: false,
-        title: "프로젝트 폴더 선택",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
-
-      if (paths.length === 0) {
-        return;
-      }
-
-      const projectFiles = await Promise.all(paths.map(createAttachment));
-
-      createProjectFromName(createProjectNameFromPaths(paths), projectFiles);
-    } catch {
-      setDemoStatus({
-        ok: false,
-        message: "프로젝트 폴더를 열 수 없습니다",
-        scope: "overview",
-      });
-    }
-  }
-
-  // 데스크톱에서는 선택한 파일 묶음 이름으로 새 프로젝트 카테고리를 만든다.
-  async function handleCreateProjectFromFiles() {
-    if (!canUseTauriDialog()) {
-      createProjectFromName(createNextProjectName(projects));
-      return;
-    }
-
-    try {
-      const selectedPaths = await open({
-        directory: false,
-        multiple: true,
-        title: "프로젝트 파일 선택",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
-
-      if (paths.length === 0) {
-        return;
-      }
-
-      createProjectFromName(createProjectNameFromPaths(paths));
-    } catch {
-      setDemoStatus({
-        ok: false,
-        message: "프로젝트 파일을 열 수 없습니다",
-        scope: "overview",
-      });
-    }
-  }
-
   // 지정한 프로젝트 안에 새 채팅을 항상 추가하고 그 채팅을 선택한다.
-  function handleCreateChatInProject(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
+	  function handleCreateChatInProject(projectId: string) {
+	    const targetProject = projects.find((project) => project.id === projectId);
 
     if (!targetProject) {
       return;
@@ -1565,115 +1335,297 @@ export function App() {
     setCollapsedProjectIds((currentProjectIds) =>
       currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId),
     );
-    clearDraft();
-    focusPrompt();
-  }
+	    clearDraft();
+	    focusPrompt();
+	  }
 
-  // Overview에서 질문을 보내면 새 채팅을 만들고 같은 데모 응답 흐름을 사용한다.
-  async function handleStartOverviewChat(projectId: string, rawPrompt: string) {
-    const trimmedPrompt = rawPrompt.trim();
-    const targetProject = projects.find((project) => project.id === projectId);
+	  // 같은 도구도 새 탭으로 추가한다. 자료 탭은 탭별로 검색/선택/프리뷰 상태를 따로 가진다.
+	  function openProjectPanelTool(view: ProjectPanelToolView) {
+	    const nextTab = createProjectPanelTab(view);
 
-    if (!targetProject || !trimmedPrompt || isSending) {
+	    setProjectPanelTabs((currentTabs) => [...currentTabs, nextTab]);
+	    setActiveProjectPanelTabId(nextTab.id);
+	  }
+
+	  // 탭을 닫으면 바로 왼쪽 탭을 우선 활성화하고, 남은 탭이 없으면 메뉴로 돌아간다.
+	  function handleCloseProjectPanelTab(tabId: string) {
+	    setProjectPanelTabs((currentTabs) => {
+	      const closingIndex = currentTabs.findIndex((tab) => tab.id === tabId);
+	      const nextTabs = currentTabs.filter((tab) => tab.id !== tabId);
+
+	      if (activeProjectPanelTabId === tabId) {
+	        const nextActiveTab = nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0] ?? null;
+	        setActiveProjectPanelTabId(nextActiveTab?.id ?? null);
+	      }
+
+	      return nextTabs;
+	    });
+	  }
+
+	  // 열린 파일이 있으면 자료 탭 라벨을 파일명으로 압축해서 보여준다.
+	  function getProjectPanelTabLabel(tab: ProjectPanelTab) {
+	    return tab.view === "files" && tab.filePreview
+	      ? tab.filePreview.name
+	      : getProjectPanelTitle(tab.view);
+	  }
+
+		  async function readDirectoryChildren(path: string) {
+	    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
+
+	    return children.map(createProjectFileEntry);
+	  }
+
+		  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
+		    const children = await readDirectoryChildren(path);
+
+		    return {
+	      id: createId("project-file"),
+	      name: getFileName(path),
+	      path,
+	      kind: "directory",
+		      children,
+		      childrenLoaded: true,
+		      isExpanded: true,
+		      uploadedAt,
+		    };
+		  }
+
+		  // 프로젝트 자료함에 단일 파일을 트리의 루트 항목으로 추가한다.
+		  function createProjectFileRootEntry(path: string, uploadedAt: number): Attachment {
+		    return {
+		      id: createId("project-file"),
+		      name: getFileName(path),
+		      path,
+		      kind: "file",
+		      uploadedAt,
+		    };
+		  }
+
+	  // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
+	  async function handleOpenProjectFiles(projectId: string) {
+	    const targetProject = projects.find((project) => project.id === projectId);
+
+	    if (!targetProject) {
+	      return;
+	    }
+
+	    if (!canUseTauriDialog()) {
+	      setDemoStatus({
+	        ok: false,
+	        message: "데스크톱 앱에서 파일을 업로드할 수 있습니다",
+	        scope: "overview",
+	      });
+	      return;
+	    }
+
+	    try {
+	      const selectedPaths = await open({
+	        directory: false,
+	        multiple: true,
+	        title: "프로젝트 파일 업로드",
+	      });
+	      const paths = normalizeDialogPaths(selectedPaths);
+
+	      if (paths.length === 0) {
+	        return;
+	      }
+
+		      const uploadedAt = Date.now();
+		      const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
+
+	      updateProject(projectId, (project) => ({
+	        ...project,
+	        files: [...nextEntries, ...(project.files ?? [])],
+	      }));
+	      setSelectedProjectId(projectId);
+	      setProjectSourcesMode("library");
+	    } catch {
+	      setDemoStatus({
+	        ok: false,
+	        message: "프로젝트 파일을 업로드할 수 없습니다",
+	        scope: "overview",
+	      });
+	    }
+	  }
+
+	  // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
+	  async function handleOpenProjectDirectory(projectId: string) {
+	    const targetProject = projects.find((project) => project.id === projectId);
+
+	    if (!targetProject) {
+	      return;
+	    }
+
+	    if (!canUseTauriDialog()) {
+	      setDemoStatus({
+	        ok: false,
+	        message: "데스크톱 앱에서 폴더를 업로드할 수 있습니다",
+	        scope: "overview",
+	      });
+	      return;
+	    }
+
+	    try {
+	      const selectedPaths = await open({
+	        directory: true,
+	        multiple: true,
+	        title: "프로젝트 폴더 업로드",
+	      });
+	      const paths = normalizeDialogPaths(selectedPaths);
+
+	      if (paths.length === 0) {
+	        return;
+	      }
+
+		      const uploadedAt = Date.now();
+		      const nextEntries = await Promise.all(
+		        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
+		      );
+
+	      updateProject(projectId, (project) => ({
+	        ...project,
+	        files: [...nextEntries, ...(project.files ?? [])],
+	      }));
+	      setSelectedProjectId(projectId);
+	      setProjectSourcesMode("library");
+	    } catch {
+	      setDemoStatus({
+	        ok: false,
+	        message: "프로젝트 폴더를 업로드할 수 없습니다",
+	        scope: "overview",
+	      });
+	    }
+	  }
+
+  async function handleToggleProjectFileEntry(projectId: string, entry: Attachment) {
+    if (entry.kind !== "directory") {
       return;
     }
 
-    const nextSession = createEmptySession();
-    const userMessage: Message = {
-      id: createId("user"),
-      role: "user",
-      content: trimmedPrompt,
-    };
-
-    updateProject(projectId, (project) => ({
-      ...project,
-      sessions: [
-        {
-          ...nextSession,
-          title: trimmedPrompt.slice(0, 32),
-          messages: [...nextSession.messages, userMessage],
-        },
-        ...project.sessions,
-      ],
-    }));
-    setSelectedProjectId(projectId);
-    setSelectedSessionId(nextSession.id);
-    setCollapsedProjectIds((currentProjectIds) =>
-      currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId),
-    );
-    clearDraft();
-    setIsSending(true);
-
-    await wait(DEMO_REPLY_DELAY_MS);
-
-    updateSessionInProject(projectId, nextSession.id, (session) => ({
-      ...session,
-      messages: [
-        ...session.messages,
-        {
-          id: createId("assistant"),
-          role: "assistant",
-          content: createDemoAssistantReply(userMessage),
-        },
-      ],
-    }));
-    setIsSending(false);
-    focusPrompt();
-  }
-
-  // Overview의 파일 추가는 채팅을 만들지 않고 프로젝트 파일 목록만 갱신한다.
-  async function handleAddFilesToProject(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
-
-    if (!targetProject) {
-      return;
-    }
-
-    if (!canUseTauriDialog()) {
-      setDemoStatus({
-        ok: false,
-        message: "데스크톱 앱에서 파일을 추가할 수 있습니다",
-        scope: "overview",
-      });
+    if (entry.childrenLoaded) {
+      updateProject(projectId, (project) => ({
+        ...project,
+        files: updateProjectFileEntry(project.files ?? [], entry.id, (currentEntry) => ({
+          ...currentEntry,
+          isExpanded: !currentEntry.isExpanded,
+        })),
+      }));
       return;
     }
 
     try {
-      const selectedPaths = await open({
-        directory: false,
-        multiple: true,
-        title: "프로젝트 파일 추가",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
-
-      if (paths.length === 0) {
-        return;
-      }
-
-      const nextAttachments = await Promise.all(paths.map(createAttachment));
+      const children = await readDirectoryChildren(entry.path);
 
       updateProject(projectId, (project) => ({
         ...project,
-        files: [...(project.files ?? []), ...nextAttachments],
+        files: updateProjectFileEntry(project.files ?? [], entry.id, (currentEntry) => ({
+          ...currentEntry,
+          children,
+          childrenLoaded: true,
+          isExpanded: true,
+        })),
       }));
-      setSelectedProjectId(projectId);
-      setSelectedSessionId(null);
     } catch {
       setDemoStatus({
         ok: false,
-        message: "프로젝트 파일을 추가할 수 없습니다",
+        message: "하위 폴더를 읽을 수 없습니다",
         scope: "overview",
       });
     }
   }
 
-  // Overview 파일 행에서 선택한 파일만 프로젝트 파일 목록에서 제거한다.
-  function handleDeleteProjectFile(projectId: string, attachmentId: string) {
+  // 파일 트리에서 선택한 텍스트 파일을 왼쪽 프리뷰 영역에 읽기 전용으로 표시한다.
+  async function handleSelectProjectFile(entry: Attachment) {
+    if (entry.kind === "directory") {
+      return;
+    }
+    const targetTabId = activeProjectFileTab?.id;
+
+    if (!targetTabId) {
+      return;
+    }
+
+    const nextPreview = {
+      id: entry.id,
+      name: entry.name,
+      path: entry.path,
+      content: "",
+      isLoading: true,
+    };
+
+    setProjectFilePreviewForTab(targetTabId, nextPreview);
+
+    try {
+      const content = await invoke<string>("read_text_file", { path: entry.path });
+
+      setProjectFilePreviewForTab(targetTabId, (currentPreview) =>
+        currentPreview?.id === entry.id
+          ? { ...nextPreview, content, isLoading: false }
+          : currentPreview,
+      );
+    } catch (error) {
+      setProjectFilePreviewForTab(targetTabId, (currentPreview) =>
+        currentPreview?.id === entry.id
+          ? {
+              ...nextPreview,
+              isLoading: false,
+              error: error instanceof Error ? error.message : String(error),
+            }
+          : currentPreview,
+      );
+    }
+  }
+
+  // 파일 패널에서 선택한 항목을 트리에서 제거한다.
+	  function handleDeleteProjectFile(projectId: string, attachmentId: string) {
+	    setProjectPanelTabs((currentTabs) =>
+	      currentTabs.map((tab) => {
+	        if (tab.view !== "files") {
+	          return tab;
+	        }
+
+	        const isSelectedSource = tab.selectedProjectSourceId === attachmentId;
+
+	        return {
+	          ...tab,
+	          filePreview: tab.filePreview?.id === attachmentId ? null : tab.filePreview,
+	          pendingDeleteProjectFileId: null,
+	          projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
+	          selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
+	        };
+	      }),
+	    );
+
     updateProject(projectId, (project) => ({
       ...project,
-      files: (project.files ?? []).filter((file) => file.id !== attachmentId),
+      files: deleteProjectFileEntry(project.files ?? [], attachmentId),
     }));
   }
+
+	  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
+	  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
+	    if (pendingDeleteProjectFileId !== attachment.id) {
+	      setPendingDeleteProjectFileId(attachment.id);
+	      return;
+	    }
+
+	    handleDeleteProjectFile(projectId, attachment.id);
+	  }
+
+	  // 자료 카드 선택은 해당 자료 하나만 트리 루트로 보여주고, 파일이면 바로 미리보기를 연다.
+	  function handleOpenProjectSource(source: Attachment) {
+	    setProjectFileQuery("");
+	    setSelectedProjectSourceId(source.id);
+	    setPendingDeleteProjectFileId(null);
+	    setProjectSourcesMode("tree");
+
+	    if (source.kind === "file") {
+	      void handleSelectProjectFile(source);
+	      return;
+	    }
+
+	    setProjectFilePreview(null);
+	  }
 
   async function handleStartGithubLogin(projectId: string) {
     if (isGithubAuthStarting) {
@@ -1681,7 +1633,6 @@ export function App() {
     }
 
     setSelectedProjectId(projectId);
-    setSelectedSessionId(null);
     setGithubRepositoryQuery("");
     setIsGithubAuthStarting(true);
     setDemoStatus({
@@ -1737,6 +1688,55 @@ export function App() {
     }
   }
 
+  async function handleStartGithubPrivateLogin(projectId: string) {
+    if (isGithubAuthStarting) {
+      return;
+    }
+
+    setSelectedProjectId(projectId);
+    setGithubRepositoryQuery("");
+    setIsGithubAuthStarting(true);
+    setDemoStatus({
+      ok: true,
+      message: "Private repo 연결 준비 중...",
+      scope: "github",
+    });
+
+    try {
+      const appSession = await createGithubAppSession();
+
+      if (!appSession.state || !appSession.installUrl) {
+        throw new Error("GitHub App 설치를 시작할 수 없습니다");
+      }
+
+      const session: GithubLoginSessionState = {
+        state: appSession.state,
+        verificationUri: appSession.installUrl,
+        interval: 5,
+        status: "pending",
+      };
+
+      setGithubLoginSessions((currentSessions) => ({
+        ...currentSessions,
+        [projectId]: session,
+      }));
+      await openExternalUrl(session.verificationUri);
+      setDemoStatus({
+        ok: true,
+        message: "GitHub App 설치 화면을 열었습니다",
+        scope: "github",
+      });
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "Private repo 연결은 PaiM backend가 켜져 있어야 합니다"),
+        scope: "github",
+      });
+    } finally {
+      setIsGithubAuthStarting(false);
+    }
+  }
+
   async function handleCheckGithubLogin(projectId: string) {
     const session = githubLoginSessions[projectId];
 
@@ -1747,6 +1747,45 @@ export function App() {
     setIsGithubAuthChecking(true);
 
     try {
+      if (session.state) {
+        const appSession = await fetchGithubAppSession(session.state);
+
+        if (appSession.status !== "connected") {
+          setDemoStatus({
+            ok: false,
+            message: "아직 GitHub App 설치가 완료되지 않았습니다",
+            scope: "github",
+          });
+          return;
+        }
+
+        const response = await fetchGithubAppRepositories(session.state);
+        const nextSession: GithubLoginSessionState = {
+          ...session,
+          status: "connected",
+          user: response.user ?? getGithubRepositoryOwner(response.repositories) ?? session.user,
+        };
+
+        setGithubLoginSessions((currentSessions) => ({
+          ...currentSessions,
+          [projectId]: nextSession,
+        }));
+        setGithubRepositories((currentRepositories) => ({
+          ...currentRepositories,
+          [projectId]: response.repositories,
+        }));
+        setDemoStatus({
+          ok: true,
+          message: getGithubRepositoryLoadMessage(response.repositories),
+          scope: "github",
+        });
+        return;
+      }
+
+      if (!session.deviceCode) {
+        throw new Error("GitHub 인증 세션을 찾을 수 없습니다");
+      }
+
       const tokenResponse = await fetchGithubAccessToken(session.deviceCode);
 
       if (!tokenResponse.access_token) {
@@ -1766,14 +1805,18 @@ export function App() {
         return;
       }
 
+      const [repositories, user] = await Promise.all([
+        fetchGithubRepositories(tokenResponse.access_token),
+        fetchGithubUserProfile(tokenResponse.access_token),
+      ]);
       const nextSession: GithubLoginSessionState = {
         ...session,
         accessToken: tokenResponse.access_token,
         scope: tokenResponse.scope,
         tokenType: tokenResponse.token_type,
         status: "connected",
+        user,
       };
-      const repositories = await fetchGithubRepositories(tokenResponse.access_token);
 
       setGithubLoginSessions((currentSessions) => ({
         ...currentSessions,
@@ -1785,7 +1828,7 @@ export function App() {
       }));
       setDemoStatus({
         ok: true,
-        message: `${repositories.repositories.length}개 repo를 불러왔습니다`,
+        message: getGithubRepositoryLoadMessage(repositories.repositories),
         scope: "github",
       });
     } catch (error) {
@@ -1839,13 +1882,42 @@ export function App() {
   async function handleLoadGithubRepositories(projectId: string) {
     const session = githubLoginSessions[projectId];
 
-    if (!session?.accessToken || isGithubRepoLoading) {
+    if ((!session?.accessToken && !session?.state) || isGithubRepoLoading) {
       return;
     }
 
     setIsGithubRepoLoading(true);
 
     try {
+      if (session.state) {
+        const response = await fetchGithubAppRepositories(session.state);
+        const appUser = response.user ?? getGithubRepositoryOwner(response.repositories);
+
+        setGithubRepositories((currentRepositories) => ({
+          ...currentRepositories,
+          [projectId]: response.repositories,
+        }));
+        if (appUser && !session.user) {
+          setGithubLoginSessions((currentSessions) => ({
+            ...currentSessions,
+            [projectId]: {
+              ...session,
+              user: appUser,
+            },
+          }));
+        }
+        setDemoStatus({
+          ok: true,
+          message: getGithubRepositoryLoadMessage(response.repositories),
+          scope: "github",
+        });
+        return;
+      }
+
+      if (!session.accessToken) {
+        throw new Error("GitHub 인증 세션을 찾을 수 없습니다");
+      }
+
       const response = await fetchGithubRepositories(session.accessToken);
 
       setGithubRepositories((currentRepositories) => ({
@@ -1854,7 +1926,7 @@ export function App() {
       }));
       setDemoStatus({
         ok: true,
-        message: `${response.repositories.length}개 repo를 불러왔습니다`,
+        message: getGithubRepositoryLoadMessage(response.repositories),
         scope: "github",
       });
     } catch (error) {
@@ -1870,14 +1942,13 @@ export function App() {
 
   async function connectGithubRepository(projectId: string, repositoryUrl: string) {
     const trimmedRepositoryUrl = repositoryUrl.trim();
-    const accessToken = githubLoginSessions[projectId]?.accessToken ?? null;
+    const session = githubLoginSessions[projectId] ?? null;
 
     if (!trimmedRepositoryUrl || isGithubConnecting) {
       return;
     }
 
     setSelectedProjectId(projectId);
-    setSelectedSessionId(null);
     setIsGithubConnecting(true);
     setDemoStatus({
       ok: true,
@@ -1886,10 +1957,9 @@ export function App() {
     });
 
     try {
-      const { events, repository } = await fetchGithubRepository(
-        trimmedRepositoryUrl,
-        accessToken,
-      );
+      const { events, repository } = session?.state
+        ? await fetchGithubAppRepositoryPreview(trimmedRepositoryUrl, session.state)
+        : await fetchGithubRepository(trimmedRepositoryUrl, session?.accessToken ?? null);
 
       updateProject(projectId, (project) => ({
         ...project,
@@ -1966,11 +2036,6 @@ export function App() {
       message,
       scope: "github",
     });
-  }
-
-  function handleOverviewPromptSubmit(event: FormEvent<HTMLFormElement>, projectId: string) {
-    event.preventDefault();
-    void handleStartOverviewChat(projectId, prompt);
   }
 
   function toggleProjectActionMenu(projectId: string, event: MouseEvent<HTMLButtonElement>) {
@@ -2082,27 +2147,26 @@ export function App() {
     }
 
     const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
+    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
     const shouldMoveSelection =
       selectedProjectId === projectId &&
       (sessionId === selectedSessionId ||
-        !remainingSessions.some((session) => session.id === selectedSessionId));
+        !nextSessions.some((session) => session.id === selectedSessionId));
 
     updateProject(projectId, (project) => ({
       ...project,
-      sessions: remainingSessions,
+      sessions: nextSessions,
     }));
 
     if (shouldMoveSelection) {
-      setSelectedSessionId(remainingSessions[0]?.id ?? null);
+      setSelectedSessionId(nextSessions[0]?.id ?? null);
       setIsSending(false);
       clearDraft();
     }
 
     setOpenActionMenu(null);
 
-    if (remainingSessions.length > 0) {
-      focusPrompt();
-    }
+    focusPrompt();
   }
 
   // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
@@ -2129,7 +2193,7 @@ export function App() {
 
     if (projectId === selectedProjectId) {
       setSelectedProjectId(remainingProjects[0].id);
-      setSelectedSessionId(null);
+      setSelectedSessionId(remainingProjects[0].sessions[0]?.id ?? null);
       clearDraft();
     }
 
@@ -2279,13 +2343,6 @@ export function App() {
     );
   }
 
-  function handleOpenProjectOverview() {
-    setSelectedSessionId(null);
-    setPrompt("");
-    setAttachments([]);
-    setIsSending(false);
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedPrompt = prompt.trim();
@@ -2348,6 +2405,11 @@ export function App() {
       className="app-shell"
       data-drag-active={isDragActive}
       data-platform={isWindows ? "windows" : "native"}
+      data-project-panel={selectedProject ? "true" : "false"}
+      data-project-panel-collapsed={isProjectPanelCollapsed}
+      data-project-panel-maximized={isProjectPanelMaximized}
+      data-project-panel-resizing={isProjectPanelResizing}
+      data-project-file-tree-resizing={isProjectFileTreeResizing}
       data-sidebar-collapsed={isSidebarCollapsed}
       data-sidebar-resizing={isSidebarResizing}
       onClick={() => setOpenActionMenu(null)}
@@ -2368,43 +2430,15 @@ export function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="주요 메뉴">
-          <div className="project-create" ref={projectCreateRef}>
-            <button
-              aria-expanded={isProjectCreateMenuOpen}
-              aria-haspopup="menu"
-              className="project-create-trigger"
-              onClick={handleToggleProjectCreateMenu}
-              title="새 프로젝트"
-              type="button"
-            >
-              <FolderPlus size={18} />
-              <span>New Project</span>
-            </button>
-            {isProjectCreateMenuOpen ? (
-              <div className="project-create-menu" role="menu" aria-label="프로젝트 생성">
-                <button
-                  className="project-create-option"
-                  data-source="folder"
-                  onClick={() => void handleCreateProjectFromFolder()}
-                  role="menuitem"
-                  type="button"
-                >
-                  <FolderOpen size={16} />
-                  <span>Open folder</span>
-                </button>
-                <button
-                  className="project-create-option"
-                  data-source="files"
-                  onClick={() => void handleCreateProjectFromFiles()}
-                  role="menuitem"
-                  type="button"
-                >
-                  <FileUp size={16} />
-                  <span>Upload files</span>
-                </button>
-              </div>
-            ) : null}
-          </div>
+          <button
+            className="project-create-trigger"
+            onClick={() => createProjectFromName(createNextProjectName(projects))}
+            title="새 프로젝트"
+            type="button"
+          >
+            <FolderPlus size={18} />
+            <span>New Project</span>
+          </button>
         </nav>
 
         <section className="projects project-tree" aria-label="프로젝트">
@@ -2708,15 +2742,6 @@ export function App() {
                   <Plus size={17} />
                 </button>
                 <button
-                  aria-label="프로젝트 개요"
-                  className="overview-button"
-                  onClick={handleOpenProjectOverview}
-                  title="프로젝트 개요"
-                  type="button"
-                >
-                  <LayoutDashboard size={17} />
-                </button>
-                <button
                   aria-label="메시지 보내기"
                   className="send-button"
                   disabled={(!prompt.trim() && attachments.length === 0) || isSending}
@@ -2728,403 +2753,6 @@ export function App() {
               </div>
             </form>
           </>
-        ) : selectedProject ? (
-          <div className="project-overview" aria-label="프로젝트 개요">
-            <div className="project-overview-scroll">
-              <div className="project-overview-header">
-                <div>
-                  <p className="project-overview-kicker">PROJECT OVERVIEW</p>
-                  <h1>{selectedProject.name}</h1>
-                  <p className="project-overview-meta">
-                    {selectedProjectAttachments.length} FILES ·{" "}
-                    {getProjectMessageCount(selectedProject)} MESSAGES · LAST UPDATE{" "}
-                    {formatOverviewDate(getProjectLastUpdatedAt(selectedProject))}
-                  </p>
-                </div>
-                <div className="project-overview-actions">
-                  <button
-                    className="project-overview-file-action"
-                    onClick={() => void handleAddFilesToProject(selectedProject.id)}
-                    title="프로젝트 파일 추가"
-                    type="button"
-                  >
-                    <TablerIcon svg={tablerFilePlus} />
-                    <span>파일 추가</span>
-                  </button>
-                </div>
-              </div>
-
-              {demoStatus && demoStatus.scope !== "github" ? (
-                <p
-                  className="runtime-status project-overview-status"
-                  data-ok={demoStatus.ok}
-                  key={statusRevision}
-                  role="status"
-                >
-                  {demoStatus.message}
-                </p>
-              ) : null}
-
-              <section className="overview-memory" aria-label="프로젝트 메모">
-                <h2>PROJECT MEMORY</h2>
-                <div className="overview-memory-grid">
-                  {overviewMemoryCards.map((card) => (
-                    <article className="overview-memory-card" data-tone={card.tone} key={card.label}>
-                      <div className="overview-memory-label">
-                        <TablerIcon svg={card.icon} />
-                        <span>{card.label}</span>
-                      </div>
-                      {card.items.map((item) => (
-                        <p key={item}>
-                          <span>·</span>
-                          {item}
-                        </p>
-                      ))}
-                    </article>
-                  ))}
-                </div>
-              </section>
-
-              <div className="overview-columns">
-                <section className="overview-panel" aria-label="프로젝트 파일">
-                  <h2>FILES</h2>
-                  {selectedProjectAttachments.length > 0 ? (
-                    <div className="overview-file-list">
-                      {selectedProjectAttachments.map((attachment) => (
-                        <div className="overview-file-row" key={attachment.id}>
-                          <TablerIcon svg={getAttachmentIconSvg(attachment.name)} />
-                          <div>
-                            <p>{attachment.name}</p>
-                            <small>{getAttachmentMeta(attachment.name)}</small>
-                          </div>
-                          <button
-                            aria-label={`${attachment.name} 삭제`}
-                            onClick={() => handleDeleteProjectFile(selectedProject.id, attachment.id)}
-                            title={`${attachment.name} 삭제`}
-                            type="button"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="overview-empty-text">
-                      <TablerIcon svg={tablerAlertCircle} />
-                      아직 프로젝트에 연결된 첨부 파일이 없습니다.
-                    </p>
-                  )}
-                </section>
-
-                <section className="overview-panel" aria-label="GitHub 타임라인">
-                  <div className="overview-github-header">
-                    <h2>GITHUB</h2>
-                    <span
-                      className="overview-github-state"
-                      data-state={selectedProjectGithubPanelState}
-                    >
-                      {getGithubPanelStateLabel(selectedProjectGithubPanelState)}
-                    </span>
-                  </div>
-                  {demoStatus?.scope === "github" ? (
-                    <p
-                      className="runtime-status overview-github-status"
-                      data-ok={demoStatus.ok}
-                      key={statusRevision}
-                      role="status"
-                    >
-                      {demoStatus.message}
-                    </p>
-                  ) : null}
-
-                  {selectedProjectGithubPanelState === "signedout" ? (
-                    <div className="overview-github-card overview-github-login-card">
-                      <div className="overview-github-brand">
-                        <span className="overview-github-logo-box" aria-hidden="true">
-                          <img className="overview-github-logo" src={githubMark} alt="" />
-                        </span>
-                        <div className="overview-github-copy">
-                          <p>GitHub 연결</p>
-                          <small>
-                            GitHub으로 로그인하면 repo의 커밋·PR·이슈를 타임라인으로
-                            가져옵니다. private repo도 지원됩니다.
-                          </small>
-                        </div>
-                      </div>
-                      <button
-                        className="overview-github-primary-button"
-                        disabled={isGithubAuthStarting}
-                        onClick={() => void handleStartGithubLogin(selectedProject.id)}
-                        type="button"
-                      >
-                        <img className="overview-github-button-logo" src={githubMark} alt="" />
-                        <span>{isGithubAuthStarting ? "여는 중..." : "GitHub 로그인"}</span>
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {selectedProjectGithubPanelState === "authing" ? (
-                    <div className="overview-github-card overview-github-auth-card">
-                      <span className="overview-github-logo-box" aria-hidden="true">
-                        <img className="overview-github-logo" src={githubMark} alt="" />
-                      </span>
-                      <p>브라우저에서 로그인을 완료해 주세요</p>
-                      <small>
-                        GitHub 인증 페이지를 새 창에서 열었습니다.
-                        <br />
-                        코드 {selectedProjectGithubSession?.userCode ?? ""} 입력 후 완료 버튼을 눌러 주세요.
-                      </small>
-                      <span className="overview-github-loader">
-                        <RefreshCcw size={16} />
-                        로그인 대기 중...
-                      </span>
-                      <div className="overview-github-action-buttons">
-                        <button
-                          className="overview-github-ghost-button"
-                          onClick={() => void handleOpenGithubVerification(selectedProject.id)}
-                          type="button"
-                        >
-                          <Link2 size={14} />
-                          <span>브라우저 열기</span>
-                        </button>
-                        <button
-                          className="overview-github-secondary-button"
-                          disabled={isGithubAuthChecking}
-                          onClick={() => void handleCheckGithubLogin(selectedProject.id)}
-                          type="button"
-                        >
-                          <Check size={14} />
-                          <span>{isGithubAuthChecking ? "확인 중..." : "로그인 완료했어요"}</span>
-                        </button>
-                        <button
-                          className="overview-github-ghost-button"
-                          onClick={() => handleResetGithubLogin(selectedProject.id)}
-                          type="button"
-                        >
-                          <X size={14} />
-                          <span>취소</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {selectedProjectGithubPanelState === "repos" ? (
-                    <div className="overview-github-card overview-github-repos-card">
-                      <div className="overview-github-toolbar">
-                        <div className="overview-github-account">
-                          <img className="overview-github-toolbar-logo" src={githubMark} alt="" />
-                          <span>GitHub</span>
-                          <span className="overview-github-login-badge">
-                            <Check size={12} />
-                            로그인됨
-                          </span>
-                        </div>
-                        <button
-                          className="overview-github-ghost-button"
-                          onClick={() => handleResetGithubLogin(selectedProject.id)}
-                          type="button"
-                        >
-                          <LogOut size={13} />
-                          <span>로그아웃</span>
-                        </button>
-                      </div>
-                      <label className="overview-github-search">
-                        <Search size={15} />
-                        <input
-                          aria-label="GitHub repo 검색"
-                          onChange={(event) => setGithubRepositoryQuery(event.target.value)}
-                          placeholder="repo 검색..."
-                          type="text"
-                          value={githubRepositoryQuery}
-                        />
-                        {githubRepositoryQuery ? (
-                          <button
-                            aria-label="repo 검색어 지우기"
-                            onClick={() => setGithubRepositoryQuery("")}
-                            title="repo 검색어 지우기"
-                            type="button"
-                          >
-                            <X size={15} />
-                          </button>
-                        ) : null}
-                      </label>
-                      <p className="overview-github-list-label">
-                        YOUR REPOS · {filteredSelectedProjectGithubRepositories.length}
-                      </p>
-                      {selectedProjectGithubRepositories.length > 0 ? (
-                        <div className="overview-github-repo-list" aria-label="접근 가능한 GitHub repo">
-                          {filteredSelectedProjectGithubRepositories.length > 0 ? (
-                            filteredSelectedProjectGithubRepositories.map((repository, index) => (
-                              <div
-                                className="overview-github-repo-row"
-                                data-last={index === filteredSelectedProjectGithubRepositories.length - 1}
-                                key={repository.fullName}
-                              >
-                                <GitBranch size={16} />
-                                <div className="overview-github-repo-copy">
-                                  <div>
-                                    <p>{repository.fullName}</p>
-                                    <span className="overview-github-repo-visibility">
-                                      {getGithubAvailableRepositoryVisibility(repository)}
-                                    </span>
-                                  </div>
-                                  <small>기본 브랜치 {repository.defaultBranch}</small>
-                                </div>
-                                <button
-                                  className="overview-github-secondary-button"
-                                  disabled={isGithubConnecting}
-                                  onClick={() =>
-                                    void connectGithubRepository(selectedProject.id, repository.url)
-                                  }
-                                  type="button"
-                                >
-                                  <Link2 size={14} />
-                                  <span>{isGithubConnecting ? "연결 중..." : "연결"}</span>
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="overview-github-empty">
-                              "{githubRepositoryQuery}" 검색 결과가 없습니다
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="overview-github-empty">
-                          <p>아직 불러온 repo가 없습니다.</p>
-                          <button
-                            className="overview-github-secondary-button"
-                            disabled={isGithubRepoLoading}
-                            onClick={() => void handleLoadGithubRepositories(selectedProject.id)}
-                            type="button"
-                          >
-                            <RefreshCcw size={14} />
-                            <span>{isGithubRepoLoading ? "불러오는 중..." : "Repo 목록 불러오기"}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
-
-                  {selectedProject.githubRepository ? (
-                    <div className="overview-github-card overview-github-connected-card">
-                      <div className="overview-github-brand">
-                        <span className="overview-github-logo-box" data-tone="connected" aria-hidden="true">
-                          <img className="overview-github-logo" src={githubMark} alt="" />
-                        </span>
-                        <div className="overview-github-copy">
-                          <div className="overview-github-repo-title">
-                            <p className="overview-github-repo-name">
-                              {selectedProject.githubRepository.remoteRepo ??
-                                selectedProject.githubRepository.name}
-                            </p>
-                            <span className="overview-github-repo-visibility">
-                              {selectedProject.githubRepository.visibility === "private"
-                                ? "PRIVATE"
-                                : "PUBLIC"}
-                            </span>
-                          </div>
-                          <p className="overview-github-meta">
-                            LOCAL · {selectedProject.githubRepository.branch} ·{" "}
-                            {getGithubRepoLabel(selectedProject.githubRepository)} ·{" "}
-                            {selectedProject.githubRepository.issuePrStatus}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="overview-github-action-buttons">
-                        <button
-                          className="overview-github-secondary-button"
-                          disabled={isGithubSyncing}
-                          onClick={() => void handleSyncGithubRepository(selectedProject.id)}
-                          type="button"
-                        >
-                          <RefreshCcw size={15} />
-                          <span>{isGithubSyncing ? "Sync 중..." : "Sync"}</span>
-                        </button>
-                        <button
-                          className="overview-github-secondary-button"
-                          onClick={() =>
-                            handleDisconnectGithub(
-                              selectedProject.id,
-                              "repo 연결을 해제했습니다. 새 repo를 선택하세요",
-                            )
-                          }
-                          type="button"
-                        >
-                          <GitBranch size={15} />
-                          <span>repo 변경</span>
-                        </button>
-                        <button
-                          className="overview-github-danger-button"
-                          onClick={() => handleDisconnectGithub(selectedProject.id)}
-                          type="button"
-                        >
-                          <X size={15} />
-                          <span>연결 해제</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedProjectGithubEvents.length > 0 ? (
-                    <div className="overview-timeline-list">
-                      {selectedProjectGithubEvents.map((event, index) => (
-                        <div className="overview-timeline-row" key={event.id}>
-                          <div className="overview-timeline-icon" data-event-type={event.type}>
-                            <TablerIcon svg={getGithubEventIconSvg(event.type)} />
-                            {index < selectedProjectGithubEvents.length - 1 ? <span /> : null}
-                          </div>
-                          <div>
-                            <p>{event.title}</p>
-                            <small>{getGithubEventMeta(event)}</small>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : selectedProject.githubConnected ? (
-                    <p className="overview-empty-text">
-                      <TablerIcon svg={tablerAlertCircle} />
-                      아직 GitHub 이벤트가 없습니다.
-                    </p>
-                  ) : null}
-                </section>
-              </div>
-            </div>
-
-            <form
-              className="overview-chatbox"
-              onSubmit={(event) => handleOverviewPromptSubmit(event, selectedProject.id)}
-            >
-              <div className="overview-chatline">
-                <TablerIcon className="overview-chat-spark" svg={tablerSparkles} />
-                <input
-                  aria-label="프로젝트 질문 입력"
-                  onChange={(event) => setPrompt(event.target.value)}
-                  placeholder="Chat about this project — ask anything from the meetings"
-                  value={prompt}
-                />
-                <button
-                  aria-label="프로젝트 질문 보내기"
-                  disabled={!prompt.trim() || isSending}
-                  title="프로젝트 질문 보내기"
-                  type="submit"
-                >
-                  <TablerIcon svg={tablerArrowUp} />
-                </button>
-              </div>
-              <div className="overview-suggestions" aria-label="추천 질문">
-                {OVERVIEW_SUGGESTIONS.map((suggestion) => (
-                  <button
-                    disabled={isSending}
-                    key={suggestion}
-                    onClick={() => void handleStartOverviewChat(selectedProject.id, suggestion)}
-                    type="button"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </form>
-          </div>
         ) : (
           <div className="project-start" role="status">
             <div className="project-start-content">
@@ -3145,7 +2773,7 @@ export function App() {
               ) : null}
               <button
                 className="project-start-button"
-                onClick={() => void handleCreateProjectFromFolder()}
+                onClick={() => createProjectFromName(createNextProjectName(projects))}
                 title="새 프로젝트 시작하기"
                 type="button"
               >
@@ -3156,6 +2784,261 @@ export function App() {
           </div>
         )}
       </main>
+
+      {selectedProject ? (
+        <aside
+          className="project-panel"
+          data-collapsed={isProjectPanelCollapsed}
+          aria-label="프로젝트 보조 패널"
+        >
+          {isProjectPanelCollapsed ? (
+            <button
+              aria-label="프로젝트 패널 펼치기"
+              className="project-panel-rail-toggle"
+              onClick={handleToggleProjectPanel}
+              title="프로젝트 패널 펼치기"
+              type="button"
+            >
+              <PanelRight size={17} />
+            </button>
+          ) : (
+            <>
+          <div
+            aria-label="프로젝트 패널 크기 조절"
+            aria-orientation="vertical"
+            aria-valuemax={MAX_PROJECT_PANEL_WIDTH}
+            aria-valuemin={MIN_PROJECT_PANEL_WIDTH}
+            aria-valuenow={projectPanelWidth}
+            className="project-panel-resize-handle"
+            onMouseDown={handleProjectPanelResizeStart}
+            role="separator"
+          />
+	          <div className="project-panel-topbar">
+	            {projectPanelView === "menu" ? (
+	              <span className="project-panel-kicker">도구 선택</span>
+	            ) : (
+	              <div className="project-panel-tabs">
+	                {projectPanelTabs.map((tab) => {
+	                  const tabLabel = getProjectPanelTabLabel(tab);
+	                  const { Icon, color } = getProjectPanelTabVisualMeta(
+	                    tab.view,
+	                    tab.view === "files" ? tab.filePreview : null,
+	                  );
+
+	                  return (
+	                    <div
+	                      aria-label={`${tabLabel} 탭`}
+	                      className="project-panel-tab"
+	                      data-active={activeProjectPanelTabId === tab.id ? "true" : undefined}
+	                      key={tab.id}
+	                      onClick={() => setActiveProjectPanelTabId(tab.id)}
+	                      onKeyDown={(event) => {
+	                        if (event.key === "Enter" || event.key === " ") {
+	                          event.preventDefault();
+	                          setActiveProjectPanelTabId(tab.id);
+	                        }
+	                      }}
+	                      role="tab"
+	                      tabIndex={0}
+	                      title={tabLabel}
+	                    >
+	                      <Icon size={16} style={{ color }} />
+	                      <span>{tabLabel}</span>
+	                      <button
+	                        aria-label={`${tabLabel} 탭 닫기`}
+	                        className="project-panel-tab-close"
+	                        onClick={(event) => {
+	                          event.stopPropagation();
+	                          handleCloseProjectPanelTab(tab.id);
+	                        }}
+	                        title={`${tabLabel} 탭 닫기`}
+	                        type="button"
+	                      >
+	                        <X size={13} />
+	                      </button>
+	                    </div>
+	                  );
+	                })}
+	                <details className="project-panel-tab-add">
+	                  <summary aria-label="패널 탭 추가" title="패널 탭 추가">
+	                    <Plus size={18} />
+	                  </summary>
+	                  <div className="project-panel-tab-menu">
+	                    {PROJECT_PANEL_TOOL_VIEWS.map((view) => (
+	                      <button
+	                        key={view}
+	                        onClick={(event) => {
+	                          event.currentTarget.closest("details")?.removeAttribute("open");
+	                          openProjectPanelTool(view);
+	                        }}
+	                        type="button"
+	                      >
+	                        {getProjectPanelTitle(view)}
+	                      </button>
+	                    ))}
+	                  </div>
+	                </details>
+	              </div>
+	            )}
+            <div className="project-panel-topbar-actions">
+              {projectPanelView !== "menu" ? (
+                <button
+                  aria-label={`${getProjectPanelTitle(projectPanelView)} 패널 ${
+                    isProjectPanelMaximized ? "축소" : "최대화"
+                  }`}
+                  className="project-panel-toggle"
+                  onClick={() => setIsProjectPanelMaximized((current) => !current)}
+                  title={`${getProjectPanelTitle(projectPanelView)} 패널 ${
+                    isProjectPanelMaximized ? "축소" : "최대화"
+                  }`}
+                  type="button"
+                >
+                  {isProjectPanelMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
+              ) : null}
+              <button
+                aria-label="프로젝트 패널 접기"
+                className="project-panel-toggle"
+                onClick={handleToggleProjectPanel}
+                title="프로젝트 패널 접기"
+                type="button"
+              >
+                <PanelRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          {projectPanelView === "menu" ? (
+            <div className="project-panel-menu" role="list">
+	              <button onClick={() => openProjectPanelTool("memory")} role="listitem" type="button">
+                <span>
+                  <Brain size={18} />
+                  <span>
+                    <strong>메모리</strong>
+                    <small>결정·액션·이슈·리스크</small>
+                  </span>
+                </span>
+                <ChevronRight size={16} />
+              </button>
+		              <button
+		                onClick={() => openProjectPanelTool("files")}
+                role="listitem"
+                type="button"
+              >
+                <span>
+                  <Files size={18} />
+                  <span>
+                    <strong>자료</strong>
+                    <small>{selectedProjectAttachments.length}개 소스</small>
+                  </span>
+                </span>
+                <ChevronRight size={16} />
+              </button>
+	              <button onClick={() => openProjectPanelTool("github")} role="listitem" type="button">
+                <span>
+                  <GitBranch size={18} />
+                  <span>
+                    <strong>GitHub</strong>
+                    <small>{getGithubPanelStateLabel(selectedProjectGithubPanelState)}</small>
+                  </span>
+                </span>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          ) : null}
+
+          {projectPanelView === "memory" ? (
+            <div className="project-panel-content">
+              <p className="project-panel-project-name">{selectedProject.name}</p>
+              <section className="overview-memory" aria-label="프로젝트 메모">
+                <div className="overview-memory-grid">
+                  {overviewMemoryCards.map((card) => (
+                    <article className="overview-memory-card" data-tone={card.tone} key={card.label}>
+                      <div className="overview-memory-label">
+                        <TablerIcon svg={card.icon} />
+                        <span>{card.label}</span>
+                      </div>
+                      {card.items.map((item) => (
+                        <p key={item}>
+                          <span>·</span>
+                          {item}
+                        </p>
+                      ))}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          {projectPanelView === "files" ? (
+            <ProjectFilesPanel
+              attachments={selectedProjectAttachments}
+              demoStatus={demoStatus}
+              filteredTreeFiles={filteredSelectedProjectTreeFiles}
+              groupedFiles={groupedSelectedProjectFiles}
+              isSelectedSourceFile={isSelectedProjectSourceFile}
+              isTreeCollapsed={isProjectFileTreeCollapsed}
+              mode={projectSourcesMode}
+              onBackToLibrary={() => {
+                setProjectFilePreview(null);
+                setSelectedProjectSourceId(null);
+                setProjectSourcesMode("library");
+              }}
+              onOpenDirectory={() => void handleOpenProjectDirectory(selectedProject.id)}
+              onOpenFiles={() => void handleOpenProjectFiles(selectedProject.id)}
+              onOpenSource={handleOpenProjectSource}
+              onQueryChange={setProjectFileQuery}
+              onRequestDelete={(entry) => handleRequestDeleteProjectFile(selectedProject.id, entry)}
+              onSelectFile={(entry) => void handleSelectProjectFile(entry)}
+              onToggleFile={(entry) => void handleToggleProjectFileEntry(selectedProject.id, entry)}
+              onToggleTreeCollapsed={() => setIsProjectFileTreeCollapsed((current) => !current)}
+              onTreeResizeStart={handleProjectFileTreeResizeStart}
+              pendingDeleteEntryId={pendingDeleteProjectFileId}
+              preview={projectFilePreview}
+              query={projectFileQuery}
+              statusRevision={statusRevision}
+              treeAttachments={selectedProjectTreeAttachments}
+              treeFileCount={selectedProjectTreeFileCount}
+              treeWidth={projectFileTreeWidth}
+            />
+          ) : null}
+
+          {projectPanelView === "github" ? (
+            <GithubPanel
+              demoStatus={demoStatus}
+              events={selectedProjectGithubEvents}
+              filteredRepositories={filteredSelectedProjectGithubRepositories}
+              githubConnected={selectedProject.githubConnected}
+              isAuthChecking={isGithubAuthChecking}
+              isAuthStarting={isGithubAuthStarting}
+              isConnecting={isGithubConnecting}
+              isRepoLoading={isGithubRepoLoading}
+              isSyncing={isGithubSyncing}
+              onCheckLogin={() => void handleCheckGithubLogin(selectedProject.id)}
+              onConnectRepository={(repositoryUrl) =>
+                void connectGithubRepository(selectedProject.id, repositoryUrl)
+              }
+              onDisconnect={(message) => handleDisconnectGithub(selectedProject.id, message)}
+              onLoadRepositories={() => void handleLoadGithubRepositories(selectedProject.id)}
+              onOpenVerification={() => void handleOpenGithubVerification(selectedProject.id)}
+              onQueryChange={setGithubRepositoryQuery}
+              onResetLogin={() => handleResetGithubLogin(selectedProject.id)}
+              onStartLogin={() => void handleStartGithubLogin(selectedProject.id)}
+              onStartPrivateLogin={() => void handleStartGithubPrivateLogin(selectedProject.id)}
+              onSyncRepository={() => void handleSyncGithubRepository(selectedProject.id)}
+              panelState={selectedProjectGithubPanelState}
+              repositories={selectedProjectGithubRepositories}
+              repository={selectedProject.githubRepository}
+              repositoryQuery={githubRepositoryQuery}
+              session={selectedProjectGithubSession}
+              statusRevision={statusRevision}
+            />
+          ) : null}
+            </>
+          )}
+        </aside>
+      ) : null}
     </div>
   );
 }
