@@ -40,39 +40,49 @@ def _normalize_date(date_str: Optional[str]) -> Optional[str]:
     return None
 
 
-# --- [수정] 단순 글자 수 슬라이싱 대신 문장 경계를 고려한 오버랩 분할로 변경 ---
 def _split_text(text: str) -> List[str]:
     """원문 텍스트를 CHUNK_SIZE 단위로 분할. ChromaDB는 짧은 청크가 검색 정확도가 더 높음."""
     if len(text) <= CHUNK_SIZE:
         return [text.strip()] if text.strip() else []
 
-    # 마침표, 줄바꿈 등으로 임시 분할
     sentences = re.split(r'(?<=[.\n])\s*', text)
     chunks = []
     current_chunk = ""
 
     for sentence in sentences:
-        if not sentence.strip():
+        sentence = sentence.strip()
+        if not sentence:
             continue
-        
-        # 현재 청크에 문장을 더했을 때 CHUNK_SIZE를 넘지 않으면 추가
-        if len(current_chunk) + len(sentence) <= CHUNK_SIZE:
-            current_chunk += " " + sentence if current_chunk else sentence
+
+        # 단일 문장이 CHUNK_SIZE를 초과하면 강제 분할 후 chunks에 직접 추가
+        if len(sentence) > CHUNK_SIZE:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            for i in range(0, len(sentence), CHUNK_SIZE):
+                piece = sentence[i:i + CHUNK_SIZE].strip()
+                if piece:
+                    chunks.append(piece)
+            continue
+
+        if len(current_chunk) + len(sentence) + (1 if current_chunk else 0) <= CHUNK_SIZE:
+            current_chunk = current_chunk + " " + sentence if current_chunk else sentence
         else:
             if current_chunk:
-                chunks.append(current_chunk.strip())
-            
-            # 오버랩(CHUNK_OVERLAP)을 위해 이전 청크의 뒷부분 일부를 가져와서 새 청크 시작
+                chunks.append(current_chunk)
+
+            # 오버랩: 이전 청크 뒷부분 일부를 가져와 새 청크 시작
             overlap_text = current_chunk[-CHUNK_OVERLAP:] if len(current_chunk) > CHUNK_OVERLAP else current_chunk
-            # 단어 중간이 잘리는 것을 방지하기 위해 공백 기준으로 정돈
             if " " in overlap_text:
-                overlap_text = overlap_text[overlap_text.find(" ")+1:]
-                
-            current_chunk = overlap_text + " " + sentence
+                overlap_text = overlap_text[overlap_text.find(" ") + 1:]
+
+            candidate = (overlap_text + " " + sentence).strip() if overlap_text else sentence
+            # overlap을 붙여도 CHUNK_SIZE를 넘으면 overlap 없이 sentence만으로 시작
+            current_chunk = candidate if len(candidate) <= CHUNK_SIZE else sentence
 
     if current_chunk.strip():
         chunks.append(current_chunk.strip())
-        
+
     return chunks
 
 
@@ -123,15 +133,6 @@ def ingest(
     # ChromaDB에 원문 청크 저장 (벡터 임베딩은 ChromaDB가 자동 처리)
     # id 형식: "doc{doc_id}_chunk{i}" — 재업로드 시 같은 id로 덮어쓰기됨
     collection = get_collection()
-
-    metadatas = [{
-        "project_id": project_id,
-        "doc_id": doc_id,
-        "doc_type": doc_type,
-        "source": source,
-        "date": date
-    } for _ in range(len(chunks))]
-    
     collection.add(
         ids=[f"doc{doc_id}_chunk{i}" for i in range(len(chunks))],
         documents=chunks,
