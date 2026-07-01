@@ -80,12 +80,14 @@ async function openAppWithProject(send) {
           {
             id: "assistant-smoke",
             role: "assistant",
-            content: "안녕하세요! 😊",
+            content: "저장된 응답입니다.",
           },
         ],
       },
     ],
     "session-smoke",
+    [],
+    { apiProjectId: 1 },
   );
 
   await send("Page.navigate", { url: APP_URL });
@@ -317,7 +319,7 @@ async function verifyStorageSanitization(send) {
         {
           id: "assistant-storage-smoke",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-storage-smoke",
@@ -446,6 +448,7 @@ async function verifySidebarBrandTypography(send) {
 
       return {
         rootFont: getComputedStyle(document.documentElement).fontFamily,
+        codeFont: getComputedStyle(document.documentElement).getPropertyValue('--code-font-family'),
         hasSidebarBrand: Boolean(document.querySelector('.sidebar-brand')),
         hasSidebarFooter: Boolean(document.querySelector('.sidebar-footer')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
@@ -463,8 +466,12 @@ async function verifySidebarBrandTypography(send) {
   const value = result.result.value;
   const failures = [];
 
-  if (!value.rootFont.includes("D2Coding") && !value.rootFont.includes("D2 Coding")) {
-    failures.push(`D2Coding should be the first configured app font: ${value.rootFont}`);
+  if (!value.rootFont.includes("Geist Sans")) {
+    failures.push(`Geist Sans should be the first configured app font: ${value.rootFont}`);
+  }
+
+  if (!value.codeFont.includes("Geist Mono")) {
+    failures.push(`Geist Mono should be the first configured code font: ${value.codeFont}`);
   }
 
   if (value.hasSidebarBrand || value.hasSidebarFooter) {
@@ -503,12 +510,24 @@ async function verifySidebarBrandTypography(send) {
     returnByValue: true,
     expression: `(() => {
       const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
       return {
         projectCount: savedState.projects?.length ?? 0,
         activeProjectName: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
-        activeSessionCount: savedState.projects?.find((project) => project.id === savedState.selectedProjectId)?.sessions.length ?? 0,
+        activeSessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
+        panelMenuTexts: Array.from(document.querySelectorAll('.project-panel-menu button'))
+          .map((button) => button.textContent.trim()),
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
@@ -518,14 +537,67 @@ async function verifySidebarBrandTypography(send) {
   value.afterStart = afterStartResult.result.value;
 
   if (value.afterStart.projectCount !== 1 ||
-      value.afterStart.activeProjectName !== "New Project" ||
-      value.afterStart.activeSessionCount !== 1 ||
-      !value.afterStart.selectedSessionId ||
-      !value.afterStart.hasPrompt ||
+      value.afterStart.activeProjectName !== "New Project 1" ||
+      value.afterStart.activeSessionCount !== 0 ||
+      value.afterStart.selectedSessionMessageCount !== -1 ||
+      value.afterStart.selectedSessionId !== null ||
+      value.afterStart.hasPrompt ||
+      value.afterStart.messageCount !== 0 ||
+      value.afterStart.emptyTitle !== "" ||
+      !value.afterStart.hasProjectHome ||
+      !value.afterStart.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.afterStart.analysisDisabled ||
+      value.afterStart.panelMenuTexts.some((text) => text.includes("메모리")) ||
       value.afterStart.hasProjectOverview ||
       !value.afterStart.hasProjectPanel ||
       value.afterStart.hasOverviewPrompt) {
-    failures.push("start project button should create the first project and enter chat");
+    failures.push("start project button should create the first project and enter project home");
+  }
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('textarea[aria-label="프로젝트 설명"]')?.focus()`,
+  });
+  await send("Input.insertText", { text: "설명 입력 테스트" });
+  await sleep(250);
+  const descriptionInputResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+
+      return {
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        storedDescription: activeProject?.description || "",
+        textareaValue: document.querySelector('textarea[aria-label="프로젝트 설명"]')?.value || "",
+      };
+    })()`,
+  });
+  value.descriptionInput = descriptionInputResult.result.value;
+
+  if (!value.descriptionInput.hasProjectHome ||
+      value.descriptionInput.storedDescription !== "설명 입력 테스트" ||
+      value.descriptionInput.textareaValue !== "설명 입력 테스트") {
+    failures.push("project description input should update state without crashing");
+  }
+
+  await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
+      .find((button) => button.textContent.includes('자료'))?.click()`,
+  });
+  await sleep(150);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+  });
+  await sleep(80);
+  const afterStartTabAddResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
+      .map((button) => button.textContent.trim())`,
+  });
+  value.afterStartTabAddMenuTexts = afterStartTabAddResult.result.value;
+
+  if (value.afterStartTabAddMenuTexts.some((text) => text.includes("메모리"))) {
+    failures.push("new project panel tab menu should hide memory before project context exists");
   }
 
   return { value, failures };
@@ -578,7 +650,7 @@ async function verifyCopyFeedback(send) {
     failures.push("copy button should expose copied feedback labels");
   }
 
-  if (!value.copiedText.includes("안녕하세요")) {
+  if (!value.copiedText.includes("저장된 응답입니다.")) {
     failures.push("copy action should write the assistant response text");
   }
 
@@ -693,7 +765,7 @@ async function verifyProjectScopedSessions(send) {
         {
           id: "assistant-alpha",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-alpha",
@@ -712,7 +784,7 @@ async function verifyProjectScopedSessions(send) {
         {
           id: "assistant-beta",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-beta",
@@ -875,7 +947,7 @@ async function verifyProjectCreationFlow(send) {
         {
           id: "assistant-existing-project",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-existing-project",
@@ -927,11 +999,17 @@ async function verifyProjectCreationFlow(send) {
         activeProjectName,
         activeProjectStoredName: activeProject?.name || "",
         activeProjectSessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         selectedSessionTitle: selectedSession?.title || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
         promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
@@ -951,33 +1029,113 @@ async function verifyProjectCreationFlow(send) {
     failures.push(`creating a project should add one project: ${value.projectCount}`);
   }
 
-  if (value.activeProjectName !== "New Project" || value.activeProjectStoredName !== "New Project") {
+  if (value.activeProjectName !== "New Project 1" || value.activeProjectStoredName !== "New Project 1") {
     failures.push("newly created project should become the active project");
   }
 
-  if (value.activeProjectSessionCount !== 1 ||
-      !value.selectedSessionId ||
-      value.selectedSessionTitle !== "New Chat") {
-    failures.push("new project should be created with an active empty chat");
+  if (value.activeProjectSessionCount !== 0 ||
+      value.selectedSessionMessageCount !== -1 ||
+      value.selectedSessionId !== null ||
+      value.selectedSessionTitle !== "") {
+    failures.push("new project should be created without an automatic starter chat");
+  }
+
+  if (value.messageCount !== 0 ||
+      value.emptyTitle !== "" ||
+      !value.hasProjectHome ||
+      !value.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.analysisDisabled) {
+    failures.push("new project should show the project home upload step");
   }
 
   if (value.hasCreateMenu) {
     failures.push("project create menu should close after creating a project");
   }
 
-  if (!value.visibleTitles.includes("New Chat") || !value.visibleTitles.includes("Existing Planning")) {
-    failures.push("project tree should show the new starter chat");
+  if (value.visibleTitles.includes("New Chat") || !value.visibleTitles.includes("Existing Planning")) {
+    failures.push("project tree should not add a starter chat before chat starts");
   }
 
-  if (!value.hasPrompt ||
+  if (value.hasPrompt ||
       value.hasProjectOverview ||
       !value.hasProjectPanel ||
       value.hasOverviewPrompt) {
-    failures.push("new project should enter chat and expose the right panel");
+    failures.push("new project should enter project home and expose the right panel");
   }
 
   if (value.promptValue !== "") {
     failures.push("draft text should clear when creating a project");
+  }
+
+  return { value, failures };
+}
+
+// 분석 시작은 숨겨진 사용자 프롬프트를 만들지 않고 브리핑 응답만 채팅에 연결해야 한다.
+async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
+  const seededProjectState = createProjectStorage(
+    "project-briefing",
+    "Briefing Project",
+    [],
+    null,
+    [],
+    { description: "분석 시작 테스트용 프로젝트 설명" },
+  );
+
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 960,
+    height: 680,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Page.navigate", { url: APP_URL });
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
+  });
+  await send("Page.navigate", { url: APP_URL });
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-home-primary')?.click()`,
+  });
+  await sleep(1300);
+
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
+      const storedMessages = selectedSession?.messages ?? [];
+
+      return {
+        selectedSessionTitle: selectedSession?.title || "",
+        storedMessageCount: storedMessages.length,
+        storedRoles: storedMessages.map((message) => message.role),
+        storedText: storedMessages.map((message) => message.content).join("\\n"),
+        visibleUserMessages: document.querySelectorAll('.message[data-role="user"]').length,
+        visibleAssistantMessages: document.querySelectorAll('.message[data-role="assistant"]').length,
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        hasPrompt: Boolean(document.querySelector('.prompt')),
+      };
+    })()`,
+  });
+  const value = result.result.value;
+  const failures = [];
+
+  if (value.selectedSessionTitle !== "Project Briefing" ||
+      value.storedMessageCount !== 1 ||
+      value.storedRoles[0] !== "assistant" ||
+      !value.storedText.includes("프로젝트 설명: 분석 시작 테스트용 프로젝트 설명")) {
+    failures.push("project briefing should store only the assistant briefing response");
+  }
+
+  if (value.visibleUserMessages !== 0 ||
+      value.visibleAssistantMessages !== 1 ||
+      value.hasProjectHome ||
+      !value.hasPrompt) {
+    failures.push("project briefing should enter chat without rendering the generated user prompt");
   }
 
   return { value, failures };
@@ -997,7 +1155,7 @@ async function verifyActionMenuRenameFlow(send) {
           {
             id: "assistant-rename",
             role: "assistant",
-            content: "안녕하세요! 😊",
+            content: "저장된 응답입니다.",
           },
         ],
       },
@@ -1157,7 +1315,7 @@ async function verifyProjectDeleteFlow(send) {
         {
           id: "assistant-delete-project-alpha",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -1171,7 +1329,7 @@ async function verifyProjectDeleteFlow(send) {
         {
           id: "assistant-delete-project-beta",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -1552,22 +1710,77 @@ async function verifyProjectPanelMenu(send) {
     mobile: false,
   });
   await openAppWithProject(send);
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes('/projects/1/memory')) {
+          return Promise.resolve(new Response(JSON.stringify([
+            {
+              id: 1,
+              project_id: 1,
+              doc_id: 1,
+              category: 'decision',
+              content: '프로젝트 메모리는 FastAPI에서 조회한다',
+              topic: '아키텍처',
+              owner: 'PM',
+              source: 'meeting.md',
+            },
+            {
+              id: 2,
+              project_id: 1,
+              doc_id: 1,
+              category: 'action',
+              content: 'API 연결 상태를 확인한다',
+              owner: '백엔드',
+              source: 'meeting.md',
+            },
+            {
+              id: 3,
+              project_id: 1,
+              doc_id: 1,
+              category: 'issue',
+              content: '서버 미연결 상태에서는 메모리를 숨긴다',
+              source: 'meeting.md',
+            },
+            {
+              id: 4,
+              project_id: 1,
+              doc_id: 1,
+              category: 'risk',
+              content: '프론트 임시 데이터가 실제 메모리처럼 보일 수 있다',
+              source: 'meeting.md',
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        return originalFetch(input, init);
+      };
+    })()`,
+  });
 
   await send("Runtime.evaluate", {
     expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
       .find((button) => button.textContent.includes('메모리'))?.click()`,
   });
-  await sleep(200);
+  await sleep(350);
 
   const memoryResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
 	      hasPrompt: Boolean(document.querySelector('.prompt')),
 	      hasOverview: Boolean(document.querySelector('.project-overview')),
-	      memoryCards: document.querySelectorAll('.project-panel .overview-memory-card').length,
+	      summaryStats: document.querySelectorAll('.project-panel .project-memory-summary-stat').length,
+	      summaryActionRows: document.querySelectorAll('.project-panel .project-memory-summary-action').length,
+	      summarySections: document.querySelectorAll('.project-panel .project-memory-summary-section').length,
+	      text: document.querySelector('.project-panel')?.textContent || "",
 	      tabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
 	      hasCloseButton: Boolean(document.querySelector('button[aria-label="프로젝트 메모리 탭 닫기"]')),
 	      hasAddButton: Boolean(document.querySelector('.project-panel-tab-add summary')),
+	      hasRefreshButton: Boolean(Array.from(document.querySelectorAll('.project-memory-header button')).find((button) => button.textContent.includes('새로고침'))),
 	      modelSelectorExists: Boolean(document.querySelector('.model-pill')),
 	    }))()`,
   });
@@ -1579,6 +1792,8 @@ async function verifyProjectPanelMenu(send) {
     returnByValue: true,
     expression: `(() => ({
       maximized: document.querySelector('.app-shell')?.getAttribute('data-project-panel-maximized') === 'true',
+      detailStats: document.querySelectorAll('.project-panel .project-memory-stats [data-tone]').length,
+      detailCards: document.querySelectorAll('.project-panel .overview-memory-card').length,
     }))()`,
   });
   await send("Runtime.evaluate", {
@@ -1654,14 +1869,21 @@ async function verifyProjectPanelMenu(send) {
     failures.push("project panel should not replace the chat surface");
   }
 
-	  if (value.memory.memoryCards !== 4 ||
+	  if (value.memory.summaryStats !== 4 ||
+	      value.memory.summaryActionRows < 1 ||
+	      value.memory.summarySections !== 4 ||
+	      !value.memory.text.includes("프로젝트 메모리는 FastAPI에서 조회한다") ||
+	      !value.memory.text.includes("API 연결 상태를 확인한다") ||
 	      !value.memory.tabText.includes("프로젝트 메모리") ||
 	      !value.memory.hasCloseButton ||
-	      !value.memory.hasAddButton) {
-	    failures.push("project panel memory view should render memory cards");
+	      !value.memory.hasAddButton ||
+	      !value.memory.hasRefreshButton) {
+	    failures.push("project panel memory view should render FastAPI memory rows");
 	  }
 
 	  if (!value.memoryMaximize.maximized ||
+	      value.memoryMaximize.detailStats !== 4 ||
+	      value.memoryMaximize.detailCards !== 4 ||
 	      !value.githubMaximize.maximized ||
 	      !value.githubMaximize.tabText.includes("GitHub") ||
 	      !value.githubMaximize.tabLabels.includes("프로젝트 메모리") ||
@@ -1823,8 +2045,15 @@ async function verifyProjectOverviewFiles(send) {
   const seededProjectState = createProjectStorage(
     "project-files",
     "Files Project",
-    [],
-    null,
+    [
+      {
+        id: "session-files",
+        title: "Files Chat",
+        createdAt: Date.now(),
+        messages: [],
+      },
+    ],
+    "session-files",
     projectFiles,
   );
 
@@ -2466,8 +2695,15 @@ async function verifyGithubTimelineState(send) {
   const unlinkedState = createProjectStorage(
     "project-github-unlinked",
     "GitHub Unlinked",
-    [],
-    null,
+    [
+      {
+        id: "session-github-unlinked",
+        title: "GitHub Chat",
+        createdAt: now,
+        messages: [],
+      },
+    ],
+    "session-github-unlinked",
   );
 
   await send("Emulation.setDeviceMetricsOverride", {
@@ -2479,7 +2715,7 @@ async function verifyGithubTimelineState(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}, '360'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
   });
     await send("Page.navigate", { url: APP_URL });
     await sleep(700);
@@ -2495,7 +2731,7 @@ async function verifyGithubTimelineState(send) {
         stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
         hasLoginCard: Boolean(document.querySelector('.overview-github-login-card')),
         hasLoginTitle: document.body.textContent.includes('GitHub 연결'),
-        hasTimelineCopy: document.body.textContent.includes('커밋·PR·이슈'),
+        hasTimelineCopy: document.body.textContent.includes('PR · 이슈'),
         hasLoginButton: Boolean(Array.from(document.querySelectorAll('.overview-github-primary-button')).find((button) => button.textContent.includes('GitHub 로그인'))),
       hasUrlInput: Boolean(document.querySelector('.overview-github-connect-form input')),
       hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
@@ -2562,7 +2798,7 @@ async function verifyGithubTimelineState(send) {
       document.querySelector('.overview-github-primary-button')?.click();
     })()`,
   });
-  await sleep(300);
+  await sleep(800);
 
   const authingResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -2570,7 +2806,7 @@ async function verifyGithubTimelineState(send) {
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
       openedUrl: window.__paimOpenedUrl || "",
       hasAuthCard: Boolean(document.querySelector('.overview-github-auth-card')),
-      hasWaitingText: document.body.textContent.includes('브라우저에서 로그인을 완료해 주세요'),
+      hasWaitingText: document.body.textContent.includes('브라우저에서 GitHub 연결을 완료해 주세요'),
       hasCheckButton: Boolean(Array.from(document.querySelectorAll('.overview-github-auth-card button')).find((button) => button.textContent.includes('로그인 완료했어요'))),
     }))()`,
   });
@@ -2631,6 +2867,18 @@ async function verifyGithubTimelineState(send) {
               html_url: 'https://github.com/j3s30p/PaiM',
             },
           ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url === 'https://api.github.com/user') {
+          return new Response(JSON.stringify({
+            avatar_url: '',
+            html_url: 'https://github.com/j3s30p',
+            login: 'j3s30p',
+            name: 'Smoke User',
+          }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
@@ -2708,7 +2956,7 @@ async function verifyGithubTimelineState(send) {
         .find((button) => button.textContent.includes('로그인 완료했어요'))?.click();
     })()`,
   });
-  await sleep(300);
+  await sleep(800);
 
   const reposResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -2734,6 +2982,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => ({
       titles: Array.from(document.querySelectorAll('.overview-timeline-row p')).map((item) => item.textContent.trim()),
       meta: Array.from(document.querySelectorAll('.overview-timeline-row small')).map((item) => item.textContent.trim()),
+      labels: Array.from(document.querySelectorAll('.overview-timeline-label')).map((item) => item.textContent.trim()),
       repoName: document.querySelector('.overview-github-repo-name')?.textContent.trim() || "",
       repoMeta: document.querySelector('.overview-github-meta')?.textContent.trim() || "",
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
@@ -2805,18 +3054,17 @@ async function verifyGithubTimelineState(send) {
 
   if (value.linked.stateText !== "연결됨" ||
       !value.linked.hasConnectedCard ||
-      !value.linked.hasSyncButton ||
       !value.linked.hasChangeButton ||
       !value.linked.hasDisconnectButton ||
-      !value.linked.titles.includes("PR #18 프로젝트 Overview 연결") ||
-      !value.linked.titles.includes("issue #21 파일 목록 스크롤") ||
+      !value.linked.titles.includes("프로젝트 Overview 연결") ||
+      !value.linked.titles.includes("파일 목록 스크롤") ||
       !value.linked.titles.includes("feat: project file management")) {
     failures.push("linked GitHub timeline should render issue, PR, and commit events");
   }
 
-  if (!value.linked.meta.some((item) => item.includes("PR")) ||
-      !value.linked.meta.some((item) => item.includes("ISSUE")) ||
-      !value.linked.meta.some((item) => item.includes("COMMIT"))) {
+  if (!value.linked.labels.includes("PR #18") ||
+      !value.linked.labels.includes("ISSUE #21") ||
+      !value.linked.labels.includes("COMMIT")) {
     failures.push("linked GitHub timeline should label event types");
   }
 
@@ -2828,12 +3076,9 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline icons should not render boxed backgrounds");
   }
 
-  if (!value.linked.repoName.includes("j3s30p/Stampy") ||
+  if (!value.linked.repoName.includes("Stampy") ||
       !value.linked.repoMeta.includes("main") ||
-      !value.linked.repoMeta.includes("Private") ||
-      !value.linked.repoMeta.includes("GitHub Login") ||
-      !value.linked.repoMeta.includes("1 open issues") ||
-      !value.linked.repoMeta.includes("1 open PRs")) {
+      !value.linked.repoMeta.includes("j3s30p")) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
@@ -3280,7 +3525,7 @@ async function verifyDraftClearsOnSessionChange(send) {
         {
           id: "assistant-draft-a",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -3292,7 +3537,7 @@ async function verifyDraftClearsOnSessionChange(send) {
         {
           id: "assistant-draft-b",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-draft-b",
@@ -3369,7 +3614,7 @@ async function verifyDeleteSessionFlow(send) {
         {
           id: "assistant-delete-a",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-delete-a",
@@ -3386,7 +3631,7 @@ async function verifyDeleteSessionFlow(send) {
         {
           id: "assistant-delete-b",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-delete-b",
@@ -3451,11 +3696,19 @@ async function verifyDeleteSessionFlow(send) {
     expression: `(() => {
       const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
       const activeProject = savedState.projects.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
       return {
         titles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
         sessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
       };
@@ -3486,11 +3739,16 @@ async function verifyDeleteSessionFlow(send) {
     if (value.afterLastDelete.titles.length !== 1 ||
         !value.afterLastDelete.titles.includes("New Chat") ||
         value.afterLastDelete.sessionCount !== 1 ||
+        value.afterLastDelete.selectedSessionMessageCount !== 0 ||
         !value.afterLastDelete.selectedSessionId) {
-      failures.push("deleting the last session should leave a new starter chat");
+      failures.push("deleting the last session should create a replacement empty chat");
     }
 
     if (!value.afterLastDelete.hasPrompt ||
+        value.afterLastDelete.messageCount !== 0 ||
+        !value.afterLastDelete.emptyTitle.includes("Delete Smoke") ||
+        value.afterLastDelete.hasProjectHome ||
+        value.afterLastDelete.uploadText !== "" ||
         value.afterLastDelete.hasProjectOverview ||
         value.afterLastDelete.hasOverviewPrompt) {
       failures.push("project should stay in chat after deleting the last session");
@@ -3607,6 +3865,16 @@ try {
     projectCreationResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
     console.log("PASS new projects are created as active workspaces");
+  }
+
+  const projectBriefingResult = await verifyProjectBriefingStartsWithoutVisiblePrompt(send);
+
+  if (projectBriefingResult.failures.length > 0) {
+    hasFailures = true;
+    console.log("FAIL project briefing start flow");
+    projectBriefingResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+  } else {
+    console.log("PASS project briefing enters chat without exposing the generated prompt");
   }
 
   const actionMenuRenameResult = await verifyActionMenuRenameFlow(send);

@@ -63,9 +63,27 @@ export type GitRepositoryInfo = {
   authProvider?: "public" | "github_oauth" | "github_app";
 };
 
+export type ProjectMemoryCategory = "decision" | "action" | "issue" | "risk";
+
+export type ProjectMemoryItem = {
+  id: number;
+  project_id?: number;
+  doc_id?: number;
+  category: ProjectMemoryCategory;
+  content: string;
+  reason?: string | null;
+  topic?: string | null;
+  owner?: string | null;
+  date?: string | null;
+  source?: string | null;
+  created_at?: string | null;
+};
+
 export type ProjectWorkspace = {
   id: string;
+  apiProjectId?: number;
   name: string;
+  description?: string;
   files?: Attachment[];
   githubConnected?: boolean;
   githubRepository?: GitRepositoryInfo;
