@@ -55,9 +55,11 @@ class ContextBuilder:
             
             # 기획서 정책에 따라 요약본이 리미트(예: 최대 2000토큰)를 넘지 않는지 유효성 검증
             if summary_token > 2000:
-                # 1~2k 수준을 유지하기 위해 강제 슬라이싱 혹은 경고 처리 바인딩 단계를 둡니다.
-                pass
-                
+                # 1~2k 수준을 유지하기 위해 토큰 단위로 강제 슬라이싱합니다.
+                truncated_ids = self.encoder.encode(summary_prompt_text)[:2000]
+                summary_prompt_text = self.encoder.decode(truncated_ids)
+                summary_token = self.calculate_tokens(summary_prompt_text)
+
         available_variable_budget -= summary_token
 
         # ----------------------------------------------------

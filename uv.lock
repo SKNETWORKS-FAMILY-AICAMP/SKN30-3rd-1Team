@@ -2199,6 +2199,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "chromadb" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-generativeai" },
     { name = "langchain-anthropic" },
@@ -2211,6 +2212,7 @@ dependencies = [
     { name = "pypdf" },
     { name = "python-dotenv" },
     { name = "streamlit" },
+    { name = "tiktoken" },
     { name = "uvicorn" },
 ]
 
@@ -2225,6 +2227,7 @@ dev = [
 requires-dist = [
     { name = "anthropic" },
     { name = "chromadb" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "google-generativeai" },
     { name = "langchain-anthropic" },
@@ -2237,6 +2240,7 @@ requires-dist = [
     { name = "pypdf", specifier = ">=6.14.2" },
     { name = "python-dotenv" },
     { name = "streamlit", specifier = ">=1.58.0" },
+    { name = "tiktoken" },
     { name = "uvicorn" },
 ]
 

@@ -4,15 +4,26 @@ import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 class SessionCrypto:
+
+    # AES-128/192/256-GCM이 요구하는 키 바이트 길이
+    _VALID_KEY_LENGTHS = (16, 24, 32)
+
     def __init__(self):
         key_env = os.getenv("SESSION_MEMORY_KEY")
         if not key_env:
             raise ValueError("환경변수 'SESSION_MEMORY_KEY'가 설정되지 않았습니다.")
-        
+
+        key_bytes = base64.b64decode(key_env)
+        if len(key_bytes) not in self._VALID_KEY_LENGTHS:
+            raise ValueError(
+                "'SESSION_MEMORY_KEY'는 base64로 인코딩된 16/24/32바이트 키여야 합니다 "
+                f"(현재 {len(key_bytes)}바이트)."
+            )
+
         # 1차 구현에서는 단일 마스터 키만 사용하므로 이를 'v1' 키로 매핑하여 저장
         self.current_version = "v1"
         self.keys = {
-            "v1": base64.b64decode(key_env)
+            "v1": key_bytes
         }
 
     def encrypt(self, plaintext: str) -> tuple[str, str, str]:
@@ -57,4 +68,11 @@ class SessionCrypto:
         decrypted_bytes = aesgcm.decrypt(nonce, ciphertext, None)
         return decrypted_bytes.decode('utf-8')
 
-session_crypto = SessionCrypto()
+_session_crypto = None  # 첫 사용 시 SESSION_MEMORY_KEY로 초기화 (lazy — 모듈 import 시 env var 불필요)
+
+
+def get_session_crypto() -> SessionCrypto:
+    global _session_crypto
+    if _session_crypto is None:
+        _session_crypto = SessionCrypto()
+    return _session_crypto
