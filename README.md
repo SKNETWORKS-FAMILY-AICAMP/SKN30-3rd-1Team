@@ -49,13 +49,20 @@ cp .env.example .env
 ```
 
 ```env
-LLM_PROVIDER=claude          # claude | openai | google
+LLM_PROVIDER=openai          # openai | claude | google | local
+
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini
 
 ANTHROPIC_API_KEY=...
 CLAUDE_MODEL=claude-sonnet-4-6
 
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4o
+GOOGLE_API_KEY=...
+GOOGLE_MODEL=gemini-1.5-pro
+
+# local provider (Ollama / vLLM / LM Studio 등 OpenAI 호환 서버)
+# LOCAL_LLM_URL=http://localhost:11434/v1
+# LOCAL_LLM_MODEL=llama3
 
 DB_HOST=localhost
 DB_USER=root
@@ -161,11 +168,13 @@ PaiM/
 
 | 제공자 | 구조화 추출 | Q&A |
 |--------|:----------:|:---:|
-| Claude | ✅ | ✅ |
 | OpenAI | ✅ | ✅ |
+| Claude | ✅ | ✅ |
 | Google | ❌ | ✅ |
+| Local  | ✅ | ✅ |
 
 > Google Gemini는 Q&A 전용. 중첩 스키마 미지원으로 구조화 추출 불가.
+> Local은 Ollama, vLLM, LM Studio 등 OpenAI 호환 서버를 사용. `LOCAL_LLM_URL`, `LOCAL_LLM_MODEL`로 지정.
 
 ---
 

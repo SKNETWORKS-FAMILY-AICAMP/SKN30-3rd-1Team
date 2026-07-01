@@ -6,7 +6,8 @@ from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
 
-CHUNK_SIZE = 500  # ChromaDB 적재 시 원문 청크 크기 (문자 수)
+CHUNK_SIZE = 600  # ChromaDB 적재 시 원문 청크 크기 (문자 수)
+CHUNK_OVERLAP = 150
 
 
 def _normalize_date(date_str: Optional[str]) -> Optional[str]:
@@ -41,11 +42,47 @@ def _normalize_date(date_str: Optional[str]) -> Optional[str]:
 
 def _split_text(text: str) -> List[str]:
     """원문 텍스트를 CHUNK_SIZE 단위로 분할. ChromaDB는 짧은 청크가 검색 정확도가 더 높음."""
+    if len(text) <= CHUNK_SIZE:
+        return [text.strip()] if text.strip() else []
+
+    sentences = re.split(r'(?<=[.\n])\s*', text)
     chunks = []
-    for i in range(0, len(text), CHUNK_SIZE):
-        chunk = text[i:i + CHUNK_SIZE].strip()
-        if chunk:
-            chunks.append(chunk)
+    current_chunk = ""
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+
+        # 단일 문장이 CHUNK_SIZE를 초과하면 강제 분할 후 chunks에 직접 추가
+        if len(sentence) > CHUNK_SIZE:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            for i in range(0, len(sentence), CHUNK_SIZE):
+                piece = sentence[i:i + CHUNK_SIZE].strip()
+                if piece:
+                    chunks.append(piece)
+            continue
+
+        if len(current_chunk) + len(sentence) + (1 if current_chunk else 0) <= CHUNK_SIZE:
+            current_chunk = current_chunk + " " + sentence if current_chunk else sentence
+        else:
+            if current_chunk:
+                chunks.append(current_chunk)
+
+            # 오버랩: 이전 청크 뒷부분 일부를 가져와 새 청크 시작
+            overlap_text = current_chunk[-CHUNK_OVERLAP:] if len(current_chunk) > CHUNK_OVERLAP else current_chunk
+            if " " in overlap_text:
+                overlap_text = overlap_text[overlap_text.find(" ") + 1:]
+
+            candidate = (overlap_text + " " + sentence).strip() if overlap_text else sentence
+            # overlap을 붙여도 CHUNK_SIZE를 넘으면 overlap 없이 sentence만으로 시작
+            current_chunk = candidate if len(candidate) <= CHUNK_SIZE else sentence
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
     return chunks
 
 
@@ -80,7 +117,7 @@ def ingest(
                         item.category, item.content,
                         item.reason, item.topic,
                         item.owner, _normalize_date(item.date),  # 날짜 정규화 후 저장
-                        item.source or source,
+                        source,
                     ),
                 )
         conn.commit()

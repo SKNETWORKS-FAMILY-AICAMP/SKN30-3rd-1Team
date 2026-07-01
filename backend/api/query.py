@@ -26,11 +26,16 @@ def query(project_id: int, body: QueryRequest):
     finally:
         conn.close()
 
-    return answer(
-        project_id=project_id,
-        question=body.question,
-        history=body.history,
-    )
+    try:
+        return answer(
+            project_id=project_id,
+            question=body.question,
+            history=body.history,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Q&A 처리 오류: %s", e, exc_info=True)
+        raise HTTPException(status_code=503, detail="Q&A 처리 중 오류가 발생했습니다. 서버 로그를 확인하세요.")
 
 
 class GitLogUpload(BaseModel):

@@ -50,11 +50,16 @@ def render(project_id: int, project_name: str):
 
     with st.chat_message("assistant"):
         with st.spinner("답변 생성 중..."):
-            result = answer(
-                project_id=project_id,
-                question=question,
-                history=api_history,
-            )
+            try:
+                result = answer(
+                    project_id=project_id,
+                    question=question,
+                    history=api_history,
+                )
+            except Exception as e:
+                st.error(f"Q&A 오류: {e}\n\nLLM_PROVIDER 및 API 키 설정을 확인하세요.")
+                history.pop()  # 오류 시 사용자 질문도 히스토리에서 제거
+                return
         st.markdown(result["answer"])
         _render_meta(result)
 
