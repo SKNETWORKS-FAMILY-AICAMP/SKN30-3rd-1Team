@@ -1,17 +1,21 @@
 # backend/chat/router.py
+import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import tiktoken
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from backend.db.mysql import get_connection
 from backend.security.session_crypto import get_session_crypto
 from backend.chat.session_store import SessionStore
 from backend.chat.context_builder import ContextBuilder
+from backend.llm.chat_model_factory import get_chat_model
 
 router = APIRouter(prefix="/projects/{project_id}/sessions", tags=["Session Memory API"])
+logger = logging.getLogger(__name__)
 
 # --- 실제 DB 커넥션 종속성 주입기 (다른 라우터와 동일하게 backend.db.mysql.get_connection 사용) ---
 def get_db():
@@ -63,6 +67,22 @@ def _verify_session_ownership(cursor, project_id: int, session_id: str):
     )
     if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="해당 프로젝트에서 요청하신 세션을 찾을 수 없습니다.")
+
+
+_ROLE_TO_LANGCHAIN_MESSAGE = {
+    "system": SystemMessage,
+    "assistant": AIMessage,
+    "user": HumanMessage,
+}
+
+
+def _to_langchain_messages(final_prompt_messages: List[dict]):
+    """ContextBuilder.build_final_prompt()가 만든 role/content dict 목록을
+    LangChain 메시지 객체 목록으로 변환한다 (system/assistant/user 외 role은 user로 취급)."""
+    return [
+        _ROLE_TO_LANGCHAIN_MESSAGE.get(m["role"], HumanMessage)(content=m["content"])
+        for m in final_prompt_messages
+    ]
 
 
 # --- [1] POST /projects/{project_id}/sessions (세션 생성) ---
@@ -164,7 +184,7 @@ def handle_session_query(project_id: int, session_id: str, request: QueryRequest
     with db.cursor() as cursor:
         _verify_session_ownership(cursor, project_id, session_id)
 
-    store = SessionStore(db)
+    store = SessionStore(db, project_id)
 
     # DB로부터 암호화 세션 상태를 복호화하여 런타임 메모리에 안착
     current_summary, recent_messages, last_summary_id = store.get_session_context(session_id)
@@ -239,8 +259,13 @@ def handle_session_query(project_id: int, session_id: str, request: QueryRequest
     )
     # -------------------------------------------------------------------------
 
-    # 가상의 외부 LLM 연산 처리 구간
-    llm_response_text = f"상기 복호화된 대화 상태와 RAG 컨텍스트를 종합 분석한 결과 답변입니다. (세션: {session_id})"
+    # 실제 LLM 호출 (LLM_PROVIDER env로 openai/claude/google/local 중 선택 — llm/chat_model_factory.get_chat_model() 재사용)
+    try:
+        llm_response = get_chat_model().invoke(_to_langchain_messages(final_prompt_messages))
+        llm_response_text = llm_response.content
+    except Exception as e:
+        logger.error("세션 질의 LLM 호출 오류: %s", e, exc_info=True)
+        raise HTTPException(status_code=503, detail="LLM 응답 생성 중 오류가 발생했습니다. 서버 로그를 확인하세요.")
 
     # 2. 생성된 AI 응답을 세션 스토어 및 DB에 기록
     a_token = len(encoder.encode(llm_response_text))

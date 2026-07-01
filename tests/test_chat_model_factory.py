@@ -1,4 +1,4 @@
-"""_make_llm() provider 라우팅 단위 테스트.
+"""get_chat_model() provider 라우팅 단위 테스트.
 
 각 LLM_PROVIDER 값이 올바른 LangChain 객체를 반환하는지 검증.
 실제 API 호출은 하지 않으며 dummy 키로 생성자만 테스트한다.
@@ -11,53 +11,54 @@ def test_import_without_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    import backend.llm.chat_model_factory  # noqa: F401 — import 자체가 크래시하지 않아야 함
     import backend.retriever.qa_engine as q
     assert q._chain is None
 
 
-def test_make_llm_openai(monkeypatch):
+def test_get_chat_model_openai(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
-    from backend.retriever.qa_engine import _make_llm
+    from backend.llm.chat_model_factory import get_chat_model
     from langchain_openai import ChatOpenAI
-    assert isinstance(_make_llm(), ChatOpenAI)
+    assert isinstance(get_chat_model(), ChatOpenAI)
 
 
-def test_make_llm_openai_default_model(monkeypatch):
+def test_get_chat_model_openai_default_model(monkeypatch):
     """OPENAI_MODEL 미설정 시 기본값이 gpt-4.1-mini여야 한다."""
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-dummy")
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
-    from backend.retriever.qa_engine import _make_llm
-    assert _make_llm().model_name == "gpt-4.1-mini"
+    from backend.llm.chat_model_factory import get_chat_model
+    assert get_chat_model().model_name == "gpt-4.1-mini"
 
 
-def test_make_llm_claude(monkeypatch):
+def test_get_chat_model_claude(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "claude")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-dummy")
-    from backend.retriever.qa_engine import _make_llm
+    from backend.llm.chat_model_factory import get_chat_model
     from langchain_anthropic import ChatAnthropic
-    assert isinstance(_make_llm(), ChatAnthropic)
+    assert isinstance(get_chat_model(), ChatAnthropic)
 
 
-def test_make_llm_google(monkeypatch):
+def test_get_chat_model_google(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "google")
     monkeypatch.setenv("GOOGLE_API_KEY", "dummy")
-    from backend.retriever.qa_engine import _make_llm
+    from backend.llm.chat_model_factory import get_chat_model
     from langchain_google_genai import ChatGoogleGenerativeAI
-    assert isinstance(_make_llm(), ChatGoogleGenerativeAI)
+    assert isinstance(get_chat_model(), ChatGoogleGenerativeAI)
 
 
-def test_make_llm_local(monkeypatch):
+def test_get_chat_model_local(monkeypatch):
     """local provider는 OpenAI 호환 클라이언트(ChatOpenAI)를 반환해야 한다."""
     monkeypatch.setenv("LLM_PROVIDER", "local")
-    from backend.retriever.qa_engine import _make_llm
+    from backend.llm.chat_model_factory import get_chat_model
     from langchain_openai import ChatOpenAI
-    assert isinstance(_make_llm(), ChatOpenAI)
+    assert isinstance(get_chat_model(), ChatOpenAI)
 
 
-def test_make_llm_invalid_provider(monkeypatch):
+def test_get_chat_model_invalid_provider(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "unknown_provider")
-    from backend.retriever.qa_engine import _make_llm
+    from backend.llm.chat_model_factory import get_chat_model
     with pytest.raises(ValueError, match="지원하지 않는 LLM_PROVIDER"):
-        _make_llm()
+        get_chat_model()

@@ -18,6 +18,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from . import mysql_search
+from ..llm.chat_model_factory import get_chat_model
 
 MAX_HISTORY = 10   # 대화 히스토리 최대 유지 턴 수 (컨텍스트 길이 제한)
 CHROMA_K = 5       # ChromaDB 검색 시 가져올 후보 청크 수
@@ -110,42 +111,13 @@ _prompt = ChatPromptTemplate.from_messages([
 ])
 
 
-def _make_llm():
-    """LLM_PROVIDER 환경변수에 따라 LangChain 채팅 모델 반환.
-    - openai  : OpenAI API
-    - claude  : Anthropic API
-    - google  : Google Gemini API
-    - local   : OpenAI 호환 로컬 서버 (Ollama / vLLM / LM Studio / llama.cpp 등)
-                LOCAL_LLM_URL, LOCAL_LLM_MODEL 환경변수로 엔드포인트·모델 지정
-    """
-    p = os.getenv("LLM_PROVIDER", "openai").lower()
-    if p == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0)
-    if p == "claude":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"), temperature=0)
-    if p == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL", "gemini-1.5-pro"), temperature=0)
-    if p == "local":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=os.getenv("LOCAL_LLM_MODEL", "local-model"),
-            base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"),
-            api_key="local",  # OpenAI 클라이언트가 키를 요구하므로 dummy 값
-            temperature=0,
-        )
-    raise ValueError(f"지원하지 않는 LLM_PROVIDER: {p} (openai/claude/google/local 중 하나)")
-
-
 _chain = None  # 첫 Q&A 호출 시 LLM_PROVIDER에 맞춰 초기화 (lazy — 앱 시작 시 API key 불필요)
 
 
 def _get_chain():
     global _chain
     if _chain is None:
-        _chain = _prompt | _make_llm() | StrOutputParser()
+        _chain = _prompt | get_chat_model() | StrOutputParser()
     return _chain
 
 

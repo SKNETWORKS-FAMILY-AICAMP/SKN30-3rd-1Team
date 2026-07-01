@@ -128,6 +128,27 @@ class _FakeConn:
         pass
 
 
+class _FakeLLMResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeLLM:
+    """llm.chat_model_factory.get_chat_model()이 반환하는 LangChain 챗모델을 흉내 낸 페이크.
+    실제 네트워크 호출 없이 고정 응답(또는 강제 에러)을 돌려준다."""
+
+    def __init__(self, content="테스트용 LLM 응답입니다.", raise_error=False):
+        self.content = content
+        self.raise_error = raise_error
+        self.received_messages = None
+
+    def invoke(self, messages):
+        self.received_messages = messages
+        if self.raise_error:
+            raise RuntimeError("LLM 호출 실패 (테스트 시뮬레이션)")
+        return _FakeLLMResponse(self.content)
+
+
 @pytest.fixture
 def fake_conn(monkeypatch):
     monkeypatch.setenv(
@@ -137,6 +158,16 @@ def fake_conn(monkeypatch):
     import backend.security.session_crypto as sc
     sc._session_crypto = None  # 이전 테스트에서 캐시된 키 무효화
     return _FakeConn()
+
+
+@pytest.fixture(autouse=True)
+def fake_llm(monkeypatch):
+    """backend.chat.router.get_chat_model()을 패치해 실제 LLM 호출(네트워크/API 키) 없이
+    고정 응답을 반환하게 한다. 모든 테스트에 자동 적용되며, 실패 시나리오가 필요한
+    테스트는 반환된 인스턴스의 raise_error/content를 직접 조작한다."""
+    llm = _FakeLLM()
+    monkeypatch.setattr("backend.chat.router.get_chat_model", lambda: llm)
+    return llm
 
 
 def test_create_and_query_session(fake_conn):
@@ -250,3 +281,76 @@ def test_delete_session_with_messages_cleans_up_children(fake_conn):
     delete_chat_session(1, session_id, db=fake_conn)
     assert not any(m["session_id"] == session_id for m in fake_conn.messages)
     assert session_id not in fake_conn.sessions
+
+
+def test_query_answer_uses_real_llm_not_placeholder(fake_conn, fake_llm):
+    """handle_session_query()가 하드코딩된 placeholder 문자열이 아니라
+    LLM 호출 결과를 반환해야 한다 (AGENT_LOG.md Entry 050 요구사항 A)."""
+    from backend.chat.router import create_chat_session, handle_session_query, SessionCreateRequest, QueryRequest
+
+    fake_llm.content = "실제 LLM이 생성한 답변입니다."
+    session_id = create_chat_session(1, SessionCreateRequest(title="s"), db=fake_conn)["id"]
+
+    result = handle_session_query(1, session_id, QueryRequest(current_question="질문"), db=fake_conn)
+
+    assert result["answer"] == "실제 LLM이 생성한 답변입니다."
+    assert "복호화된 대화 상태와" not in result["answer"]  # 기존 placeholder 문자열 잔존 여부 확인
+    assert fake_llm.received_messages is not None  # 실제로 LLM.invoke()가 호출되었는지 확인
+
+
+def test_query_llm_failure_returns_503_not_raw_exception(fake_conn, fake_llm):
+    """LLM 호출이 실패하면 raw exception이 아니라 503 HTTPException으로 변환되어야 한다."""
+    from backend.chat.router import create_chat_session, handle_session_query, SessionCreateRequest, QueryRequest
+
+    session_id = create_chat_session(1, SessionCreateRequest(title="s"), db=fake_conn)["id"]
+    fake_llm.raise_error = True
+
+    with pytest.raises(HTTPException) as exc:
+        handle_session_query(1, session_id, QueryRequest(current_question="질문"), db=fake_conn)
+    assert exc.value.status_code == 503
+
+
+def test_session_store_blocks_wrong_project_id(fake_conn):
+    """SessionStore를 라우터 검증 없이 직접 호출해도 잘못된 project_id로는
+    get_session_context/save_message/save_or_update_summary가 모두 차단되어야 한다
+    (AGENT_LOG.md Entry 050 요구사항 B — SessionStore 자체의 project 격리)."""
+    from backend.chat.router import create_chat_session, SessionCreateRequest
+    from backend.chat.session_store import SessionStore
+
+    session_id = create_chat_session(1, SessionCreateRequest(title="s"), db=fake_conn)["id"]  # project 1 소속
+    wrong_store = SessionStore(fake_conn, project_id=2)
+
+    with pytest.raises(HTTPException) as exc:
+        wrong_store.get_session_context(session_id)
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        wrong_store.save_message(session_id, role="user", text="x", token_count=1)
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        wrong_store.save_or_update_summary(session_id, summary_text="x", source_message_id=1)
+    assert exc.value.status_code == 404
+
+    # 잘못된 project_id로 인해 아무 것도 실제로 저장되지 않았어야 한다
+    assert not any(m["session_id"] == session_id for m in fake_conn.messages)
+    assert session_id not in fake_conn.summaries
+
+
+def test_session_store_allows_correct_project_id(fake_conn):
+    """올바른 project_id로는 SessionStore의 조회/저장이 정상 동작해야 한다."""
+    from backend.chat.router import create_chat_session, SessionCreateRequest
+    from backend.chat.session_store import SessionStore
+
+    session_id = create_chat_session(1, SessionCreateRequest(title="s"), db=fake_conn)["id"]
+    store = SessionStore(fake_conn, project_id=1)
+
+    summary, messages, last_id = store.get_session_context(session_id)
+    assert summary == ""
+    assert messages == []
+
+    msg_id = store.save_message(session_id, role="user", text="hello", token_count=3)
+    assert any(m["id"] == msg_id for m in fake_conn.messages)
+
+    store.save_or_update_summary(session_id, summary_text="요약", source_message_id=msg_id)
+    assert session_id in fake_conn.summaries
