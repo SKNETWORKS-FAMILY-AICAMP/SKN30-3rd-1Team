@@ -31,8 +31,8 @@
     "targets": "all",
     "icon": [
       "icons/icon.png",
-      "../app_icon/PaiM_logo.icns",
-      "../app_icon/PaiM_logo.ico"
+      "../assets/app_icon/PaiM_logo.icns",
+      "../assets/app_icon/PaiM_logo.ico"
     ]
   }
 }
