@@ -16,6 +16,7 @@ import {
   Minus,
   PanelLeft,
   PanelRight,
+  Pencil,
   Plus,
   Square,
   X,
@@ -38,11 +39,8 @@ import {
   useState,
 } from "react";
 import paimWatermark from "./assets/paim-watermark.png";
-import tablerAlertTriangle from "./assets/tabler-icons/alert-triangle.svg?raw";
-import tablerArrowRight from "./assets/tabler-icons/arrow-right.svg?raw";
-import tablerCheck from "./assets/tabler-icons/check.svg?raw";
-import tablerFlame from "./assets/tabler-icons/flame.svg?raw";
 import { GithubPanel } from "./GithubPanel";
+import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { formatRelativeAge } from "./format";
 import {
   createGithubDeviceCode,
@@ -103,6 +101,11 @@ type ProjectPanelTab = {
   pendingDeleteProjectFileId: string | null;
 };
 
+type ApiProjectCreateResponse = {
+  id: number;
+  name: string;
+};
+
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
   | { type: "session"; projectId: string; sessionId: string; top: number; left: number };
@@ -134,27 +137,14 @@ const DEFAULT_ZOOM_SCALE = 1;
 const MIN_ZOOM_SCALE = 0.8;
 const MAX_ZOOM_SCALE = 1.6;
 const ZOOM_STEP = 0.1;
-type TablerIconProps = {
-  className?: string;
-  label?: string;
-  svg: string;
-};
-
-// 로컬로 번들된 Tabler SVG가 부모 색상을 그대로 받도록 인라인으로 렌더한다.
-function TablerIcon({ className = "", label, svg }: TablerIconProps) {
-  return (
-    <span
-      aria-hidden={label ? undefined : true}
-      aria-label={label}
-      className={`tabler-icon ${className}`.trim()}
-      role={label ? "img" : undefined}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  );
-}
+const LEGACY_WELCOME_CONTENT = "안녕하세요! 😊";
 
 function isWindowsHost() {
   return window.navigator.userAgent.includes("Windows");
+}
+
+function isMacHost() {
+  return window.navigator.userAgent.includes("Mac");
 }
 
 function WindowsTitlebar() {
@@ -216,14 +206,6 @@ function createId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function createWelcomeMessage(): Message {
-  return {
-    id: createId("assistant"),
-    role: "assistant",
-    content: "안녕하세요! 😊",
-  };
-}
-
 function createProject(name: string, sessions: ChatSession[], files: Attachment[] = []): ProjectWorkspace {
   return {
     id: createId("project"),
@@ -239,8 +221,21 @@ function createEmptySession(): ChatSession {
     id: createId("session"),
     title: "New Chat",
     createdAt: Date.now(),
-    messages: [createWelcomeMessage()],
+    messages: [],
   };
+}
+
+// 이전 버전이 자동으로 넣던 첫 assistant 인사는 새 empty state와 중복되므로 로딩 때만 걷어낸다.
+function removeLegacyWelcomeMessages(messages: Message[]) {
+  if (
+    messages.length === 1 &&
+    messages[0].role === "assistant" &&
+    messages[0].content === LEGACY_WELCOME_CONTENT
+  ) {
+    return [];
+  }
+
+  return messages;
 }
 
 function createUniqueProjectName(projects: ProjectWorkspace[], baseName: string) {
@@ -261,7 +256,15 @@ function createUniqueProjectName(projects: ProjectWorkspace[], baseName: string)
 }
 
 function createNextProjectName(projects: ProjectWorkspace[]) {
-  return createUniqueProjectName(projects, "New Project");
+  const projectNames = new Set(projects.map((project) => project.name.trim()));
+
+  for (let index = 1; ; index += 1) {
+    const candidateName = `New Project ${index}`;
+
+    if (!projectNames.has(candidateName)) {
+      return candidateName;
+    }
+  }
 }
 
 // 액션 메뉴를 화면 기준으로 배치해 사이드바 스크롤 영역에 잘리지 않게 한다.
@@ -284,11 +287,14 @@ function createProjectState(
 ): ProjectState {
   const validProjects = projects
     .map((project) => {
-      const sessions = project.sessions.filter((session) => session.messages.length > 0);
+      const sessions = (project.sessions ?? []).map((session) => ({
+        ...session,
+        messages: removeLegacyWelcomeMessages(session.messages),
+      }));
 
       return {
         ...project,
-        sessions: sessions.length > 0 ? sessions : [createEmptySession()],
+        sessions,
       };
     });
 
@@ -303,9 +309,11 @@ function createProjectState(
   const selectedProject =
     validProjects.find((project) => project.id === selectedProjectId) ?? validProjects[0];
   const selectedSession =
-    selectedProject.sessions.find((session) => session.id === selectedSessionId) ??
-    selectedProject.sessions[0] ??
-    null;
+    selectedSessionId === null
+      ? null
+      : selectedProject.sessions.find((session) => session.id === selectedSessionId) ??
+        selectedProject.sessions[0] ??
+        null;
 
   return {
     projects: validProjects,
@@ -526,52 +534,6 @@ function getGithubRepositoryOwner(repositories: GithubAvailableRepository[]) {
   return repositories.find((repository) => repository.owner)?.owner;
 }
 
-// 프로젝트 Overview의 PM 카드에는 아직 연결된 분석 결과 대신 현재 앱 상태를 담는다.
-function createOverviewMemoryCards(project: ProjectWorkspace, attachmentCount: number) {
-  return [
-    {
-      icon: tablerCheck,
-      label: "Decision",
-      tone: "decision",
-      items: [
-        project.sessions.length > 0
-          ? `${project.sessions.length}개 채팅에서 결정사항 추출 대기`
-          : "아직 기록된 결정사항이 없습니다",
-        "DB/LLM 연결 후 프로젝트 메모로 확정",
-      ],
-    },
-    {
-      icon: tablerArrowRight,
-      label: "Action",
-      tone: "action",
-      items: [
-        attachmentCount > 0
-          ? `${attachmentCount}개 첨부 자료 확인 가능`
-          : "프로젝트 자료 추가 대기",
-        "새 채팅에서 다음 액션 정리",
-      ],
-    },
-    {
-      icon: tablerAlertTriangle,
-      label: "Issue",
-      tone: "issue",
-      items: [
-        project.sessions.length > 0 ? "채팅 기반 이슈 정리 대기" : "아직 등록된 이슈가 없습니다",
-        "충돌 자료 판별은 백엔드 연결 후 처리",
-      ],
-    },
-    {
-      icon: tablerFlame,
-      label: "Risk",
-      tone: "risk",
-      items: [
-        "프로젝트 상태 판단은 현재 프론트 데모 범위",
-        "연결 전까지 채팅/첨부 이력만 보존",
-      ],
-    },
-  ];
-}
-
 // localStorage에는 큰 data URL을 저장하지 않도록 첨부 미리보기를 제외한다.
 function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
   return attachments.map((attachment) => ({
@@ -688,6 +650,25 @@ function createDemoAssistantReply(message: Message) {
   ].join("\n") + fileSummary;
 }
 
+// 업로드된 프로젝트 자료를 읽은 뒤 처음 보여줄 짧은 브리핑 응답을 만든다.
+function createProjectBriefingReply(project: ProjectWorkspace, projectFiles: Attachment[]) {
+  const description = project.description?.trim();
+  const fileNames = projectFiles.map((file) => file.name).join(", ");
+  const githubName = project.githubRepository?.remoteRepo ?? project.githubRepository?.name;
+
+  return [
+    `${project.name || "New Project"} 프로젝트 맥락을 받았습니다.`,
+    "",
+    description ? `프로젝트 설명: ${description}` : null,
+    projectFiles.length > 0 ? `확인한 자료: ${fileNames}` : null,
+    githubName ? `GitHub 저장소: ${githubName}` : null,
+    "",
+    "지금부터 이 정보를 기준으로 프로젝트 목적, 현재 상태, 다음 액션을 함께 정리할 수 있습니다.",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
 // 데모 응답이 바로 튀어나오지 않도록 짧은 생각 시간을 둔다.
 function wait(ms: number) {
   return new Promise<void>((resolve) => {
@@ -698,6 +679,7 @@ function wait(ms: number) {
 // 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
 export function App() {
   const isWindows = useMemo(isWindowsHost, []);
+  const isMac = useMemo(isMacHost, []);
   const [initialProjectState] = useState(loadProjectState);
   const [projects, setProjects] = useState<ProjectWorkspace[]>(initialProjectState.projects);
   const [selectedProjectId, setSelectedProjectId] = useState(
@@ -784,10 +766,18 @@ export function App() {
 	    () => sortProjectSourcesByUploadedAt(selectedProjectAttachments),
 	    [selectedProjectAttachments],
 	  );
-	  const selectedProjectFileCount = useMemo(
-	    () => countProjectFileEntries(selectedProjectAttachments),
-	    [selectedProjectAttachments],
-	  );
+  const selectedProjectFileCount = useMemo(
+    () => countProjectFileEntries(selectedProjectAttachments),
+    [selectedProjectAttachments],
+  );
+  const selectedProjectRootFileCount = useMemo(
+    () => selectedProjectAttachments.filter((attachment) => attachment.kind !== "directory").length,
+    [selectedProjectAttachments],
+  );
+  const selectedProjectFolderCount = useMemo(
+    () => selectedProjectAttachments.filter((attachment) => attachment.kind === "directory").length,
+    [selectedProjectAttachments],
+  );
 	  const filteredSelectedProjectFiles = useMemo(
 	    () => filterProjectFileEntries(sortedSelectedProjectAttachments, projectFileQuery),
 	    [projectFileQuery, sortedSelectedProjectAttachments],
@@ -830,6 +820,13 @@ export function App() {
       : selectedProjectGithubSession?.status === "pending"
         ? "authing"
         : "signedout";
+  const selectedProjectDescription = selectedProject?.description?.trim() ?? "";
+  const isSelectedProjectDefaultName = /^New Project(?: \d+)?$/.test(selectedProject?.name ?? "");
+  const canOpenProjectMemory = typeof selectedProject?.apiProjectId === "number";
+  const hasProjectHomeContext =
+    selectedProjectFileCount > 0 ||
+    selectedProjectGithubPanelState === "connected" ||
+    selectedProjectDescription.length > 0;
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -866,13 +863,6 @@ export function App() {
       `${repository.fullName} ${repository.name}`.toLowerCase().includes(query),
     );
   }, [githubRepositoryQuery, selectedProjectGithubRepositories]);
-  const overviewMemoryCards = useMemo(
-    () =>
-      selectedProject
-        ? createOverviewMemoryCards(selectedProject, selectedProjectFileCount)
-        : [],
-    [selectedProject, selectedProjectFileCount],
-  );
   const actionMenuProject = openActionMenu
     ? projects.find((project) => project.id === openActionMenu.projectId) ?? null
     : null;
@@ -1153,6 +1143,26 @@ export function App() {
     setPendingDeleteProjectFileId(null);
   }, [projectSourcesMode]);
 
+  useEffect(() => {
+    if (canOpenProjectMemory) {
+      return;
+    }
+
+    setProjectPanelTabs((currentTabs) => {
+      if (!currentTabs.some((tab) => tab.view === "memory")) {
+        return currentTabs;
+      }
+
+      setActiveProjectPanelTabId((currentTabId) => {
+        const currentTab = currentTabs.find((tab) => tab.id === currentTabId);
+
+        return currentTab?.view === "memory" ? null : currentTabId;
+      });
+
+      return currentTabs.filter((tab) => tab.view !== "memory");
+    });
+  }, [canOpenProjectMemory]);
+
   function updateProjectPanelTab(
     tabId: string,
     updater: (tab: ProjectPanelTab) => ProjectPanelTab,
@@ -1221,6 +1231,30 @@ export function App() {
     );
   }
 
+  // FastAPI의 정수 project_id가 있어야 서버 메모리 API를 조회할 수 있다.
+  async function ensureApiProject(project: ProjectWorkspace) {
+    if (typeof project.apiProjectId === "number") {
+      return project;
+    }
+
+    const createdProject = await fetchPaimJson<ApiProjectCreateResponse>("/projects", {
+      method: "POST",
+      body: JSON.stringify({ name: project.name || "New Project" }),
+    });
+
+    const nextProject = {
+      ...project,
+      apiProjectId: createdProject.id,
+    };
+
+    updateProject(project.id, (currentProject) => ({
+      ...currentProject,
+      apiProjectId: createdProject.id,
+    }));
+
+    return nextProject;
+  }
+
   function updateSessionInProject(
     projectId: string,
     sessionId: string,
@@ -1246,14 +1280,13 @@ export function App() {
     clearDraft();
   }
 
-  // 새 프로젝트는 자료 업로드 없이 바로 채팅을 시작할 수 있게 첫 채팅을 함께 만든다.
+  // 새 프로젝트는 먼저 홈에서 자료를 받기 위해 채팅 세션 없이 만든다.
   function createProjectFromName(baseName: string, files: Attachment[] = []) {
-    const nextSession = createEmptySession();
-    const nextProject = createProject(createUniqueProjectName(projects, baseName), [nextSession], files);
+    const nextProject = createProject(createUniqueProjectName(projects, baseName), [], files);
 
     setProjects((currentProjects) => [nextProject, ...currentProjects]);
     setSelectedProjectId(nextProject.id);
-    setSelectedSessionId(nextSession.id);
+    setSelectedSessionId(null);
     setProjectPanelTabs([]);
     setActiveProjectPanelTabId(null);
     clearDraft();
@@ -1317,7 +1350,7 @@ export function App() {
   }
 
   // 지정한 프로젝트 안에 새 채팅을 항상 추가하고 그 채팅을 선택한다.
-	  function handleCreateChatInProject(projectId: string) {
+  function handleCreateChatInProject(projectId: string) {
 	    const targetProject = projects.find((project) => project.id === projectId);
 
     if (!targetProject) {
@@ -1341,6 +1374,10 @@ export function App() {
 
 	  // 같은 도구도 새 탭으로 추가한다. 자료 탭은 탭별로 검색/선택/프리뷰 상태를 따로 가진다.
 	  function openProjectPanelTool(view: ProjectPanelToolView) {
+	    if (view === "memory" && !canOpenProjectMemory) {
+	      return;
+	    }
+
 	    const nextTab = createProjectPanelTab(view);
 
 	    setProjectPanelTabs((currentTabs) => [...currentTabs, nextTab]);
@@ -2132,8 +2169,8 @@ export function App() {
     }
   }
 
-  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 chat 없는 프로젝트로 둔다.
-  function handleDeleteSession(
+	  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
+	  function handleDeleteSession(
     projectId: string,
     sessionId: string,
     event: MouseEvent<HTMLButtonElement>,
@@ -2146,8 +2183,8 @@ export function App() {
       return;
     }
 
-    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
-    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
+	    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
+	    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
     const shouldMoveSelection =
       selectedProjectId === projectId &&
       (sessionId === selectedSessionId ||
@@ -2166,6 +2203,62 @@ export function App() {
 
     setOpenActionMenu(null);
 
+    focusPrompt();
+  }
+
+  async function handleStartProjectBriefing(project: ProjectWorkspace, projectFiles: Attachment[]) {
+    const description = project.description?.trim();
+    const githubName = project.githubRepository?.remoteRepo ?? project.githubRepository?.name;
+    let briefingProject = project;
+
+    if (projectFiles.length === 0 && !description && !githubName) {
+      setDemoStatus({
+        ok: false,
+        message: "프로젝트 설명, 파일, 폴더, GitHub 중 하나를 먼저 추가해 주세요",
+        scope: "overview",
+      });
+      return;
+    }
+
+    try {
+      briefingProject = await ensureApiProject(project);
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "FastAPI 프로젝트를 만들 수 없어 서버 메모리는 비활성화됩니다"),
+        scope: "overview",
+      });
+    }
+
+    const nextSession: ChatSession = {
+      ...createEmptySession(),
+      title: "Project Briefing",
+      messages: [],
+    };
+
+    updateProject(project.id, (currentProject) => ({
+      ...currentProject,
+      sessions: [nextSession, ...currentProject.sessions],
+    }));
+    setSelectedProjectId(project.id);
+    setSelectedSessionId(nextSession.id);
+    setIsSending(true);
+    clearDraft();
+
+    await wait(DEMO_REPLY_DELAY_MS * 2);
+
+    updateSessionInProject(project.id, nextSession.id, (session) => ({
+      ...session,
+      messages: [
+        ...session.messages,
+        {
+          id: createId("assistant"),
+          role: "assistant",
+          content: createProjectBriefingReply(briefingProject, projectFiles),
+        },
+      ],
+    }));
+    setIsSending(false);
     focusPrompt();
   }
 
@@ -2404,7 +2497,7 @@ export function App() {
     <div
       className="app-shell"
       data-drag-active={isDragActive}
-      data-platform={isWindows ? "windows" : "native"}
+      data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
       data-project-panel={selectedProject ? "true" : "false"}
       data-project-panel-collapsed={isProjectPanelCollapsed}
       data-project-panel-maximized={isProjectPanelMaximized}
@@ -2666,52 +2759,64 @@ export function App() {
         ) : null}
       </aside>
 
-      <main className="chat">
+      <main
+        className="chat"
+        data-empty-chat={selectedSession?.messages.length === 0 ? "true" : undefined}
+      >
         {selectedSession ? (
           <>
-            <div className="chat-scroll" ref={chatScrollRef}>
-              <div className="conversation">
-                {selectedSession.messages.map((message, index) => (
-                <article className="message" data-role={message.role} key={message.id}>
-                  {message.role === "assistant" && index > 1 ? (
-                    <div className="thinking">
-                      <Lightbulb size={16} />
-                      <span>Thought for a moment</span>
-                    </div>
-                  ) : null}
-                  <div className="message-content">
-                    {message.content.split("\n").map((line, lineIndex) => (
-                      <p key={`${message.id}-${lineIndex}`}>{line}</p>
-                    ))}
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <AttachmentList attachments={message.attachments} label="첨부 파일" />
-                    ) : null}
-                  </div>
-                  {message.role === "assistant" ? (
-                    <button
-                      className="copy-button"
-                      data-copied={copiedMessageId === message.id}
-                      onClick={() => void handleCopy(message)}
-                      aria-label={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                      title={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                      type="button"
-                    >
-                      <Copy size={16} />
-                    </button>
-                  ) : null}
-                </article>
-                ))}
-
-                {isSending ? (
-                  <article className="message" data-role="assistant">
-                    <div className="thinking">
-                      <Lightbulb size={16} />
-                      <span>Thought for a moment</span>
-                    </div>
-                  </article>
-                ) : null}
+            {selectedSession.messages.length === 0 ? (
+              <div className="chat-empty">
+                <h1>
+                  <span className="chat-empty-project-name">{selectedProject?.name ?? "PaiM"}</span>
+                  에서 무엇을 도와드릴까요?
+                </h1>
               </div>
-            </div>
+            ) : (
+              <div className="chat-scroll" ref={chatScrollRef}>
+                <div className="conversation">
+                  {selectedSession.messages.map((message, index) => (
+                    <article className="message" data-role={message.role} key={message.id}>
+                      {message.role === "assistant" && index > 1 ? (
+                        <div className="thinking">
+                          <Lightbulb size={16} />
+                          <span>Thought for a moment</span>
+                        </div>
+                      ) : null}
+                      <div className="message-content">
+                        {message.content.split("\n").map((line, lineIndex) => (
+                          <p key={`${message.id}-${lineIndex}`}>{line}</p>
+                        ))}
+                        {message.attachments && message.attachments.length > 0 ? (
+                          <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                        ) : null}
+                      </div>
+                      {message.role === "assistant" ? (
+                        <button
+                          className="copy-button"
+                          data-copied={copiedMessageId === message.id}
+                          onClick={() => void handleCopy(message)}
+                          aria-label={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
+                          title={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
+                          type="button"
+                        >
+                          <Copy size={16} />
+                        </button>
+                      ) : null}
+                    </article>
+                  ))}
+
+                  {isSending ? (
+                    <article className="message" data-role="assistant">
+                      <div className="thinking">
+                        <Lightbulb size={16} />
+                        <span>Thought for a moment</span>
+                      </div>
+                    </article>
+                  ) : null}
+                </div>
+              </div>
+            )}
 
             <form className="prompt" onSubmit={handleSubmit}>
               <textarea
@@ -2753,6 +2858,180 @@ export function App() {
               </div>
             </form>
           </>
+        ) : selectedProject ? (
+          <section className="project-home" aria-label="프로젝트 시작 화면">
+            <div className="project-home-content">
+              <div className="project-home-name-row">
+                <input
+                  aria-label="프로젝트 이름"
+                  className="project-home-name"
+                  onBlur={(event) => {
+                    const nextName =
+                      event.currentTarget.value.trim() ||
+                      createNextProjectName(
+                        projects.filter((project) => project.id !== selectedProject.id),
+                      );
+
+                    if (nextName !== selectedProject.name) {
+                      updateProject(selectedProject.id, (project) => ({
+                        ...project,
+                        name: nextName,
+                      }));
+                    }
+                  }}
+	                  onChange={(event) => {
+	                    const nextName = event.currentTarget.value;
+
+	                    updateProject(selectedProject.id, (project) => ({
+	                      ...project,
+	                      name: nextName,
+	                    }));
+	                  }}
+	                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
+	                  placeholder="New Project 1"
+	                  value={selectedProject.name}
+	                />
+	                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
+	              </div>
+              <textarea
+                aria-label="프로젝트 설명"
+                className="project-home-description"
+                onChange={(event) => {
+                  const nextDescription = event.currentTarget.value;
+
+                  updateProject(selectedProject.id, (project) => ({
+                    ...project,
+                    description: nextDescription,
+                  }));
+                }}
+                placeholder="프로젝트 설명을 적어두면 PaiM이 맥락을 잡는 데 도움이 됩니다."
+                rows={2}
+                value={selectedProject.description ?? ""}
+              />
+	              <div className="project-home-divider" />
+
+              <div className="project-home-section-title">시작하기</div>
+              <div className="project-home-upload-list">
+                <div className="project-home-upload-card" data-ready={selectedProjectRootFileCount > 0}>
+                  <span className="project-home-upload-state">
+                    {selectedProjectRootFileCount > 0 ? "완료" : "파일"}
+                  </span>
+                  <Files size={18} />
+                  <span className="project-home-upload-copy">
+                    <strong>프로젝트 관련 파일 업로드</strong>
+                    <small>PDF, PPT, README, 회의록 같은 자료를 한 번에 추가하세요</small>
+                  </span>
+                  <span className="project-home-upload-actions">
+                    <button onClick={() => void handleOpenProjectFiles(selectedProject.id)} type="button">
+                      {selectedProjectRootFileCount > 0 ? "추가" : "파일 선택"}
+                    </button>
+                    {selectedProjectFileCount > 0 ? (
+                      <button
+                        onClick={() => {
+                          setIsProjectPanelCollapsed(false);
+                          openProjectPanelTool("files");
+                        }}
+                        type="button"
+                      >
+                        자료 수정
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="project-home-upload-card" data-ready={selectedProjectFolderCount > 0}>
+                  <span className="project-home-upload-state">
+                    {selectedProjectFolderCount > 0 ? "완료" : "폴더"}
+                  </span>
+                  <FolderOpen size={18} />
+                  <span className="project-home-upload-copy">
+                    <strong>프로젝트 폴더 업로드</strong>
+                    <small>소스 폴더나 문서 폴더를 통째로 추가하세요</small>
+                  </span>
+                  <span className="project-home-upload-actions">
+                    <button
+                      onClick={() => void handleOpenProjectDirectory(selectedProject.id)}
+                      type="button"
+                    >
+                      {selectedProjectFolderCount > 0 ? "추가" : "폴더 선택"}
+                    </button>
+                    {selectedProjectFileCount > 0 ? (
+                      <button
+                        onClick={() => {
+                          setIsProjectPanelCollapsed(false);
+                          openProjectPanelTool("files");
+                        }}
+                        type="button"
+                      >
+                        자료 수정
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+                <div
+                  className="project-home-upload-card"
+                  data-ready={selectedProjectGithubPanelState === "connected"}
+                >
+                  <span className="project-home-upload-state">
+                    {selectedProjectGithubPanelState === "connected" ? "완료" : "GitHub"}
+                  </span>
+                  <GitBranch size={18} />
+                  <span className="project-home-upload-copy">
+                    <strong>GitHub 저장소 연결</strong>
+                    <small>지금 연결하거나 나중에 프로젝트 패널에서 연결할 수 있습니다</small>
+                  </span>
+                  <span className="project-home-upload-actions">
+                    <button
+                      onClick={() => {
+                        setIsProjectPanelCollapsed(false);
+                        openProjectPanelTool("github");
+                      }}
+                      type="button"
+                    >
+                      {getGithubPanelStateLabel(selectedProjectGithubPanelState)}
+                    </button>
+                  </span>
+                </div>
+              </div>
+
+              <div className="project-home-spacer" />
+
+              {demoStatus && demoStatus.scope !== "github" ? (
+                <p
+                  className="runtime-status project-home-status"
+                  data-ok={demoStatus.ok}
+                  key={statusRevision}
+                  role="status"
+                >
+                  {demoStatus.message}
+                </p>
+              ) : null}
+
+              <p className="project-home-note">
+                분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
+              </p>
+              <div className="project-home-actions">
+                <button
+                  className="project-home-primary"
+                  disabled={!hasProjectHomeContext || isSending}
+                  onClick={() =>
+                    void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
+                  }
+                  type="button"
+                >
+                  <Brain size={16} />
+                  <span>{isSending ? "분석 중" : "분석 시작"}</span>
+                </button>
+                <button
+                  className="project-home-secondary"
+                  onClick={() => handleCreateChatInProject(selectedProject.id)}
+                  type="button"
+                >
+                  <MessageSquare size={16} />
+                  <span>분석 없이 채팅 시작하기</span>
+                </button>
+              </div>
+            </div>
+          </section>
         ) : (
           <div className="project-start" role="status">
             <div className="project-start-content">
@@ -2789,6 +3068,7 @@ export function App() {
         <aside
           className="project-panel"
           data-collapsed={isProjectPanelCollapsed}
+          data-view={projectPanelView}
           aria-label="프로젝트 보조 패널"
         >
           {isProjectPanelCollapsed ? (
@@ -2864,18 +3144,20 @@ export function App() {
 	                    <Plus size={18} />
 	                  </summary>
 	                  <div className="project-panel-tab-menu">
-	                    {PROJECT_PANEL_TOOL_VIEWS.map((view) => (
-	                      <button
-	                        key={view}
-	                        onClick={(event) => {
-	                          event.currentTarget.closest("details")?.removeAttribute("open");
-	                          openProjectPanelTool(view);
-	                        }}
-	                        type="button"
-	                      >
-	                        {getProjectPanelTitle(view)}
-	                      </button>
-	                    ))}
+		                    {PROJECT_PANEL_TOOL_VIEWS
+		                      .filter((view) => view !== "memory" || canOpenProjectMemory)
+		                      .map((view) => (
+		                        <button
+		                          key={view}
+		                          onClick={(event) => {
+		                            event.currentTarget.closest("details")?.removeAttribute("open");
+		                            openProjectPanelTool(view);
+		                          }}
+		                          type="button"
+		                        >
+		                          {getProjectPanelTitle(view)}
+		                        </button>
+		                      ))}
 	                  </div>
 	                </details>
 	              </div>
@@ -2909,17 +3191,19 @@ export function App() {
           </div>
 
           {projectPanelView === "menu" ? (
-            <div className="project-panel-menu" role="list">
-	              <button onClick={() => openProjectPanelTool("memory")} role="listitem" type="button">
-                <span>
-                  <Brain size={18} />
-                  <span>
-                    <strong>메모리</strong>
-                    <small>결정·액션·이슈·리스크</small>
-                  </span>
-                </span>
-                <ChevronRight size={16} />
-              </button>
+	            <div className="project-panel-menu" role="list">
+	              {canOpenProjectMemory ? (
+	                <button onClick={() => openProjectPanelTool("memory")} role="listitem" type="button">
+	                  <span>
+	                    <Brain size={18} />
+	                    <span>
+	                      <strong>메모리</strong>
+	                      <small>결정·액션·이슈·리스크</small>
+	                    </span>
+	                  </span>
+	                  <ChevronRight size={16} />
+	                </button>
+	              ) : null}
 		              <button
 		                onClick={() => openProjectPanelTool("files")}
                 role="listitem"
@@ -2948,27 +3232,10 @@ export function App() {
           ) : null}
 
           {projectPanelView === "memory" ? (
-            <div className="project-panel-content">
-              <p className="project-panel-project-name">{selectedProject.name}</p>
-              <section className="overview-memory" aria-label="프로젝트 메모">
-                <div className="overview-memory-grid">
-                  {overviewMemoryCards.map((card) => (
-                    <article className="overview-memory-card" data-tone={card.tone} key={card.label}>
-                      <div className="overview-memory-label">
-                        <TablerIcon svg={card.icon} />
-                        <span>{card.label}</span>
-                      </div>
-                      {card.items.map((item) => (
-                        <p key={item}>
-                          <span>·</span>
-                          {item}
-                        </p>
-                      ))}
-                    </article>
-                  ))}
-                </div>
-              </section>
-            </div>
+            <ProjectMemoryPanel
+              isMaximized={isProjectPanelMaximized}
+              project={selectedProject}
+            />
           ) : null}
 
           {projectPanelView === "files" ? (
