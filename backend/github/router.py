@@ -239,6 +239,18 @@ def _github_repo_preview(repository_url: str, state: str | None = None):
     }
 
 
+def _github_owner_profile(owner: dict[str, Any] | None):
+    if not owner or not owner.get("login"):
+        return None
+
+    return {
+        "login": owner.get("login"),
+        "avatarUrl": owner.get("avatar_url", ""),
+        "htmlUrl": owner.get("html_url", f"{GITHUB_WEB_BASE}/{owner.get('login')}"),
+        "name": None,
+    }
+
+
 def _github_timestamp(value: str | None) -> int:
     if not value:
         return int(time.time() * 1000)
@@ -324,6 +336,7 @@ def get_github_app_session(state: str):
 def list_github_app_repositories(state: str):
     token = _installation_token(state)
     response = _json_request("GET", "/installation/repositories?per_page=100", token=token)
+    repositories = response.get("repositories", [])
 
     return {
         "repositories": [
@@ -333,9 +346,18 @@ def list_github_app_repositories(state: str):
                 "private": bool(repo.get("private")),
                 "defaultBranch": repo.get("default_branch"),
                 "url": repo.get("html_url"),
+                "owner": _github_owner_profile(repo.get("owner")),
             }
-            for repo in response.get("repositories", [])
+            for repo in repositories
         ],
+        "user": next(
+            (
+                profile
+                for profile in (_github_owner_profile(repo.get("owner")) for repo in repositories)
+                if profile
+            ),
+            None,
+        ),
     }
 
 

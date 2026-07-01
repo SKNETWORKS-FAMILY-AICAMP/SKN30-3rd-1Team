@@ -6,6 +6,8 @@ const LEGACY_STORAGE_KEY = "paim.chatSessions.v2";
 const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
 const VITE_BIN = "node_modules/vite/bin/vite.js";
@@ -78,18 +80,20 @@ async function openAppWithProject(send) {
           {
             id: "assistant-smoke",
             role: "assistant",
-            content: "안녕하세요! 😊",
+            content: "저장된 응답입니다.",
           },
         ],
       },
     ],
     "session-smoke",
+    [],
+    { apiProjectId: 1 },
   );
 
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}, '360'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
   });
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
@@ -99,7 +103,7 @@ async function openAppWithoutProjects(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.removeItem(${JSON.stringify(PROJECT_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.removeItem(${JSON.stringify(PROJECT_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}, '360'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)})`,
   });
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
@@ -237,7 +241,7 @@ async function measureScenario(send, scenario) {
           height: box.height,
         };
       };
-      const overviewButton = document.querySelector('button[aria-label="프로젝트 개요"]');
+      const projectPanel = document.querySelector('.project-panel');
       const sidebarToggle = document.querySelector('.sidebar-toggle');
       const sidebarToggleBox = sidebarToggle?.getBoundingClientRect();
       const prompt = rect('.prompt');
@@ -258,8 +262,8 @@ async function measureScenario(send, scenario) {
         prompt,
         actions,
         buttons,
-        overviewButtonExists: Boolean(overviewButton),
-        overviewButtonDisabled: overviewButton?.disabled ?? true,
+        projectPanelVisible: Boolean(projectPanel) && getComputedStyle(projectPanel).display !== 'none',
+        projectPanelMenuButtons: document.querySelectorAll('.project-panel-menu button').length,
         sidebarToggleVisible: Boolean(sidebarToggleBox?.width && sidebarToggleBox?.height),
         settingsExists: Boolean(document.querySelector('.settings-float')),
       };
@@ -285,8 +289,12 @@ async function measureScenario(send, scenario) {
     failures.push("prompt actions exceed prompt bounds");
   }
 
-  if (!value.overviewButtonExists || value.overviewButtonDisabled) {
-    failures.push("project overview button should be enabled in the prompt");
+  if (scenario.width > 860 && (!value.projectPanelVisible || value.projectPanelMenuButtons !== 3)) {
+    failures.push("project panel menu should be visible beside the chat");
+  }
+
+  if (scenario.width <= 860 && value.projectPanelVisible) {
+    failures.push("project panel should collapse away on narrow layouts");
   }
 
   if (!value.sidebarToggleVisible) {
@@ -311,7 +319,7 @@ async function verifyStorageSanitization(send) {
         {
           id: "assistant-storage-smoke",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-storage-smoke",
@@ -440,6 +448,7 @@ async function verifySidebarBrandTypography(send) {
 
       return {
         rootFont: getComputedStyle(document.documentElement).fontFamily,
+        codeFont: getComputedStyle(document.documentElement).getPropertyValue('--code-font-family'),
         hasSidebarBrand: Boolean(document.querySelector('.sidebar-brand')),
         hasSidebarFooter: Boolean(document.querySelector('.sidebar-footer')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
@@ -457,8 +466,12 @@ async function verifySidebarBrandTypography(send) {
   const value = result.result.value;
   const failures = [];
 
-  if (!value.rootFont.includes("D2Coding") && !value.rootFont.includes("D2 Coding")) {
-    failures.push(`D2Coding should be the first configured app font: ${value.rootFont}`);
+  if (!value.rootFont.includes("Geist Sans")) {
+    failures.push(`Geist Sans should be the first configured app font: ${value.rootFont}`);
+  }
+
+  if (!value.codeFont.includes("Geist Mono")) {
+    failures.push(`Geist Mono should be the first configured code font: ${value.codeFont}`);
   }
 
   if (value.hasSidebarBrand || value.hasSidebarFooter) {
@@ -497,14 +510,26 @@ async function verifySidebarBrandTypography(send) {
     returnByValue: true,
     expression: `(() => {
       const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
       return {
         projectCount: savedState.projects?.length ?? 0,
         activeProjectName: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
-        activeSessionCount: savedState.projects?.find((project) => project.id === savedState.selectedProjectId)?.sessions.length ?? 0,
+        activeSessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
+        panelMenuTexts: Array.from(document.querySelectorAll('.project-panel-menu button'))
+          .map((button) => button.textContent.trim()),
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
-        overviewTitle: document.querySelector('.project-overview h1')?.textContent.trim() || "",
+        hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
       };
     })()`,
@@ -512,14 +537,67 @@ async function verifySidebarBrandTypography(send) {
   value.afterStart = afterStartResult.result.value;
 
   if (value.afterStart.projectCount !== 1 ||
-      value.afterStart.activeProjectName !== "New Project" ||
+      value.afterStart.activeProjectName !== "New Project 1" ||
       value.afterStart.activeSessionCount !== 0 ||
+      value.afterStart.selectedSessionMessageCount !== -1 ||
       value.afterStart.selectedSessionId !== null ||
       value.afterStart.hasPrompt ||
-      !value.afterStart.hasProjectOverview ||
-      value.afterStart.overviewTitle !== "New Project" ||
-      !value.afterStart.hasOverviewPrompt) {
-    failures.push("start project button should create the first project and show overview");
+      value.afterStart.messageCount !== 0 ||
+      value.afterStart.emptyTitle !== "" ||
+      !value.afterStart.hasProjectHome ||
+      !value.afterStart.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.afterStart.analysisDisabled ||
+      value.afterStart.panelMenuTexts.some((text) => text.includes("메모리")) ||
+      value.afterStart.hasProjectOverview ||
+      !value.afterStart.hasProjectPanel ||
+      value.afterStart.hasOverviewPrompt) {
+    failures.push("start project button should create the first project and enter project home");
+  }
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('textarea[aria-label="프로젝트 설명"]')?.focus()`,
+  });
+  await send("Input.insertText", { text: "설명 입력 테스트" });
+  await sleep(250);
+  const descriptionInputResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+
+      return {
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        storedDescription: activeProject?.description || "",
+        textareaValue: document.querySelector('textarea[aria-label="프로젝트 설명"]')?.value || "",
+      };
+    })()`,
+  });
+  value.descriptionInput = descriptionInputResult.result.value;
+
+  if (!value.descriptionInput.hasProjectHome ||
+      value.descriptionInput.storedDescription !== "설명 입력 테스트" ||
+      value.descriptionInput.textareaValue !== "설명 입력 테스트") {
+    failures.push("project description input should update state without crashing");
+  }
+
+  await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
+      .find((button) => button.textContent.includes('자료'))?.click()`,
+  });
+  await sleep(150);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+  });
+  await sleep(80);
+  const afterStartTabAddResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
+      .map((button) => button.textContent.trim())`,
+  });
+  value.afterStartTabAddMenuTexts = afterStartTabAddResult.result.value;
+
+  if (value.afterStartTabAddMenuTexts.some((text) => text.includes("메모리"))) {
+    failures.push("new project panel tab menu should hide memory before project context exists");
   }
 
   return { value, failures };
@@ -572,7 +650,7 @@ async function verifyCopyFeedback(send) {
     failures.push("copy button should expose copied feedback labels");
   }
 
-  if (!value.copiedText.includes("안녕하세요")) {
+  if (!value.copiedText.includes("저장된 응답입니다.")) {
     failures.push("copy action should write the assistant response text");
   }
 
@@ -687,7 +765,7 @@ async function verifyProjectScopedSessions(send) {
         {
           id: "assistant-alpha",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-alpha",
@@ -706,7 +784,7 @@ async function verifyProjectScopedSessions(send) {
         {
           id: "assistant-beta",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-beta",
@@ -773,7 +851,7 @@ async function verifyProjectScopedSessions(send) {
       activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
       selectedSessionId: JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}').selectedSessionId ?? null,
       hasPrompt: Boolean(document.querySelector('.prompt')),
-      overviewTitle: document.querySelector('.project-overview h1')?.textContent.trim() || "",
+      hasProjectOverview: Boolean(document.querySelector('.project-overview')),
       conversationText: document.querySelector('.conversation')?.textContent || "",
     }))()`,
   });
@@ -828,11 +906,11 @@ async function verifyProjectScopedSessions(send) {
     failures.push("project switch should activate the clicked project");
   }
 
-  if (switchValue.activeTitle !== "" ||
-      switchValue.selectedSessionId !== null ||
-      switchValue.hasPrompt ||
-      switchValue.overviewTitle !== "Beta Project") {
-    failures.push("project switch should show the clicked project's overview");
+  if (switchValue.activeTitle !== "Beta Risk Review" ||
+      switchValue.selectedSessionId !== "session-beta" ||
+      !switchValue.hasPrompt ||
+      switchValue.hasProjectOverview) {
+    failures.push("project switch should enter the clicked project's active chat");
   }
 
   if (!switchValue.visibleTitles.includes("Beta Risk Review") ||
@@ -840,8 +918,9 @@ async function verifyProjectScopedSessions(send) {
     failures.push("project tree should keep every project's chats visible after switching");
   }
 
-  if (switchValue.conversationText !== "") {
-    failures.push("project overview should hide the previous chat conversation");
+  if (!switchValue.conversationText.includes("Beta 프로젝트 리스크 확인") ||
+      switchValue.conversationText.includes("Alpha 프로젝트 일정 확인")) {
+    failures.push("project switch should show only the clicked project's chat");
   }
 
   if (newChatValue.alphaCount !== 1 || newChatValue.betaCount !== 2 || !newChatValue.betaHasNewChat) {
@@ -868,7 +947,7 @@ async function verifyProjectCreationFlow(send) {
         {
           id: "assistant-existing-project",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-existing-project",
@@ -903,10 +982,6 @@ async function verifyProjectCreationFlow(send) {
   await send("Runtime.evaluate", {
     expression: `document.querySelector('.project-create-trigger')?.click()`,
   });
-  await sleep(120);
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-create-option[data-source="folder"]')?.click()`,
-  });
   await sleep(250);
 
   const result = await send("Runtime.evaluate", {
@@ -924,13 +999,19 @@ async function verifyProjectCreationFlow(send) {
         activeProjectName,
         activeProjectStoredName: activeProject?.name || "",
         activeProjectSessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         selectedSessionTitle: selectedSession?.title || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
         promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
-        overviewTitle: document.querySelector('.project-overview h1')?.textContent.trim() || "",
+        hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
         hasCreateTrigger: Boolean(Array.from(document.querySelectorAll('.project-create-trigger')).find((button) => button.textContent.includes('New Project'))),
         hasCreateMenu: Boolean(document.querySelector('.project-create-menu')),
@@ -948,14 +1029,23 @@ async function verifyProjectCreationFlow(send) {
     failures.push(`creating a project should add one project: ${value.projectCount}`);
   }
 
-  if (value.activeProjectName !== "New Project" || value.activeProjectStoredName !== "New Project") {
+  if (value.activeProjectName !== "New Project 1" || value.activeProjectStoredName !== "New Project 1") {
     failures.push("newly created project should become the active project");
   }
 
   if (value.activeProjectSessionCount !== 0 ||
+      value.selectedSessionMessageCount !== -1 ||
       value.selectedSessionId !== null ||
       value.selectedSessionTitle !== "") {
-    failures.push("new project should be created without a chat session");
+    failures.push("new project should be created without an automatic starter chat");
+  }
+
+  if (value.messageCount !== 0 ||
+      value.emptyTitle !== "" ||
+      !value.hasProjectHome ||
+      !value.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.analysisDisabled) {
+    failures.push("new project should show the project home upload step");
   }
 
   if (value.hasCreateMenu) {
@@ -963,18 +1053,89 @@ async function verifyProjectCreationFlow(send) {
   }
 
   if (value.visibleTitles.includes("New Chat") || !value.visibleTitles.includes("Existing Planning")) {
-    failures.push("project tree should not add a chat until the user starts one");
+    failures.push("project tree should not add a starter chat before chat starts");
   }
 
   if (value.hasPrompt ||
-      !value.hasProjectOverview ||
-      value.overviewTitle !== "New Project" ||
-      !value.hasOverviewPrompt) {
-    failures.push("new project without chats should show the project overview");
+      value.hasProjectOverview ||
+      !value.hasProjectPanel ||
+      value.hasOverviewPrompt) {
+    failures.push("new project should enter project home and expose the right panel");
   }
 
   if (value.promptValue !== "") {
     failures.push("draft text should clear when creating a project");
+  }
+
+  return { value, failures };
+}
+
+// 분석 시작은 숨겨진 사용자 프롬프트를 만들지 않고 브리핑 응답만 채팅에 연결해야 한다.
+async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
+  const seededProjectState = createProjectStorage(
+    "project-briefing",
+    "Briefing Project",
+    [],
+    null,
+    [],
+    { description: "분석 시작 테스트용 프로젝트 설명" },
+  );
+
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 960,
+    height: 680,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Page.navigate", { url: APP_URL });
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
+  });
+  await send("Page.navigate", { url: APP_URL });
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-home-primary')?.click()`,
+  });
+  await sleep(1300);
+
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
+      const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
+      const storedMessages = selectedSession?.messages ?? [];
+
+      return {
+        selectedSessionTitle: selectedSession?.title || "",
+        storedMessageCount: storedMessages.length,
+        storedRoles: storedMessages.map((message) => message.role),
+        storedText: storedMessages.map((message) => message.content).join("\\n"),
+        visibleUserMessages: document.querySelectorAll('.message[data-role="user"]').length,
+        visibleAssistantMessages: document.querySelectorAll('.message[data-role="assistant"]').length,
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        hasPrompt: Boolean(document.querySelector('.prompt')),
+      };
+    })()`,
+  });
+  const value = result.result.value;
+  const failures = [];
+
+  if (value.selectedSessionTitle !== "Project Briefing" ||
+      value.storedMessageCount !== 1 ||
+      value.storedRoles[0] !== "assistant" ||
+      !value.storedText.includes("프로젝트 설명: 분석 시작 테스트용 프로젝트 설명")) {
+    failures.push("project briefing should store only the assistant briefing response");
+  }
+
+  if (value.visibleUserMessages !== 0 ||
+      value.visibleAssistantMessages !== 1 ||
+      value.hasProjectHome ||
+      !value.hasPrompt) {
+    failures.push("project briefing should enter chat without rendering the generated user prompt");
   }
 
   return { value, failures };
@@ -994,7 +1155,7 @@ async function verifyActionMenuRenameFlow(send) {
           {
             id: "assistant-rename",
             role: "assistant",
-            content: "안녕하세요! 😊",
+            content: "저장된 응답입니다.",
           },
         ],
       },
@@ -1154,7 +1315,7 @@ async function verifyProjectDeleteFlow(send) {
         {
           id: "assistant-delete-project-alpha",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -1168,7 +1329,7 @@ async function verifyProjectDeleteFlow(send) {
         {
           id: "assistant-delete-project-beta",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -1227,7 +1388,7 @@ async function verifyProjectDeleteFlow(send) {
         activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
         promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
-        overviewTitle: document.querySelector('.project-overview h1')?.textContent.trim() || "",
+        hasProjectOverview: Boolean(document.querySelector('.project-overview')),
       };
     })()`,
   });
@@ -1281,14 +1442,14 @@ async function verifyProjectDeleteFlow(send) {
   }
 
   if (value.afterActiveDelete.selectedProjectId !== "project-delete-alpha" ||
-      value.afterActiveDelete.selectedSessionId !== null) {
-    failures.push("selection should move to the remaining project's overview after deleting the active project");
+      value.afterActiveDelete.selectedSessionId !== "session-delete-project-alpha") {
+    failures.push("selection should move to the remaining project's active chat after deleting the active project");
   }
 
   if (value.afterActiveDelete.activeProjectName !== "Delete Alpha" ||
-      value.afterActiveDelete.activeTitle !== "" ||
-      value.afterActiveDelete.overviewTitle !== "Delete Alpha") {
-    failures.push("remaining project should become active and show overview");
+      value.afterActiveDelete.activeTitle !== "Alpha Delete Scope" ||
+      value.afterActiveDelete.hasProjectOverview) {
+    failures.push("remaining project should become active and show chat");
   }
 
   if (value.afterActiveDelete.visibleTitles.includes("Beta Delete Scope")) {
@@ -1540,8 +1701,8 @@ async function verifyMultilineInput(send) {
   return { value, failures };
 }
 
-// 채팅 입력부의 Overview 버튼이 현재 프로젝트 개요로 돌아가는지 확인한다.
-async function verifyPromptOverviewButton(send) {
+// 우측 패널 메뉴가 프로젝트 보조 정보를 상세 화면으로 전환하는지 확인한다.
+async function verifyProjectPanelMenu(send) {
   await send("Emulation.setDeviceMetricsOverride", {
     width: 960,
     height: 680,
@@ -1549,45 +1710,207 @@ async function verifyPromptOverviewButton(send) {
     mobile: false,
   });
   await openAppWithProject(send);
-
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="프로젝트 개요"]')?.click()`,
-  });
-  await sleep(200);
-
-  const result = await send("Runtime.evaluate", {
-    returnByValue: true,
     expression: `(() => {
-      const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
-      return {
-        selectedSessionId: savedState.selectedSessionId ?? null,
-        hasPrompt: Boolean(document.querySelector('.prompt')),
-        hasOverview: Boolean(document.querySelector('.project-overview')),
-        overviewTitle: document.querySelector('.project-overview h1')?.textContent.trim() || "",
-        modelSelectorExists: Boolean(document.querySelector('.model-pill')),
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        if (url.includes('/projects/1/memory')) {
+          return Promise.resolve(new Response(JSON.stringify([
+            {
+              id: 1,
+              project_id: 1,
+              doc_id: 1,
+              category: 'decision',
+              content: '프로젝트 메모리는 FastAPI에서 조회한다',
+              topic: '아키텍처',
+              owner: 'PM',
+              source: 'meeting.md',
+            },
+            {
+              id: 2,
+              project_id: 1,
+              doc_id: 1,
+              category: 'action',
+              content: 'API 연결 상태를 확인한다',
+              owner: '백엔드',
+              source: 'meeting.md',
+            },
+            {
+              id: 3,
+              project_id: 1,
+              doc_id: 1,
+              category: 'issue',
+              content: '서버 미연결 상태에서는 메모리를 숨긴다',
+              source: 'meeting.md',
+            },
+            {
+              id: 4,
+              project_id: 1,
+              doc_id: 1,
+              category: 'risk',
+              content: '프론트 임시 데이터가 실제 메모리처럼 보일 수 있다',
+              source: 'meeting.md',
+            },
+          ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        }
+        return originalFetch(input, init);
       };
     })()`,
   });
-  const value = result.result.value;
+
+  await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
+      .find((button) => button.textContent.includes('메모리'))?.click()`,
+  });
+  await sleep(350);
+
+  const memoryResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+	      hasPrompt: Boolean(document.querySelector('.prompt')),
+	      hasOverview: Boolean(document.querySelector('.project-overview')),
+	      summaryStats: document.querySelectorAll('.project-panel .project-memory-summary-stat').length,
+	      summaryActionRows: document.querySelectorAll('.project-panel .project-memory-summary-action').length,
+	      summarySections: document.querySelectorAll('.project-panel .project-memory-summary-section').length,
+	      text: document.querySelector('.project-panel')?.textContent || "",
+	      tabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+	      hasCloseButton: Boolean(document.querySelector('button[aria-label="프로젝트 메모리 탭 닫기"]')),
+	      hasAddButton: Boolean(document.querySelector('.project-panel-tab-add summary')),
+	      hasRefreshButton: Boolean(Array.from(document.querySelectorAll('.project-memory-header button')).find((button) => button.textContent.includes('새로고침'))),
+	      modelSelectorExists: Boolean(document.querySelector('.model-pill')),
+	    }))()`,
+  });
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="프로젝트 메모리 패널 최대화"]')?.click()`,
+  });
+  await sleep(120);
+  const memoryMaximizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      maximized: document.querySelector('.app-shell')?.getAttribute('data-project-panel-maximized') === 'true',
+      detailStats: document.querySelectorAll('.project-panel .project-memory-stats [data-tone]').length,
+      detailCards: document.querySelectorAll('.project-panel .overview-memory-card').length,
+    }))()`,
+  });
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="프로젝트 메모리 패널 축소"]')?.click()`,
+  });
+	  await sleep(120);
+	  await send("Runtime.evaluate", {
+	    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+	  });
+	  await sleep(100);
+	  await send("Runtime.evaluate", {
+	    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
+	      .find((button) => button.textContent.includes('GitHub'))?.click()`,
+	  });
+  await sleep(200);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="GitHub 패널 최대화"]')?.click()`,
+  });
+  await sleep(120);
+  const githubMaximizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+	    expression: `(() => ({
+	      maximized: document.querySelector('.app-shell')?.getAttribute('data-project-panel-maximized') === 'true',
+	      tabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+	      tabLabels: Array.from(document.querySelectorAll('.project-panel-tab > span')).map((item) => item.textContent.trim()),
+	    }))()`,
+  });
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="GitHub 패널 축소"]')?.click()`,
+  });
+	  await sleep(120);
+	  await send("Runtime.evaluate", {
+	    expression: `document.querySelector('button[aria-label="GitHub 탭 닫기"]')?.click()`,
+	  });
+  await sleep(100);
+  const menuResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      hasMenu: Boolean(document.querySelector('.project-panel-menu')),
+      activeTabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+      tabLabels: Array.from(document.querySelectorAll('.project-panel-tab > span')).map((item) => item.textContent.trim()),
+    }))()`,
+  });
+  for (let index = 0; index < 2; index += 1) {
+    await send("Runtime.evaluate", {
+      expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+    });
+    await sleep(80);
+    await send("Runtime.evaluate", {
+      expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
+        .find((button) => button.textContent.includes('자료'))?.click()`,
+    });
+    await sleep(120);
+  }
+  const duplicateTabsResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      fileTabs: Array.from(document.querySelectorAll('.project-panel-tab > span'))
+        .filter((item) => item.textContent.trim() === '자료').length,
+      activeTabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+    }))()`,
+  });
+  const value = {
+    memory: memoryResult.result.value,
+    memoryMaximize: memoryMaximizeResult.result.value,
+    githubMaximize: githubMaximizeResult.result.value,
+    menu: menuResult.result.value,
+    duplicateTabs: duplicateTabsResult.result.value,
+  };
   const failures = [];
 
-  if (value.selectedSessionId !== null || value.hasPrompt) {
-    failures.push("overview button should leave the current chat session");
+  if (!value.memory.hasPrompt || value.memory.hasOverview) {
+    failures.push("project panel should not replace the chat surface");
   }
 
-  if (!value.hasOverview || value.overviewTitle !== "Smoke Project") {
-    failures.push("overview button should show the current project overview");
-  }
+	  if (value.memory.summaryStats !== 4 ||
+	      value.memory.summaryActionRows < 1 ||
+	      value.memory.summarySections !== 4 ||
+	      !value.memory.text.includes("프로젝트 메모리는 FastAPI에서 조회한다") ||
+	      !value.memory.text.includes("API 연결 상태를 확인한다") ||
+	      !value.memory.tabText.includes("프로젝트 메모리") ||
+	      !value.memory.hasCloseButton ||
+	      !value.memory.hasAddButton ||
+	      !value.memory.hasRefreshButton) {
+	    failures.push("project panel memory view should render FastAPI memory rows");
+	  }
 
-  if (value.modelSelectorExists) {
+	  if (!value.memoryMaximize.maximized ||
+	      value.memoryMaximize.detailStats !== 4 ||
+	      value.memoryMaximize.detailCards !== 4 ||
+	      !value.githubMaximize.maximized ||
+	      !value.githubMaximize.tabText.includes("GitHub") ||
+	      !value.githubMaximize.tabLabels.includes("프로젝트 메모리") ||
+	      !value.githubMaximize.tabLabels.includes("GitHub")) {
+	    failures.push("memory and GitHub panels should support maximize and tab switching");
+	  }
+
+  if (value.menu.hasMenu ||
+      !value.menu.activeTabText.includes("프로젝트 메모리") ||
+      value.menu.tabLabels.includes("GitHub")) {
+	    failures.push("project panel tabs should keep existing tabs and close only the selected tab");
+	  }
+
+	  if (value.duplicateTabs.fileTabs !== 2 ||
+	      value.duplicateTabs.activeTabText !== "자료") {
+	    failures.push("project panel should allow duplicate file tabs");
+	  }
+
+  if (value.memory.modelSelectorExists) {
     failures.push("model selector should not render in the prompt");
   }
 
   return { value, failures };
 }
 
-// Overview 질문 입력이 새 채팅 세션과 데모 응답으로 이어지는지 확인한다.
-async function verifyProjectOverviewQuestion(send) {
+// 새 구조에서는 기본 채팅 입력이 바로 데모 응답 흐름으로 이어진다.
+async function verifyProjectChatQuestion(send) {
   await send("Emulation.setDeviceMetricsOverride", {
     width: 960,
     height: 680,
@@ -1597,13 +1920,9 @@ async function verifyProjectOverviewQuestion(send) {
   await openAppWithProject(send);
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="프로젝트 개요"]')?.click()`,
-  });
-  await sleep(200);
-  await send("Runtime.evaluate", {
     expression: `(() => {
-      const input = document.querySelector('input[aria-label="프로젝트 질문 입력"]');
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
 
       valueSetter?.call(input, '이번 주 액션 알려줘');
       input?.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1611,7 +1930,7 @@ async function verifyProjectOverviewQuestion(send) {
   });
   await sleep(100);
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="프로젝트 질문 보내기"]')?.click()`,
+    expression: `document.querySelector('button[aria-label="메시지 보내기"]')?.click()`,
   });
   await sleep(800);
 
@@ -1624,9 +1943,9 @@ async function verifyProjectOverviewQuestion(send) {
 
       return {
         sessionCount: activeProject?.sessions.length ?? 0,
-        activeTitle: activeSession?.title || "",
-        hasPrompt: Boolean(document.querySelector('.prompt')),
-        hasOverview: Boolean(document.querySelector('.project-overview')),
+          activeTitle: activeSession?.title || "",
+          hasPrompt: Boolean(document.querySelector('.prompt')),
+          hasOverview: Boolean(document.querySelector('.project-overview')),
         conversationText: document.querySelector('.conversation')?.textContent || "",
       };
     })()`,
@@ -1634,38 +1953,107 @@ async function verifyProjectOverviewQuestion(send) {
   const value = result.result.value;
   const failures = [];
 
-  if (value.sessionCount !== 2 || value.activeTitle !== "이번 주 액션 알려줘") {
-    failures.push("overview question should create a new chat session");
+  if (value.sessionCount !== 1 || value.activeTitle !== "Smoke Chat") {
+    failures.push("chat question should stay in the active chat session");
   }
 
-  if (!value.hasPrompt || value.hasOverview) {
-    failures.push("overview question should switch to the chat view");
-  }
+    if (!value.hasPrompt || value.hasOverview) {
+      failures.push("chat question should stay in the chat view");
+    }
 
   if (!value.conversationText.includes("이번 주 액션 알려줘") ||
-      !value.conversationText.includes("좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.")) {
-    failures.push("overview question should submit through the demo chat flow");
-  }
+        !value.conversationText.includes("좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.")) {
+      failures.push("chat question should submit through the demo chat flow");
+    }
 
   return { value, failures };
 }
 
-// Overview 파일 목록은 프로젝트 소유 파일을 보여주고 삭제할 수 있어야 한다.
+// 파일 패널은 프로젝트 폴더 트리를 검색, 접기/펼치기, 최대화 상태로 보여줘야 한다.
 async function verifyProjectOverviewFiles(send) {
   const projectFiles = [
-    { id: "file-audio", name: "회의.m4a", path: "/tmp/회의.m4a" },
-    { id: "file-spec", name: "기획서.pdf", path: "/tmp/기획서.pdf" },
-    ...Array.from({ length: 16 }, (_, index) => ({
-      id: `file-extra-${index}`,
-      name: `추가자료_${index + 1}.pdf`,
-      path: `/tmp/추가자료_${index + 1}.pdf`,
-    })),
-  ];
+    {
+      id: "root-desktop",
+	      name: "desktop",
+	      path: "/mock/desktop",
+	      kind: "directory",
+		      uploadedAt: 86400000,
+      childrenLoaded: true,
+      isExpanded: true,
+      children: [
+        {
+          id: "dir-src",
+          name: "src",
+          path: "/mock/desktop/src",
+          kind: "directory",
+          childrenLoaded: true,
+          isExpanded: false,
+          children: [
+            {
+              id: "file-app",
+              name: "App.tsx",
+              path: "/mock/desktop/src/App.tsx",
+              kind: "file",
+            },
+            {
+              id: "file-style",
+              name: "styles.css",
+              path: "/mock/desktop/src/styles.css",
+              kind: "file",
+            },
+          ],
+        },
+        {
+          id: "file-package",
+          name: "package.json",
+          path: "/mock/desktop/package.json",
+          kind: "file",
+        },
+        {
+          id: "file-long-notebook",
+          name: "02_RAG_Load_Documents(튜터용).ipynb",
+          path: "/mock/desktop/data/02_RAG/02_RAG_Load_Documents(튜터용).ipynb",
+          kind: "file",
+        },
+      ],
+    },
+	    {
+	      id: "root-backend",
+	      name: "backend",
+	      path: "/mock/backend",
+	      kind: "directory",
+	      uploadedAt: 60000,
+      childrenLoaded: true,
+      isExpanded: false,
+      children: [
+        {
+          id: "file-main",
+          name: "main.py",
+          path: "/mock/backend/main.py",
+          kind: "file",
+	        },
+	      ],
+	    },
+	    {
+	      id: "root-readme",
+	      name: "README.md",
+	      path: "/mock/README.md",
+	      kind: "file",
+		      uploadedAt: 86460000,
+	    },
+	  ];
   const seededProjectState = createProjectStorage(
     "project-files",
     "Files Project",
-    [],
-    null,
+    [
+      {
+        id: "session-files",
+        title: "Files Chat",
+        createdAt: Date.now(),
+        messages: [],
+      },
+    ],
+    "session-files",
     projectFiles,
   );
 
@@ -1678,25 +2066,413 @@ async function verifyProjectOverviewFiles(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}, '360'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(seededProjectState)})`,
   });
-  await send("Page.navigate", { url: APP_URL });
-  await sleep(700);
+    await send("Page.navigate", { url: APP_URL });
+    await sleep(700);
+    await send("Runtime.evaluate", {
+      expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
+        .find((button) => button.textContent.includes('자료'))?.click()`,
+    });
+    await sleep(200);
 
-  const initialResult = await send("Runtime.evaluate", {
+	    const libraryResult = await send("Runtime.evaluate", {
+	      returnByValue: true,
+	      expression: `(() => ({
+	        hasSourcesPanel: Boolean(document.querySelector('.project-sources-panel')),
+	        sourceNames: Array.from(document.querySelectorAll('.project-source-body strong')).map((item) => item.textContent.trim()),
+	        hasTreeBeforeDetail: Boolean(document.querySelector('.project-file-tree')),
+	        hasOriginalView: Array.from(document.querySelectorAll('.project-sources-secondary'))
+	          .some((button) => button.textContent.includes('원본 보기')),
+	        sourceSearchPlaceholder: document.querySelector('.project-sources-search input')?.getAttribute('placeholder') || "",
+	        uploadButtons: Array.from(document.querySelectorAll('.project-files-open-button')).map((button) => button.textContent.trim()),
+	        timeLabels: Array.from(document.querySelectorAll('.project-source-time-label')).map((item) => item.textContent.trim()),
+	        sourceMenuCount: document.querySelectorAll('.project-source-menu summary').length,
+	        hasVisibleDeleteButton: Array.from(document.querySelectorAll('.project-source-actions > button'))
+	          .some((button) => button.textContent.includes('삭제') || button.textContent.includes('제거')),
+	      }))()`,
+	    });
+
+	    await send("Runtime.evaluate", {
+	      expression: `(() => {
+	        const input = document.querySelector('.project-sources-search input');
+	        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+	        setter.call(input, 'backend');
+	        input.dispatchEvent(new Event('input', { bubbles: true }));
+	      })()`,
+	    });
+	    await sleep(200);
+
+	    const librarySearchResult = await send("Runtime.evaluate", {
+	      returnByValue: true,
+	      expression: `Array.from(document.querySelectorAll('.project-source-body strong')).map((item) => item.textContent.trim())`,
+	    });
+
+	    await send("Runtime.evaluate", {
+	      expression: `(() => {
+	        const input = document.querySelector('.project-sources-search input');
+	        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+	        setter.call(input, '');
+	        input.dispatchEvent(new Event('input', { bubbles: true }));
+	      })()`,
+	    });
+	    await sleep(120);
+
+	    await send("Runtime.evaluate", {
+	      expression: `Array.from(document.querySelectorAll('.project-source-card'))
+	        .find((card) => card.textContent.includes('README.md'))?.click()`,
+	    });
+	    await sleep(200);
+
+	    const singleFileSourceResult = await send("Runtime.evaluate", {
+	      returnByValue: true,
+	      expression: `(() => ({
+	        dataSingleFile: document.querySelector('.project-files-panel')?.getAttribute('data-single-file') || "",
+	        hasTreePane: Boolean(document.querySelector('.project-files-tree-pane')),
+	        hasTreeToggle: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
+	        hasTreeSearch: Boolean(document.querySelector('.project-files-tree-pane .project-files-search')),
+	        previewTab: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+	        rootText: document.querySelector('.project-files-root')?.textContent.trim() || "",
+	      }))()`,
+	    });
+
+	    await send("Runtime.evaluate", {
+	      expression: `Array.from(document.querySelectorAll('.project-sources-secondary'))
+	        .find((button) => button.textContent.includes('자료함'))?.click()`,
+	    });
+	    await sleep(120);
+
+	    await send("Runtime.evaluate", {
+	      expression: `Array.from(document.querySelectorAll('.project-source-card'))
+	        .find((card) => card.textContent.includes('desktop'))?.click()`,
+	    });
+	    await sleep(200);
+
+    const initialResult = await send("Runtime.evaluate", {
+      returnByValue: true,
+      expression: `(() => ({
+        fileNames: Array.from(document.querySelectorAll('.project-file-name')).map((item) => item.textContent.trim()),
+        fileCountText: document.querySelector('.project-files-count')?.textContent.trim() || "",
+	        rootText: document.querySelector('.project-files-root')?.textContent.trim() || "",
+	        uploadButtons: Array.from(document.querySelectorAll('.project-files-header .project-files-open-button')).map((button) => button.textContent.trim()),
+	        searchPlaceholder: document.querySelector('.project-files-search input')?.getAttribute('placeholder') || "",
+        treeOverflow: getComputedStyle(document.querySelector('.project-file-tree')).overflowY,
+        hasPrompt: Boolean(document.querySelector('.prompt')),
+        hasOverview: Boolean(document.querySelector('.project-overview')),
+        hasPanel: Boolean(document.querySelector('.project-panel')),
+      }))()`,
+    });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="src 펼치기"]')?.click()`,
+  });
+  await sleep(180);
+
+  await send("Runtime.evaluate", {
+    expression: `(() => {
+      const input = document.querySelector('.project-files-search input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'App');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`,
+  });
+  await sleep(180);
+
+  const afterFilterResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
-      fileNames: Array.from(document.querySelectorAll('.overview-file-row p')).map((item) => item.textContent.trim()),
-      fileCountText: document.querySelector('.project-overview-meta')?.textContent.trim() || "",
-      fileListScrollable: document.querySelector('.overview-file-list')?.scrollHeight > document.querySelector('.overview-file-list')?.clientHeight,
-      fileListOverflow: getComputedStyle(document.querySelector('.overview-file-list')).overflowY,
-      hasPrompt: Boolean(document.querySelector('.prompt')),
-      hasOverview: Boolean(document.querySelector('.project-overview')),
+      visibleFileNames: Array.from(document.querySelectorAll('.project-file-name')).map((item) => item.textContent.trim()),
+        appIconColor: (() => {
+          const nameElement = Array.from(document.querySelectorAll('.project-file-name'))
+            .find((item) => item.textContent.trim() === "App.tsx");
+          return nameElement?.closest('.project-file-row')?.querySelector('.project-file-icon')?.style.color || "";
+        })(),
+        hasPreviewEmpty: Boolean(document.querySelector('.project-files-preview-empty')),
+        hasTreeResizeHandle: Boolean(document.querySelector('.project-files-tree-resize-handle')),
+        hasTreeToggle: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
+        hasFileHeader: Boolean(document.querySelector('.project-files-header')),
+        headerBorderBottom: getComputedStyle(document.querySelector('.project-files-header')).borderBottomWidth,
+        panelWidth: document.querySelector('.project-panel')?.getBoundingClientRect().width ?? 0,
+        previewWidth: document.querySelector('.project-files-main')?.getBoundingClientRect().width ?? 0,
+        treeWidth: document.querySelector('.project-files-tree-pane')?.getBoundingClientRect().width ?? 0,
+        panelGridTransition: getComputedStyle(document.querySelector('.project-files-panel')).transitionProperty,
     }))()`,
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="기획서.pdf 삭제"]')?.click()`,
+    expression: `document.querySelector('button[aria-label="자료 패널 최대화"]')?.click()`,
+  });
+  await sleep(180);
+
+  const afterMaximizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const chat = document.querySelector('.chat').getBoundingClientRect();
+
+      return {
+        maximized: shell?.getAttribute('data-project-panel-maximized') === 'true',
+        panelLeft: panel.left,
+        panelTop: panel.top,
+        panelBottom: panel.bottom,
+        panelHeight: panel.height,
+        chatLeft: chat.left,
+        chatTop: chat.top,
+        chatBottom: chat.bottom,
+        chatHeight: chat.height,
+        treeWidth: document.querySelector('.project-files-tree-pane')?.getBoundingClientRect().width ?? 0,
+        hasTreeResizeHandle: Boolean(document.querySelector('.project-files-tree-resize-handle')),
+        hasTreeToggle: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
+        hasPreviewEmpty: Boolean(document.querySelector('.project-files-preview-empty')),
+        hasTree: Boolean(document.querySelector('.project-file-tree')),
+      };
+    })()`,
+  });
+
+  const maxTreeResizeStartResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const handle = document.querySelector('.project-files-tree-resize-handle')?.getBoundingClientRect();
+      const tree = document.querySelector('.project-files-tree-pane')?.getBoundingClientRect();
+
+      return {
+        x: (handle?.left ?? 0) + 3,
+        y: (handle?.top ?? 0) + ((handle?.height ?? 0) / 2),
+        width: tree?.width ?? 0,
+      };
+    })()`,
+  });
+  const maxTreeDragStart = maxTreeResizeStartResult.result.value;
+
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: maxTreeDragStart.x,
+    y: maxTreeDragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: maxTreeDragStart.x - 72,
+    y: maxTreeDragStart.y,
+    button: "left",
+  });
+  const duringMaxTreeResizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      transitionDuration: getComputedStyle(document.querySelector('.project-files-panel')).transitionDuration,
+    }))()`,
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: maxTreeDragStart.x - 72,
+    y: maxTreeDragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(220);
+
+  const afterMaxTreeResizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const tree = document.querySelector('.project-files-tree-pane')?.getBoundingClientRect();
+      const handle = document.querySelector('.project-files-tree-resize-handle');
+
+      return {
+        treeWidth: tree?.width ?? 0,
+        ariaValue: Number(handle?.getAttribute('aria-valuenow') || 0),
+        resizing: shell?.getAttribute('data-project-panel-resizing') || "",
+        treeResizing: shell?.getAttribute('data-project-file-tree-resizing') || "",
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="파일 트리 접기"]')?.click()`,
+  });
+  await sleep(180);
+
+  const afterMaxTreeCollapseResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const treePane = document.querySelector('.project-files-tree-pane');
+      const search = document.querySelector('.project-files-search');
+      const tree = document.querySelector('.project-file-tree');
+      const handle = document.querySelector('.project-files-tree-resize-handle');
+
+      return {
+        collapsed: document.querySelector('.project-files-panel')?.getAttribute('data-tree-collapsed') === 'true',
+        treeWidth: treePane?.getBoundingClientRect().width ?? 0,
+        searchDisplay: search ? getComputedStyle(search).display : "",
+        treeDisplay: tree ? getComputedStyle(tree).display : "",
+        handleDisplay: handle ? getComputedStyle(handle).display : "",
+        hasOpenButton: Boolean(document.querySelector('button[aria-label="파일 트리 펼치기"]')),
+      };
+    })()`,
+  });
+
+  const collapsedTreeResizeStartResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const handle = document.querySelector('.project-files-tree-resize-handle')?.getBoundingClientRect();
+
+      return {
+        x: (handle?.left ?? 0) + 3,
+        y: (handle?.top ?? 0) + ((handle?.height ?? 0) / 2),
+      };
+    })()`,
+  });
+  const collapsedTreeDragStart = collapsedTreeResizeStartResult.result.value;
+
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: collapsedTreeDragStart.x,
+    y: collapsedTreeDragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: collapsedTreeDragStart.x - 72,
+    y: collapsedTreeDragStart.y,
+    button: "left",
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: collapsedTreeDragStart.x - 72,
+    y: collapsedTreeDragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(220);
+
+  const afterCollapsedTreeResizeResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const treePane = document.querySelector('.project-files-tree-pane');
+      const search = document.querySelector('.project-files-search');
+
+      return {
+        collapsed: document.querySelector('.project-files-panel')?.getAttribute('data-tree-collapsed') === 'true',
+        treeWidth: treePane?.getBoundingClientRect().width ?? 0,
+        searchDisplay: search ? getComputedStyle(search).display : "",
+        treeResizing: shell?.getAttribute('data-project-file-tree-resizing') || "",
+        hasCloseButton: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="파일 트리 접기"]')?.click()`,
+  });
+  await sleep(180);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="파일 트리 펼치기"]')?.click()`,
+  });
+  await sleep(180);
+
+  const afterMaxTreeExpandResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const treePane = document.querySelector('.project-files-tree-pane');
+      const search = document.querySelector('.project-files-search');
+
+      return {
+        collapsed: document.querySelector('.project-files-panel')?.getAttribute('data-tree-collapsed') === 'true',
+        treeWidth: treePane?.getBoundingClientRect().width ?? 0,
+        searchDisplay: search ? getComputedStyle(search).display : "",
+        hasCloseButton: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="프로젝트 패널 접기"]')?.click()`,
+  });
+  await sleep(220);
+
+  const afterWholePanelCollapseResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+
+      return {
+        collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
+        maximized: shell?.getAttribute('data-project-panel-maximized') === 'true',
+        hasRailButton: Boolean(document.querySelector('.project-panel-rail-toggle')),
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-panel-rail-toggle')?.click()`,
+  });
+  await sleep(220);
+
+  const afterWholePanelReopenResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const chat = document.querySelector('.chat').getBoundingClientRect();
+
+      return {
+        collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
+        maximized: shell?.getAttribute('data-project-panel-maximized') === 'true',
+        panelLeft: panel.left,
+        chatLeft: chat.left,
+        hasPreviewEmpty: Boolean(document.querySelector('.project-files-preview-empty')),
+        hasTree: Boolean(document.querySelector('.project-file-tree')),
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="파일 필터 지우기"]')?.click()`,
+  });
+  await sleep(120);
+
+  await send("Runtime.evaluate", {
+    expression: `Array.from(document.querySelectorAll('.project-file-name'))
+      .find((item) => item.textContent.includes('02_RAG_Load_Documents'))?.closest('.project-file-row')?.click()`,
+  });
+  await sleep(220);
+
+  const afterLongPreviewResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const main = document.querySelector('.project-files-main')?.getBoundingClientRect();
+      const path = document.querySelector('.project-file-preview-path')?.getBoundingClientRect();
+
+      return {
+        hasPreview: Boolean(document.querySelector('.project-file-preview')),
+        selectedName: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
+        selectedRow: Boolean(document.querySelector('.project-file-row[data-selected="true"]')),
+        mainRight: main?.right ?? 0,
+        pathRight: path?.right ?? 0,
+        mainOverflow: getComputedStyle(document.querySelector('.project-files-main')).overflow,
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="App.tsx 제거"]')?.click()`,
+  });
+  await sleep(120);
+
+  const afterDeleteArmResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      visibleFileNames: Array.from(document.querySelectorAll('.project-file-name')).map((item) => item.textContent.trim()),
+      hasConfirmButton: Boolean(document.querySelector('button[aria-label="App.tsx 제거 확인"]')),
+    }))()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('button[aria-label="App.tsx 제거 확인"]')?.click()`,
   });
   await sleep(200);
 
@@ -1707,15 +2483,15 @@ async function verifyProjectOverviewFiles(send) {
       const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
 
       return {
-        storedFileNames: activeProject?.files?.map((file) => file.name) ?? [],
-        visibleFileNames: Array.from(document.querySelectorAll('.overview-file-row p')).map((item) => item.textContent.trim()),
+        storedState: activeProject?.files ?? [],
+        visibleFileNames: Array.from(document.querySelectorAll('.project-file-name')).map((item) => item.textContent.trim()),
       };
     })()`,
   });
 
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-overview-file-action')?.click()`,
-  });
+    await send("Runtime.evaluate", {
+      expression: `document.querySelector('.project-files-open-button')?.click()`,
+    });
   await sleep(200);
 
   const afterAddClickResult = await send("Runtime.evaluate", {
@@ -1725,46 +2501,189 @@ async function verifyProjectOverviewFiles(send) {
       const activeProject = savedState.projects?.find((project) => project.id === savedState.selectedProjectId);
 
       return {
-        sessionCount: activeProject?.sessions?.length ?? 0,
-        selectedSessionId: savedState.selectedSessionId ?? null,
-        hasChatPrompt: Boolean(document.querySelector('.prompt')),
-        hasOverview: Boolean(document.querySelector('.project-overview')),
-      };
+          sessionCount: activeProject?.sessions?.length ?? 0,
+          selectedSessionId: savedState.selectedSessionId ?? null,
+          hasChatPrompt: Boolean(document.querySelector('.prompt')),
+          hasOverview: Boolean(document.querySelector('.project-overview')),
+          hasPanel: Boolean(document.querySelector('.project-panel')),
+        };
     })()`,
   });
 
-  const value = {
-    initial: initialResult.result.value,
+	  const value = {
+	    library: libraryResult.result.value,
+	    librarySearch: librarySearchResult.result.value,
+	    singleFileSource: singleFileSourceResult.result.value,
+	    initial: initialResult.result.value,
+    afterFilter: afterFilterResult.result.value,
+    afterMaximize: afterMaximizeResult.result.value,
+    duringMaxTreeResize: duringMaxTreeResizeResult.result.value,
+    afterMaxTreeResize: afterMaxTreeResizeResult.result.value,
+    afterMaxTreeCollapse: afterMaxTreeCollapseResult.result.value,
+    afterCollapsedTreeResize: afterCollapsedTreeResizeResult.result.value,
+    afterMaxTreeExpand: afterMaxTreeExpandResult.result.value,
+    afterWholePanelCollapse: afterWholePanelCollapseResult.result.value,
+    afterWholePanelReopen: afterWholePanelReopenResult.result.value,
+    afterLongPreview: afterLongPreviewResult.result.value,
+    afterDeleteArm: afterDeleteArmResult.result.value,
     afterDelete: afterDeleteResult.result.value,
     afterAddClick: afterAddClickResult.result.value,
   };
   const failures = [];
 
-  if (!value.initial.fileNames.includes("회의.m4a") ||
-      !value.initial.fileNames.includes("기획서.pdf") ||
-      !value.initial.fileCountText.includes(`${projectFiles.length} FILES`)) {
-    failures.push("overview should render project files");
+	  if (!value.library.hasSourcesPanel ||
+	      !value.library.sourceNames.includes("desktop") ||
+	      !value.library.sourceNames.includes("backend") ||
+	      value.library.sourceNames[0] !== "README.md" ||
+	      value.library.hasTreeBeforeDetail ||
+	      value.library.hasOriginalView ||
+	      value.library.sourceSearchPlaceholder !== "자료 검색..." ||
+	      !value.library.uploadButtons.includes("업로드") ||
+	      value.library.timeLabels.length < 2 ||
+	      value.library.sourceMenuCount < 3 ||
+	      value.library.hasVisibleDeleteButton) {
+	    failures.push("sources view should show upload, search, and project sources before opening a source");
+	  }
+
+	  if (!value.librarySearch.includes("backend") || value.librarySearch.includes("desktop")) {
+	    failures.push("sources search should filter uploaded sources");
+	  }
+
+	  if (value.singleFileSource.dataSingleFile !== "true" ||
+	      value.singleFileSource.hasTreePane ||
+	      value.singleFileSource.hasTreeToggle ||
+	      value.singleFileSource.hasTreeSearch ||
+	      value.singleFileSource.previewTab !== "README.md" ||
+	      value.singleFileSource.rootText !== "README.md") {
+	    failures.push("single file sources should open a preview without the side tree");
+	  }
+
+	  if (!value.initial.fileNames.includes("desktop") ||
+	      !value.initial.fileNames.includes("src") ||
+	      !value.initial.fileNames.includes("package.json") ||
+	      value.initial.fileNames.includes("backend") ||
+	      value.initial.fileCountText !== "6") {
+	    failures.push("file panel should render only the selected source tree and item count");
+	  }
+
+	  if (value.initial.rootText !== "desktop" ||
+	      value.initial.searchPlaceholder !== "파일 필터링..." ||
+	      value.initial.uploadButtons.length !== 0) {
+	    failures.push("file panel should show Codex-like root path and filter input");
+	  }
+
+  if (!value.initial.hasPrompt || value.initial.hasOverview || !value.initial.hasPanel) {
+    failures.push("project files should render in the right panel beside chat");
   }
 
-  if (!value.initial.fileListScrollable || value.initial.fileListOverflow === "visible") {
-    failures.push("overview file list should scroll inside a bounded area");
+  if (!value.afterFilter.visibleFileNames.includes("App.tsx") ||
+      value.afterFilter.visibleFileNames.includes("package.json")) {
+    failures.push("file filter should keep matching files and their parent folders only");
   }
 
-  if (value.initial.hasPrompt || !value.initial.hasOverview) {
-    failures.push("project files should render on the overview without chat UI");
+  if (!value.afterFilter.appIconColor) {
+    failures.push("file panel should apply file-type icon colors");
   }
 
-  if (value.afterDelete.storedFileNames.includes("기획서.pdf") ||
-      value.afterDelete.visibleFileNames.includes("기획서.pdf") ||
-      value.afterDelete.storedFileNames.length !== projectFiles.length - 1) {
-    failures.push("overview file delete should remove only the selected project file");
+  if (!value.afterFilter.hasPreviewEmpty ||
+      !value.afterFilter.hasTreeResizeHandle ||
+      !value.afterFilter.hasTreeToggle ||
+      value.afterFilter.panelWidth > 380 ||
+      value.afterFilter.previewWidth < 120 ||
+      value.afterFilter.treeWidth < 170 ||
+      !value.afterFilter.hasFileHeader ||
+      value.afterFilter.headerBorderBottom === "0px" ||
+      !value.afterFilter.panelGridTransition.includes("grid-template-columns")) {
+    failures.push("file panel should use the split preview/tree layout before maximizing");
   }
 
-  if (value.afterAddClick.sessionCount !== 0 ||
-      value.afterAddClick.selectedSessionId !== null ||
-      value.afterAddClick.hasChatPrompt ||
-      !value.afterAddClick.hasOverview) {
-    failures.push("overview file add should not create or enter a chat session");
+  if (!value.afterMaximize.maximized ||
+      value.afterMaximize.panelLeft > value.afterMaximize.chatLeft + 4 ||
+      value.afterMaximize.panelTop > value.afterMaximize.chatTop + 4 ||
+      value.afterMaximize.panelBottom < value.afterMaximize.chatBottom - 4 ||
+      value.afterMaximize.panelHeight < value.afterMaximize.chatHeight - 4 ||
+      !value.afterMaximize.hasTreeResizeHandle ||
+      !value.afterMaximize.hasTreeToggle ||
+      !value.afterMaximize.hasPreviewEmpty ||
+      !value.afterMaximize.hasTree) {
+    failures.push("file panel maximize should cover the chat area and keep the tree visible");
+  }
+
+  if (value.afterMaxTreeResize.treeWidth < value.afterMaximize.treeWidth + 40 ||
+      value.afterMaxTreeResize.ariaValue < value.afterMaximize.treeWidth + 40 ||
+      value.afterMaxTreeResize.resizing !== "false" ||
+      value.afterMaxTreeResize.treeResizing !== "false") {
+    failures.push("maximized file tree pane should resize by dragging the divider");
+  }
+
+  if (value.duringMaxTreeResize.transitionDuration !== "0s") {
+    failures.push("file tree drag should not wait on column transition");
+  }
+
+  if (!value.afterMaxTreeCollapse.collapsed ||
+      value.afterMaxTreeCollapse.treeWidth > 70 ||
+      value.afterMaxTreeCollapse.searchDisplay !== "none" ||
+      value.afterMaxTreeCollapse.treeDisplay !== "none" ||
+      value.afterMaxTreeCollapse.handleDisplay === "none" ||
+      !value.afterMaxTreeCollapse.hasOpenButton) {
+    failures.push("maximized file tree pane should collapse to a reopen rail");
+  }
+
+  if (value.afterCollapsedTreeResize.collapsed ||
+      value.afterCollapsedTreeResize.treeWidth < 250 ||
+      value.afterCollapsedTreeResize.searchDisplay === "none" ||
+      value.afterCollapsedTreeResize.treeResizing !== "false" ||
+      !value.afterCollapsedTreeResize.hasCloseButton) {
+    failures.push("collapsed file tree pane should resize open by dragging the divider");
+  }
+
+  if (value.afterMaxTreeExpand.collapsed ||
+      value.afterMaxTreeExpand.treeWidth < value.afterCollapsedTreeResize.treeWidth - 4 ||
+      value.afterMaxTreeExpand.searchDisplay === "none" ||
+      !value.afterMaxTreeExpand.hasCloseButton) {
+    failures.push("collapsed file tree pane should reopen to the resized width");
+  }
+
+  if (!value.afterWholePanelCollapse.collapsed ||
+      !value.afterWholePanelCollapse.maximized ||
+      !value.afterWholePanelCollapse.hasRailButton) {
+    failures.push("collapsing the whole right panel should preserve maximized file state");
+  }
+
+  if (value.afterWholePanelReopen.collapsed ||
+      !value.afterWholePanelReopen.maximized ||
+      value.afterWholePanelReopen.panelLeft > value.afterWholePanelReopen.chatLeft + 4 ||
+      !value.afterWholePanelReopen.hasPreviewEmpty ||
+      !value.afterWholePanelReopen.hasTree) {
+    failures.push("reopening the whole right panel should restore the maximized file layout");
+  }
+
+  if (!value.afterLongPreview.hasPreview ||
+      !value.afterLongPreview.selectedName.includes("02_RAG_Load_Documents") ||
+      !value.afterLongPreview.selectedRow ||
+      value.afterLongPreview.mainOverflow !== "hidden" ||
+      value.afterLongPreview.pathRight > value.afterLongPreview.mainRight + 1) {
+    failures.push("long file preview headers should stay clipped inside the preview pane");
+  }
+
+  if (!value.afterDeleteArm.visibleFileNames.includes("App.tsx") ||
+      !value.afterDeleteArm.hasConfirmButton) {
+    failures.push("file tree delete should require a second confirmation click");
+  }
+
+  const storedAfterDelete = JSON.stringify(value.afterDelete.storedState);
+
+  if (storedAfterDelete.includes("App.tsx") ||
+      value.afterDelete.visibleFileNames.includes("App.tsx")) {
+    failures.push("file tree delete should remove nested entries");
+  }
+
+  if (value.afterAddClick.sessionCount !== 1 ||
+      !value.afterAddClick.selectedSessionId ||
+      !value.afterAddClick.hasChatPrompt ||
+      value.afterAddClick.hasOverview ||
+      !value.afterAddClick.hasPanel) {
+    failures.push("panel file add should keep the active chat and panel");
   }
 
   return { value, failures };
@@ -1776,8 +2695,15 @@ async function verifyGithubTimelineState(send) {
   const unlinkedState = createProjectStorage(
     "project-github-unlinked",
     "GitHub Unlinked",
-    [],
-    null,
+    [
+      {
+        id: "session-github-unlinked",
+        title: "GitHub Chat",
+        createdAt: now,
+        messages: [],
+      },
+    ],
+    "session-github-unlinked",
   );
 
   await send("Emulation.setDeviceMetricsOverride", {
@@ -1789,19 +2715,24 @@ async function verifyGithubTimelineState(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
+    expression: `localStorage.removeItem(${JSON.stringify(LEGACY_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}, '272'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}, 'false'); localStorage.setItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}, '360'); localStorage.removeItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}); localStorage.setItem(${JSON.stringify(GITHUB_CLIENT_ID_STORAGE_KEY)}, 'smoke-client'); localStorage.setItem(${JSON.stringify(PROJECT_STORAGE_KEY)}, ${JSON.stringify(unlinkedState)})`,
   });
-  await send("Page.navigate", { url: APP_URL });
-  await sleep(700);
+    await send("Page.navigate", { url: APP_URL });
+    await sleep(700);
+    await send("Runtime.evaluate", {
+      expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
+        .find((button) => button.textContent.includes('GitHub'))?.click()`,
+    });
+    await sleep(200);
 
-  const unlinkedResult = await send("Runtime.evaluate", {
+    const unlinkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
-      stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
-      hasLoginCard: Boolean(document.querySelector('.overview-github-login-card')),
-      hasLoginTitle: document.body.textContent.includes('GitHub 연결'),
-      hasPrivateCopy: document.body.textContent.includes('private repo도 지원됩니다'),
-      hasLoginButton: Boolean(Array.from(document.querySelectorAll('.overview-github-primary-button')).find((button) => button.textContent.includes('GitHub 로그인'))),
+        stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
+        hasLoginCard: Boolean(document.querySelector('.overview-github-login-card')),
+        hasLoginTitle: document.body.textContent.includes('GitHub 연결'),
+        hasTimelineCopy: document.body.textContent.includes('PR · 이슈'),
+        hasLoginButton: Boolean(Array.from(document.querySelectorAll('.overview-github-primary-button')).find((button) => button.textContent.includes('GitHub 로그인'))),
       hasUrlInput: Boolean(document.querySelector('.overview-github-connect-form input')),
       hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
       hasTimelineRows: Boolean(document.querySelector('.overview-timeline-row')),
@@ -1826,8 +2757,8 @@ async function verifyGithubTimelineState(send) {
   const failedLoginResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
-      const githubPanel = document.querySelector('section[aria-label="GitHub 타임라인"]');
-      const githubStatus = githubPanel?.querySelector('.runtime-status');
+        const githubPanel = document.querySelector('.project-panel');
+        const githubStatus = githubPanel?.querySelector('.runtime-status');
       const status = document.querySelector('.runtime-status');
       return {
         githubPanelHasStatus: Boolean(githubStatus),
@@ -1867,7 +2798,7 @@ async function verifyGithubTimelineState(send) {
       document.querySelector('.overview-github-primary-button')?.click();
     })()`,
   });
-  await sleep(300);
+  await sleep(800);
 
   const authingResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -1875,7 +2806,7 @@ async function verifyGithubTimelineState(send) {
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
       openedUrl: window.__paimOpenedUrl || "",
       hasAuthCard: Boolean(document.querySelector('.overview-github-auth-card')),
-      hasWaitingText: document.body.textContent.includes('브라우저에서 로그인을 완료해 주세요'),
+      hasWaitingText: document.body.textContent.includes('브라우저에서 GitHub 연결을 완료해 주세요'),
       hasCheckButton: Boolean(Array.from(document.querySelectorAll('.overview-github-auth-card button')).find((button) => button.textContent.includes('로그인 완료했어요'))),
     }))()`,
   });
@@ -1936,6 +2867,18 @@ async function verifyGithubTimelineState(send) {
               html_url: 'https://github.com/j3s30p/PaiM',
             },
           ]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (url === 'https://api.github.com/user') {
+          return new Response(JSON.stringify({
+            avatar_url: '',
+            html_url: 'https://github.com/j3s30p',
+            login: 'j3s30p',
+            name: 'Smoke User',
+          }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
@@ -2013,7 +2956,7 @@ async function verifyGithubTimelineState(send) {
         .find((button) => button.textContent.includes('로그인 완료했어요'))?.click();
     })()`,
   });
-  await sleep(300);
+  await sleep(800);
 
   const reposResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -2039,6 +2982,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => ({
       titles: Array.from(document.querySelectorAll('.overview-timeline-row p')).map((item) => item.textContent.trim()),
       meta: Array.from(document.querySelectorAll('.overview-timeline-row small')).map((item) => item.textContent.trim()),
+      labels: Array.from(document.querySelectorAll('.overview-timeline-label')).map((item) => item.textContent.trim()),
       repoName: document.querySelector('.overview-github-repo-name')?.textContent.trim() || "",
       repoMeta: document.querySelector('.overview-github-meta')?.textContent.trim() || "",
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
@@ -2066,9 +3010,9 @@ async function verifyGithubTimelineState(send) {
   const failures = [];
 
   if (value.unlinked.stateText !== "미연결" ||
-      !value.unlinked.hasLoginCard ||
-      !value.unlinked.hasLoginTitle ||
-      !value.unlinked.hasPrivateCopy ||
+        !value.unlinked.hasLoginCard ||
+        !value.unlinked.hasLoginTitle ||
+        !value.unlinked.hasTimelineCopy ||
       !value.unlinked.hasLoginButton ||
       value.unlinked.hasUrlInput ||
       value.unlinked.hasConnectedCard ||
@@ -2110,18 +3054,17 @@ async function verifyGithubTimelineState(send) {
 
   if (value.linked.stateText !== "연결됨" ||
       !value.linked.hasConnectedCard ||
-      !value.linked.hasSyncButton ||
       !value.linked.hasChangeButton ||
       !value.linked.hasDisconnectButton ||
-      !value.linked.titles.includes("PR #18 프로젝트 Overview 연결") ||
-      !value.linked.titles.includes("issue #21 파일 목록 스크롤") ||
+      !value.linked.titles.includes("프로젝트 Overview 연결") ||
+      !value.linked.titles.includes("파일 목록 스크롤") ||
       !value.linked.titles.includes("feat: project file management")) {
     failures.push("linked GitHub timeline should render issue, PR, and commit events");
   }
 
-  if (!value.linked.meta.some((item) => item.includes("PR")) ||
-      !value.linked.meta.some((item) => item.includes("ISSUE")) ||
-      !value.linked.meta.some((item) => item.includes("COMMIT"))) {
+  if (!value.linked.labels.includes("PR #18") ||
+      !value.linked.labels.includes("ISSUE #21") ||
+      !value.linked.labels.includes("COMMIT")) {
     failures.push("linked GitHub timeline should label event types");
   }
 
@@ -2133,12 +3076,9 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline icons should not render boxed backgrounds");
   }
 
-  if (!value.linked.repoName.includes("j3s30p/Stampy") ||
+  if (!value.linked.repoName.includes("Stampy") ||
       !value.linked.repoMeta.includes("main") ||
-      !value.linked.repoMeta.includes("Private") ||
-      !value.linked.repoMeta.includes("GitHub Login") ||
-      !value.linked.repoMeta.includes("1 open issues") ||
-      !value.linked.repoMeta.includes("1 open PRs")) {
+      !value.linked.repoMeta.includes("j3s30p")) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
@@ -2348,6 +3288,166 @@ async function verifySidebarResizeAndProjectCollapse(send) {
   return { value, failures };
 }
 
+// 우측 프로젝트 패널이 드래그로 넓어지고 폭이 저장되는지 확인한다.
+async function verifyProjectPanelResize(send) {
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 820,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await openAppWithProject(send);
+
+  const dragStartResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const handle = document.querySelector('.project-panel-resize-handle').getBoundingClientRect();
+      return {
+        x: handle.left + handle.width / 2,
+        y: handle.top + 120,
+        width: panel.width,
+      };
+    })()`,
+  });
+  const dragStart = dragStartResult.result.value;
+
+  await send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: dragStart.x,
+    y: dragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: dragStart.x - 72,
+    y: dragStart.y,
+    button: "left",
+  });
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: dragStart.x - 72,
+    y: dragStart.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await sleep(220);
+
+  const result = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const handle = document.querySelector('.project-panel-resize-handle');
+      return {
+        resizedWidth: panel.width,
+        storedWidth: Number(localStorage.getItem(${JSON.stringify(PROJECT_PANEL_WIDTH_STORAGE_KEY)}) || 0),
+        ariaValue: Number(handle?.getAttribute('aria-valuenow') || 0),
+        resizing: shell?.getAttribute('data-project-panel-resizing') || "",
+      };
+    })()`,
+  });
+  const value = result.result.value;
+  const failures = [];
+
+  if (value.resizedWidth < dragStart.width + 40) {
+    failures.push(`project panel drag should widen the panel: ${value.resizedWidth} <= ${dragStart.width}`);
+  }
+
+  if (value.storedWidth < dragStart.width + 40) {
+    failures.push("resized project panel width should be stored in localStorage");
+  }
+
+  if (value.ariaValue < dragStart.width + 40) {
+    failures.push("project panel resize handle should expose the current width");
+  }
+
+  if (value.resizing !== "false") {
+    failures.push("project panel resizing state should clear after mouse release");
+  }
+
+  return { value, failures };
+}
+
+// 우측 프로젝트 패널 접기 버튼이 채팅 화면을 유지한 채 접고 펼치는지 확인한다.
+async function verifyProjectPanelCollapse(send) {
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1280,
+    height: 820,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await openAppWithProject(send);
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-panel-toggle')?.click()`,
+  });
+  await sleep(180);
+
+  const collapsedResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      return {
+        collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
+        panelWidth: panel.width,
+        hasRailButton: Boolean(document.querySelector('.project-panel-rail-toggle')),
+        hasPrompt: Boolean(document.querySelector('.prompt')),
+        stored: localStorage.getItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}) || "",
+      };
+    })()`,
+  });
+
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.project-panel-rail-toggle')?.click()`,
+  });
+  await sleep(180);
+
+  const expandedResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => {
+      const shell = document.querySelector('.app-shell');
+      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      return {
+        collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
+        panelWidth: panel.width,
+        menuButtons: document.querySelectorAll('.project-panel-menu button').length,
+        stored: localStorage.getItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}) || "",
+      };
+    })()`,
+  });
+
+  const value = {
+    collapsed: collapsedResult.result.value,
+    expanded: expandedResult.result.value,
+  };
+  const failures = [];
+
+  if (!value.collapsed.collapsed || value.collapsed.stored !== "true") {
+    failures.push("project panel collapsed state should be stored after clicking collapse");
+  }
+
+  if (value.collapsed.panelWidth > 70 || !value.collapsed.hasRailButton) {
+    failures.push(`collapsed project panel should become a narrow rail: ${value.collapsed.panelWidth}`);
+  }
+
+  if (!value.collapsed.hasPrompt) {
+    failures.push("collapsing the project panel should keep the chat prompt visible");
+  }
+
+  if (value.expanded.collapsed || value.expanded.stored !== "false") {
+    failures.push("project panel should expand again from the rail button");
+  }
+
+  if (value.expanded.panelWidth < 300 || value.expanded.menuButtons !== 3) {
+    failures.push("expanded project panel should restore its menu content");
+  }
+
+  return { value, failures };
+}
+
 // 초기 진입, 프로젝트 내부 새 채팅, 전송 후에 입력창 포커스가 유지되는지 확인한다.
 async function verifyPromptFocusFlow(send) {
   await send("Emulation.setDeviceMetricsOverride", {
@@ -2425,7 +3525,7 @@ async function verifyDraftClearsOnSessionChange(send) {
         {
           id: "assistant-draft-a",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
       ],
     },
@@ -2437,7 +3537,7 @@ async function verifyDraftClearsOnSessionChange(send) {
         {
           id: "assistant-draft-b",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-draft-b",
@@ -2514,7 +3614,7 @@ async function verifyDeleteSessionFlow(send) {
         {
           id: "assistant-delete-a",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-delete-a",
@@ -2531,7 +3631,7 @@ async function verifyDeleteSessionFlow(send) {
         {
           id: "assistant-delete-b",
           role: "assistant",
-          content: "안녕하세요! 😊",
+          content: "저장된 응답입니다.",
         },
         {
           id: "user-delete-b",
@@ -2596,11 +3696,19 @@ async function verifyDeleteSessionFlow(send) {
     expression: `(() => {
       const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
       const activeProject = savedState.projects.find((project) => project.id === savedState.selectedProjectId);
+      const selectedSession = activeProject?.sessions.find(
+        (session) => session.id === savedState.selectedSessionId,
+      );
       return {
         titles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
         sessionCount: activeProject?.sessions.length ?? 0,
+        selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        messageCount: document.querySelectorAll('.message').length,
+        emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
+        hasProjectHome: Boolean(document.querySelector('.project-home')),
+        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
       };
@@ -2628,17 +3736,23 @@ async function verifyDeleteSessionFlow(send) {
     failures.push("draft text should clear after deleting the active session");
   }
 
-  if (value.afterLastDelete.titles.length !== 0 ||
-      value.afterLastDelete.sessionCount !== 0 ||
-      value.afterLastDelete.selectedSessionId !== null) {
-    failures.push("deleting the last session should leave the project without chats");
-  }
+    if (value.afterLastDelete.titles.length !== 1 ||
+        !value.afterLastDelete.titles.includes("New Chat") ||
+        value.afterLastDelete.sessionCount !== 1 ||
+        value.afterLastDelete.selectedSessionMessageCount !== 0 ||
+        !value.afterLastDelete.selectedSessionId) {
+      failures.push("deleting the last session should create a replacement empty chat");
+    }
 
-  if (value.afterLastDelete.hasPrompt ||
-      !value.afterLastDelete.hasProjectOverview ||
-      !value.afterLastDelete.hasOverviewPrompt) {
-    failures.push("project without chats should hide prompt and show project overview");
-  }
+    if (!value.afterLastDelete.hasPrompt ||
+        value.afterLastDelete.messageCount !== 0 ||
+        !value.afterLastDelete.emptyTitle.includes("Delete Smoke") ||
+        value.afterLastDelete.hasProjectHome ||
+        value.afterLastDelete.uploadText !== "" ||
+        value.afterLastDelete.hasProjectOverview ||
+        value.afterLastDelete.hasOverviewPrompt) {
+      failures.push("project should stay in chat after deleting the last session");
+    }
 
   return { value, failures };
 }
@@ -2753,6 +3867,16 @@ try {
     console.log("PASS new projects are created as active workspaces");
   }
 
+  const projectBriefingResult = await verifyProjectBriefingStartsWithoutVisiblePrompt(send);
+
+  if (projectBriefingResult.failures.length > 0) {
+    hasFailures = true;
+    console.log("FAIL project briefing start flow");
+    projectBriefingResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+  } else {
+    console.log("PASS project briefing enters chat without exposing the generated prompt");
+  }
+
   const actionMenuRenameResult = await verifyActionMenuRenameFlow(send);
 
   if (actionMenuRenameResult.failures.length > 0) {
@@ -2793,24 +3917,24 @@ try {
     console.log("PASS multiline input supports Enter submit and Shift+Enter newline");
   }
 
-  const promptOverviewResult = await verifyPromptOverviewButton(send);
+  const projectPanelMenuResult = await verifyProjectPanelMenu(send);
 
-  if (promptOverviewResult.failures.length > 0) {
+  if (projectPanelMenuResult.failures.length > 0) {
     hasFailures = true;
-    console.log("FAIL prompt overview button");
-    promptOverviewResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+    console.log("FAIL project panel menu");
+    projectPanelMenuResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
-    console.log("PASS prompt overview button opens project overview");
+    console.log("PASS project panel menu opens detail views");
   }
 
-  const overviewQuestionResult = await verifyProjectOverviewQuestion(send);
+  const chatQuestionResult = await verifyProjectChatQuestion(send);
 
-  if (overviewQuestionResult.failures.length > 0) {
+  if (chatQuestionResult.failures.length > 0) {
     hasFailures = true;
-    console.log("FAIL project overview question");
-    overviewQuestionResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+    console.log("FAIL project chat question");
+    chatQuestionResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
-    console.log("PASS project overview question starts a chat");
+    console.log("PASS project chat question uses the demo response flow");
   }
 
   const overviewFilesResult = await verifyProjectOverviewFiles(send);
@@ -2861,6 +3985,26 @@ try {
     sidebarResizeCollapseResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
     console.log("PASS sidebar resizes and project chat groups collapse");
+  }
+
+  const projectPanelResizeResult = await verifyProjectPanelResize(send);
+
+  if (projectPanelResizeResult.failures.length > 0) {
+    hasFailures = true;
+    console.log("FAIL project panel resize");
+    projectPanelResizeResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+  } else {
+    console.log("PASS project panel resizes and stores width");
+  }
+
+  const projectPanelCollapseResult = await verifyProjectPanelCollapse(send);
+
+  if (projectPanelCollapseResult.failures.length > 0) {
+    hasFailures = true;
+    console.log("FAIL project panel collapse");
+    projectPanelCollapseResult.failures.forEach((failure) => console.log(`  - ${failure}`));
+  } else {
+    console.log("PASS project panel collapses and reopens");
   }
 
   const promptFocusResult = await verifyPromptFocusFlow(send);

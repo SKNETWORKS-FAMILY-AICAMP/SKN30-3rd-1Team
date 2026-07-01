@@ -1,9 +1,10 @@
 use base64::{engine::general_purpose, Engine as _};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_TEXT_PREVIEW_BYTES: u64 = 512 * 1024;
 const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 
@@ -27,6 +28,69 @@ struct GithubAccessTokenResponse {
     scope: Option<String>,
     error: Option<String>,
     error_description: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DirectoryChildEntry {
+    name: String,
+    path: String,
+    kind: String,
+}
+
+// 선택한 폴더의 바로 아래 항목만 읽어 큰 repo에서도 트리를 지연 로딩한다.
+#[tauri::command]
+fn read_directory_children(path: String) -> Result<Vec<DirectoryChildEntry>, String> {
+    let directory = PathBuf::from(path);
+
+    if !directory.is_dir() {
+        return Err("폴더 경로가 아닙니다".to_string());
+    }
+
+    let mut entries = std::fs::read_dir(&directory)
+        .map_err(|_| "폴더를 읽을 수 없습니다".to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            let metadata = entry.metadata().ok()?;
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let kind = if metadata.is_dir() { "directory" } else { "file" };
+
+            Some(DirectoryChildEntry {
+                name,
+                path: path.to_string_lossy().into_owned(),
+                kind: kind.to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort_by(|left, right| {
+        let left_dir = left.kind == "directory";
+        let right_dir = right.kind == "directory";
+
+        right_dir
+            .cmp(&left_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    Ok(entries)
+}
+
+// 선택한 텍스트 파일의 본문만 읽어 파일 패널 프리뷰에 보여준다.
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    let file = PathBuf::from(path);
+
+    if !file.is_file() {
+        return Err("파일 경로가 아닙니다".to_string());
+    }
+
+    let metadata = std::fs::metadata(&file).map_err(|_| "파일을 읽을 수 없습니다".to_string())?;
+    if metadata.len() > MAX_TEXT_PREVIEW_BYTES {
+        return Err("큰 파일은 미리볼 수 없습니다".to_string());
+    }
+
+    std::fs::read_to_string(&file).map_err(|_| "텍스트 파일만 미리볼 수 있습니다".to_string())
 }
 
 // 로컬 이미지 파일을 프론트 미리보기용 data URL로 변환한다.
@@ -127,6 +191,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            read_directory_children,
+            read_text_file,
             create_attachment_preview,
             github_oauth_device_code,
             github_oauth_access_token
@@ -192,5 +258,40 @@ mod tests {
         fs::remove_file(path).expect("test file should be removable");
 
         assert!(preview.is_none());
+    }
+
+    #[test]
+    fn read_directory_children_sorts_directories_first() {
+        let root = temp_path("tree");
+        let src = root.join("src");
+        let app = root.join("App.tsx");
+
+        fs::create_dir_all(&src).expect("test directory should be writable");
+        fs::write(&app, "export {}").expect("test file should be writable");
+
+        let entries = read_directory_children(root.to_string_lossy().into_owned())
+            .expect("directory children should be readable");
+
+        fs::remove_file(app).expect("test file should be removable");
+        fs::remove_dir(src).expect("test child directory should be removable");
+        fs::remove_dir(root).expect("test root directory should be removable");
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "src");
+        assert_eq!(entries[0].kind, "directory");
+        assert_eq!(entries[1].name, "App.tsx");
+        assert_eq!(entries[1].kind, "file");
+    }
+
+    #[test]
+    fn read_text_file_returns_utf8_content() {
+        let path = temp_path("preview.txt");
+
+        fs::write(&path, "line 1\nline 2").expect("test file should be writable");
+        let content = read_text_file(path.to_string_lossy().into_owned())
+            .expect("text file should be readable");
+        fs::remove_file(path).expect("test file should be removable");
+
+        assert_eq!(content, "line 1\nline 2");
     }
 }
