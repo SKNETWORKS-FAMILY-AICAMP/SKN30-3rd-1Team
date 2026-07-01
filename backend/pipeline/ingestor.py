@@ -6,6 +6,9 @@ from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
 
+# ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
+_NO_ID = -1
+
 CHUNK_SIZE = 600  # ChromaDB 적재 시 원문 청크 크기 (문자 수)
 CHUNK_OVERLAP = 150
 
@@ -86,17 +89,48 @@ def _split_text(text: str) -> List[str]:
     return chunks
 
 
+def _insert_memory_source(
+    cursor,
+    memory_id: int,
+    doc_id: Optional[int],
+    repo_id: Optional[int],
+    metadata: Optional[dict],
+) -> None:
+    """memory_sources 테이블에 출처 정보를 INSERT.
+    source_kind는 metadata에서 읽되, 없으면 repo_id 유무로 자동 결정.
+    """
+    sm = metadata or {}
+    source_kind = sm.get("source_kind") or ("repository" if repo_id is not None else "document")
+    cursor.execute(
+        "INSERT INTO memory_sources"
+        " (memory_id, source_kind, doc_id, repo_id, source_type, source_path, source_ref, source_url)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            memory_id,
+            source_kind,
+            doc_id,
+            repo_id,
+            sm.get("source_type"),
+            sm.get("source_path"),
+            sm.get("source_ref"),
+            sm.get("source_url"),
+        ),
+    )
+
+
 def ingest(
     project_id: int,
-    doc_id: int,
+    doc_id: Optional[int],
     items: List[MemoryItem],
     raw_text: str,
     source: str,
     date: str,
     doc_type: str,
+    repo_id: Optional[int] = None,
+    source_metadata: Optional[dict] = None,
 ):
     """추출 결과를 두 DB에 순서대로 저장.
-    1단계: MySQL — items 각각을 memory 테이블에 INSERT (실패 시 rollback)
+    1단계: MySQL — items 각각을 memory + memory_sources 테이블에 INSERT (같은 트랜잭션)
     2단계: ChromaDB — 원문(raw_text)을 청크로 분할해 벡터 임베딩으로 저장
     """
     chunks = _split_text(raw_text)
@@ -108,18 +142,19 @@ def ingest(
                 cursor.execute(
                     """
                     INSERT INTO memory
-                        (project_id, doc_id, category, content,
+                        (project_id, doc_id, repo_id, category, content,
                          reason, topic, owner, date, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
-                        project_id, doc_id,
+                        project_id, doc_id, repo_id,
                         item.category, item.content,
                         item.reason, item.topic,
-                        item.owner, _normalize_date(item.date),  # 날짜 정규화 후 저장
+                        item.owner, _normalize_date(item.date),
                         source,
                     ),
                 )
+                _insert_memory_source(cursor, cursor.lastrowid, doc_id, repo_id, source_metadata)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -130,17 +165,33 @@ def ingest(
     if not chunks:
         return
 
-    # ChromaDB에 원문 청크 저장 (벡터 임베딩은 ChromaDB가 자동 처리)
-    # id 형식: "doc{doc_id}_chunk{i}" — 재업로드 시 같은 id로 덮어쓰기됨
+    # 같은 repo 안에서 commits.txt·README.md·issues.txt 등이 각자 청크를 가지므로
+    # source 이름을 해시해 청크 ID 앞부분을 다르게 만들어 ChromaDB ID 충돌 방지
+    import hashlib
+    src_hash = hashlib.md5(source.encode()).hexdigest()[:6]
+    if repo_id is not None:
+        chunk_prefix = f"repo{repo_id}_{src_hash}"
+    elif doc_id is not None:
+        chunk_prefix = f"doc{doc_id}"
+    else:
+        chunk_prefix = src_hash
+
+    sm = source_metadata or {}
     collection = get_collection()
     collection.add(
-        ids=[f"doc{doc_id}_chunk{i}" for i in range(len(chunks))],
+        ids=[f"{chunk_prefix}_chunk{i}" for i in range(len(chunks))],
         documents=chunks,
         metadatas=[{
-            "project_id": project_id,
-            "doc_id":     doc_id,
-            "source":     source,
-            "date":       date,
-            "doc_type":   doc_type,
+            "project_id":  project_id,
+            "doc_id":      doc_id if doc_id is not None else _NO_ID,
+            "repo_id":     repo_id if repo_id is not None else _NO_ID,
+            "source":      source,
+            "date":        date or "",
+            "doc_type":    doc_type,
+            "source_kind": sm.get("source_kind", ""),
+            "source_type": sm.get("source_type", ""),
+            "source_path": sm.get("source_path", ""),
+            "source_ref":  sm.get("source_ref", ""),
+            "source_url":  sm.get("source_url", ""),
         } for _ in chunks],
     )
