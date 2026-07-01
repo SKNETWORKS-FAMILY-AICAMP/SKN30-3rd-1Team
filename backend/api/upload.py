@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
+from ..graph import update_project_memory
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -77,6 +78,12 @@ def upload_document(project_id: int, body: DocumentUpload):
     # 5단계: 성공 확정 후 기존 문서 전체 정리 (실패해도 신규 문서는 이미 저장됨)
     for old_id in old_doc_ids:
         _delete_document(old_id)
+
+    # 6단계: 프로젝트 메모리 갱신 (best-effort — 요약 실패해도 업로드는 성공 처리)
+    try:
+        update_project_memory(project_id, items)
+    except Exception:
+        logger.warning("프로젝트 메모리 갱신 실패 (업로드는 성공): project_id=%s", project_id, exc_info=True)
 
     counts = {"decision": 0, "action": 0, "issue": 0, "risk": 0}
     for item in items:
