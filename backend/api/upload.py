@@ -9,6 +9,7 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..storage import save_file, delete_file
+from ..graph import update_project_memory
 from .auth import require_project_access
 
 router = APIRouter()
@@ -140,6 +141,13 @@ def _process_upload(
         return
 
     _set_doc_status(doc_id, "indexed")
+
+    # 6단계: 프로젝트 메모리 갱신 (best-effort — 요약 실패해도 업로드는 성공 처리)
+    try:
+        update_project_memory(project_id, items)
+    except Exception:
+        logger.warning("프로젝트 메모리 갱신 실패 (업로드는 성공): project_id=%s", project_id, exc_info=True)
+
     for old_id in old_doc_ids:
         _delete_document(old_id)
 
