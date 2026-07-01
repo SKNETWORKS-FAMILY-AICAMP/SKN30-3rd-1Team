@@ -7,23 +7,44 @@ def search(
     category: Optional[str] = None,
     owner: Optional[str] = None,
 ) -> List[Dict]:
-    conditions = ["project_id = %s"]
+    conditions = ["m.project_id = %s"]
     params: list = [project_id]
 
     if category:
-        conditions.append("category = %s")
+        conditions.append("m.category = %s")
         params.append(category)
     if owner:
-        conditions.append("owner = %s")
+        conditions.append("m.owner = %s")
         params.append(owner)
 
     where = " AND ".join(conditions)
-    sql = f"SELECT * FROM memory WHERE {where} ORDER BY created_at DESC"
+    sql = (
+        f"SELECT m.*,"
+        f" ms.source_kind, ms.doc_id AS ms_doc_id, ms.repo_id AS ms_repo_id,"
+        f" ms.source_type, ms.source_path, ms.source_ref, ms.source_url"
+        f" FROM memory m"
+        f" LEFT JOIN memory_sources ms ON ms.memory_id = m.id"
+        f" WHERE {where} ORDER BY m.created_at DESC"
+    )
 
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
             cursor.execute(sql, params)
-            return cursor.fetchall()
+            rows = cursor.fetchall()
     finally:
         conn.close()
+
+    result = []
+    for row in rows:
+        row["source_info"] = {
+            "kind":    row.pop("source_kind", None),
+            "doc_id":  row.pop("ms_doc_id", None),
+            "repo_id": row.pop("ms_repo_id", None),
+            "type":    row.pop("source_type", None),
+            "path":    row.pop("source_path", None),
+            "ref":     row.pop("source_ref", None),
+            "url":     row.pop("source_url", None),
+        }
+        result.append(row)
+    return result

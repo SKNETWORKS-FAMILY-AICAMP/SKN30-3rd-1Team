@@ -6,6 +6,7 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from .upload import _delete_document
+from .auth import require_project_access
 
 router = APIRouter()
 
@@ -17,6 +18,7 @@ class QueryRequest(BaseModel):
 
 @router.post("/projects/{project_id}/query")
 def query(project_id: int, body: QueryRequest):
+    require_project_access(project_id)
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
@@ -46,6 +48,8 @@ class GitLogUpload(BaseModel):
 
 @router.post("/projects/{project_id}/git", status_code=201)
 def upload_git_log(project_id: int, body: GitLogUpload):
+    # 동기 처리 — documents.status 추적 없음. 향후 /documents 엔드포인트로 통합 예정
+    require_project_access(project_id, min_role="member")
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 

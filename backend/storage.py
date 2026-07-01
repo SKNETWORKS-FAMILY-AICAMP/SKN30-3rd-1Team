@@ -1,0 +1,43 @@
+"""파일 저장소 추상화 레이어.
+
+로컬 파일시스템을 기본으로 사용하며, UPLOAD_DIR 환경변수로 루트 경로를 지정한다.
+추후 S3 등 클라우드 스토리지로 교체할 때는 이 모듈만 수정하면 된다.
+"""
+import os
+import shutil
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "data/uploads"))
+
+
+def _project_dir(project_id: int) -> Path:
+    return _UPLOAD_DIR / str(project_id)
+
+
+def save_file(project_id: int, filename: str, data: bytes) -> str:
+    """파일을 저장하고 저장된 경로(문자열)를 반환한다."""
+    dest_dir = _project_dir(project_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / Path(filename).name  # path traversal 방지
+    dest.write_bytes(data)
+    return str(dest)
+
+
+def delete_file(file_path: str) -> None:
+    """저장된 파일을 삭제한다. 파일이 없으면 조용히 무시한다."""
+    try:
+        Path(file_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def delete_project_dir(project_id: int) -> None:
+    """프로젝트 전체 업로드 디렉터리를 삭제한다."""
+    try:
+        shutil.rmtree(_project_dir(project_id), ignore_errors=True)
+    except Exception:
+        pass

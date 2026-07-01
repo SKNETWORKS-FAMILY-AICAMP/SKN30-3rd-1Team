@@ -13,6 +13,7 @@ from backend.security.session_crypto import get_session_crypto
 from backend.chat.session_store import SessionStore
 from backend.chat.context_builder import ContextBuilder
 from backend.llm.chat_model_factory import get_chat_model
+from backend.api.auth import require_project_access
 
 router = APIRouter(prefix="/projects/{project_id}/sessions", tags=["Session Memory API"])
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ def _to_langchain_messages(final_prompt_messages: List[dict]):
 # --- [1] POST /projects/{project_id}/sessions (세션 생성) ---
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def create_chat_session(project_id: int, request: SessionCreateRequest, db=Depends(get_db)):
+    require_project_access(project_id, min_role="member")
     session_id = f"sess_{uuid.uuid4().hex[:12]}"
 
     with db.cursor() as cursor:
@@ -107,6 +109,7 @@ def create_chat_session(project_id: int, request: SessionCreateRequest, db=Depen
 # --- [2] GET /projects/{project_id}/sessions (세션 목록 조회) ---
 @router.get("", response_model=List[SessionResponse])
 def get_chat_session_list(project_id: int, db=Depends(get_db)):
+    require_project_access(project_id)
     with db.cursor() as cursor:
         cursor.execute(
             "SELECT * FROM chat_sessions WHERE project_id = %s ORDER BY updated_at DESC",
@@ -118,6 +121,7 @@ def get_chat_session_list(project_id: int, db=Depends(get_db)):
 # --- [3] PATCH /projects/{project_id}/sessions/{session_id} (세션 수정) ---
 @router.patch("/{session_id}", response_model=SessionResponse)
 def update_chat_session(project_id: int, session_id: str, request: SessionUpdateRequest, db=Depends(get_db)):
+    require_project_access(project_id, min_role="member")
     with db.cursor() as cursor:
         _verify_session_ownership(cursor, project_id, session_id)
 
@@ -135,6 +139,7 @@ def update_chat_session(project_id: int, session_id: str, request: SessionUpdate
 # --- [4] DELETE /projects/{project_id}/sessions/{session_id} (세션 삭제) ---
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_chat_session(project_id: int, session_id: str, db=Depends(get_db)):
+    require_project_access(project_id, min_role="member")
     with db.cursor() as cursor:
         _verify_session_ownership(cursor, project_id, session_id)
 
@@ -149,6 +154,7 @@ def delete_chat_session(project_id: int, session_id: str, db=Depends(get_db)):
 # --- [5] GET /projects/{project_id}/sessions/{session_id}/messages (메시지 이력 조회) ---
 @router.get("/{session_id}/messages", response_model=List[MessageResponse])
 def get_session_message_history(project_id: int, session_id: str, db=Depends(get_db)):
+    require_project_access(project_id)
     with db.cursor() as cursor:
         _verify_session_ownership(cursor, project_id, session_id)
 
@@ -181,6 +187,7 @@ def get_session_message_history(project_id: int, session_id: str, db=Depends(get
 # --- [6] POST /projects/{project_id}/sessions/{session_id}/query (세션 기반 최종 질의 API) ---
 @router.post("/{session_id}/query")
 def handle_session_query(project_id: int, session_id: str, request: QueryRequest, db=Depends(get_db)):
+    require_project_access(project_id, min_role="member")
     with db.cursor() as cursor:
         _verify_session_ownership(cursor, project_id, session_id)
 

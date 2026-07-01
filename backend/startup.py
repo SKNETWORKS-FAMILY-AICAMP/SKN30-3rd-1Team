@@ -1,0 +1,104 @@
+import logging
+import os
+
+from .db.mysql import get_connection
+
+logger = logging.getLogger(__name__)
+
+_STALE_DOC_ERROR = "Background task interrupted or stale after server restart."
+_STALE_REPO_ERROR = "Repository sync interrupted or stale after server restart."
+
+
+def backfill_dev_user_membership() -> None:
+    """DEV_USER_ID가 설정된 경우, project_members row가 없는 기존 프로젝트에 owner 멤버십을 보장.
+
+    마이그레이션 이전에 생성된 레거시 프로젝트는 project_members 행이 없으므로
+    DEV_USER_ID 사용 시 403 또는 목록 누락이 발생한다.
+    서버 기동마다 실행되며 INSERT IGNORE로 멱등성을 보장한다.
+    """
+    from .api.auth import ensure_dev_user
+    user_id = ensure_dev_user()
+    if user_id is None:
+        return
+
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT IGNORE INTO project_members (project_id, user_id, role)"
+                    " SELECT p.id, %s, 'owner' FROM projects p"
+                    " WHERE NOT EXISTS ("
+                    "   SELECT 1 FROM project_members pm WHERE pm.project_id = p.id"
+                    " )",
+                    (user_id,),
+                )
+                count = cursor.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+
+        if count:
+            logger.info("Dev user backfill: %d legacy project(s)에 owner 멤버십 추가 (user_id=%s)", count, user_id)
+        else:
+            logger.info("Dev user backfill: 누락된 멤버십 없음 (user_id=%s)", user_id)
+
+    except Exception:
+        logger.error("Dev user membership backfill 실패 — 앱은 계속 기동됩니다", exc_info=True)
+
+
+def recover_stale_tasks() -> None:
+    """서버 재시작 시 stale processing/syncing 작업을 failed로 전환.
+
+    cutoff보다 오래된 in-progress 작업만 대상.
+    최근 등록된 작업은 현재 서버에서 막 시작된 것일 수 있으므로 건드리지 않음.
+
+    BACKGROUND_TASK_STALE_MINUTES <= 0 이면 recovery 비활성화.
+    timestamp 기준: documents.uploaded_at, repositories.connected_at.
+    향후 started_at/updated_at 컬럼 추가 시 이 기준을 교체하면 더 정확해짐.
+    """
+    raw = os.getenv("BACKGROUND_TASK_STALE_MINUTES", "30")
+    try:
+        stale_minutes = int(raw)
+    except ValueError:
+        logger.warning("BACKGROUND_TASK_STALE_MINUTES 값이 정수가 아닙니다: %s, 기본값 30 사용", raw)
+        stale_minutes = 30
+
+    if stale_minutes <= 0:
+        logger.info("Startup recovery 비활성화 (BACKGROUND_TASK_STALE_MINUTES=%s)", stale_minutes)
+        return
+
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE documents SET status='failed', last_error=%s"
+                    " WHERE status='processing'"
+                    " AND uploaded_at < NOW() - INTERVAL %s MINUTE",
+                    (_STALE_DOC_ERROR, stale_minutes),
+                )
+                doc_count = cursor.rowcount
+
+                cursor.execute(
+                    "UPDATE repositories SET status='failed', last_error=%s"
+                    " WHERE status='syncing'"
+                    " AND connected_at < NOW() - INTERVAL %s MINUTE",
+                    (_STALE_REPO_ERROR, stale_minutes),
+                )
+                repo_count = cursor.rowcount
+            conn.commit()
+        finally:
+            conn.close()
+
+        if doc_count or repo_count:
+            logger.warning(
+                "Startup recovery: %d document(s), %d repository(ies) stale → failed",
+                doc_count,
+                repo_count,
+            )
+        else:
+            logger.info("Startup recovery: stale 작업 없음 (cutoff=%d분)", stale_minutes)
+
+    except Exception:
+        logger.error("Startup recovery 실패 — 앱은 계속 기동됩니다", exc_info=True)
