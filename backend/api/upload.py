@@ -309,6 +309,7 @@ class MemoryCreate(BaseModel):
     content: str
     owner: Optional[str] = None
     date: Optional[str] = None
+    due_date: Optional[str] = None
     topic: Optional[str] = None
     reason: Optional[str] = None
 
@@ -324,9 +325,9 @@ def create_memory(project_id: int, body: MemoryCreate):
                 raise HTTPException(status_code=404, detail="Project not found")
             cursor.execute(
                 "INSERT INTO memory"
-                " (project_id, doc_id, category, content, reason, topic, owner, date, created_by, is_user_verified)"
-                " VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, 'user', 1)",
-                (project_id, body.category, body.content, body.reason, body.topic, body.owner, body.date or None),
+                " (project_id, doc_id, category, content, reason, topic, owner, date, due_date, created_by, is_user_verified)"
+                " VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, 'user', 1)",
+                (project_id, body.category, body.content, body.reason, body.topic, body.owner, body.date or None, body.due_date or None),
             )
             memory_id = cursor.lastrowid
         conn.commit()
@@ -342,6 +343,7 @@ class MemoryUpdate(BaseModel):
     content: Optional[str] = None
     owner: Optional[str] = None
     date: Optional[str] = None
+    due_date: Optional[str] = None
     topic: Optional[str] = None
     reason: Optional[str] = None
     completed: Optional[bool] = None
@@ -357,6 +359,8 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
         for k, v in raw_fields.items()
         if k in {"category", "content", "owner", "date", "topic", "reason"} and v is not None
     }
+    if "due_date" in raw_fields:
+        fields["due_date"] = raw_fields["due_date"]
     has_completed_update = "completed" in raw_fields
     if "sort_order" in raw_fields:
         fields["sort_order"] = raw_fields["sort_order"]
@@ -368,7 +372,7 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     fields["updated_by"] = "user"
     if any(
         k in raw_fields and raw_fields[k] is not None
-        for k in {"category", "content", "owner", "date", "topic", "reason"}
+        for k in {"category", "content", "owner", "date", "due_date", "topic", "reason"}
     ):
         fields["is_user_verified"] = 1
 
