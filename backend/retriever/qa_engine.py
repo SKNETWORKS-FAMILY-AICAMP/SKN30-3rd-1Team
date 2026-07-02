@@ -164,6 +164,11 @@ def answer(
     2. _build_context로 컨텍스트 조합
     3. 대화 히스토리 + 컨텍스트를 LangChain 체인에 전달해 답변 생성
     route 인자는 호환성 위해 유지하나 항상 'both'로 동작한다.
+
+    DEPRECATED (폐기 예정): Streamlit 데모 전용 함수. 정본 출력 경로는 graph.run_qa()이며
+    프론트가 /query에 연결되면 이 함수의 호출자는 사라진다. Streamlit 폐기와 함께 삭제할 것.
+    엔진 부품(_build_context / _get_chain)은 run_qa가 계속 쓰므로 이 함수만 지운다.
+    신규 호출부는 answer() 대신 graph.run_qa()를 사용하라.
     """
     context, sources, debug = _build_context(project_id, question)
 

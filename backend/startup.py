@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -102,3 +103,20 @@ def recover_stale_tasks() -> None:
 
     except Exception:
         logger.error("Startup recovery 실패 — 앱은 계속 기동됩니다", exc_info=True)
+
+
+_WATCHDOG_INTERVAL_SECONDS = 60  # 1분마다 stale 체크
+
+
+async def stale_watchdog() -> None:
+    """런타임 워치독 — 서버가 살아있는 동안 주기적으로 stale 작업을 failed로 전환.
+
+    서버 재시작 없이 백그라운드 작업이 멈춘 경우에도 프론트가 무한 폴링하지 않도록 보장.
+    BACKGROUND_TASK_STALE_MINUTES <= 0 이면 비활성화.
+    """
+    while True:
+        await asyncio.sleep(_WATCHDOG_INTERVAL_SECONDS)
+        try:
+            recover_stale_tasks()
+        except Exception:
+            logger.error("Watchdog recover_stale_tasks 실패", exc_info=True)

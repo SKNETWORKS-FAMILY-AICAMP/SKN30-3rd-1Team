@@ -16,6 +16,19 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _ALLOWED_SUFFIXES = {".md", ".txt", ".pdf"}
+_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+_DOC_TYPE_KEYWORDS = {
+    "meeting":  ["meeting", "회의", "회의록", "minutes"],
+    "planning": ["planning", "기획", "plan", "roadmap", "spec"],
+}
+
+def _infer_doc_type(filename: str) -> str:
+    name = filename.lower()
+    for doc_type, keywords in _DOC_TYPE_KEYWORDS.items():
+        if any(kw in name for kw in keywords):
+            return doc_type
+    return "document"
 
 
 # ── 파일 텍스트 추출 ──────────────────────────────────────────────
@@ -159,15 +172,17 @@ async def upload_document(
     project_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    doc_type: str = Form(""),
     date: str = Form(""),
 ):
     require_project_access(project_id, min_role="member")
     filename = Path(file.filename).name
     if Path(filename).suffix.lower() not in _ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. (.md / .txt / .pdf)")
+    doc_type = _infer_doc_type(filename)
 
     data = await file.read()
+    if len(data) > _MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="파일 크기는 10 MB를 초과할 수 없습니다.")
     content = _extract_text(filename, data)
     if not content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
