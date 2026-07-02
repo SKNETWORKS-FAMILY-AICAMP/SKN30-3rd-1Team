@@ -157,6 +157,7 @@ class QAState(TypedDict, total=False):
     project_id: int
     question: str
     history: list
+    search_mode: str   # "both" | "sql" | "vector"
     # 노드가 채우는 값
     section: Optional[str]
     answer: str
@@ -180,7 +181,8 @@ def qa_node(state: QAState) -> dict:
     """Q&A 에이전트: 하이브리드 검색 + LangChain 생성 (qa_engine 부품 재사용).
     Project Memory 요약을 컨텍스트 앞에 얹어 프로젝트 맥락을 보강한다(입력↔출력 다리)."""
     pid, q = state["project_id"], state["question"]
-    context, sources, debug = qa_engine._build_context(pid, q)
+    search_mode = state.get("search_mode", "both")
+    context, sources, debug = qa_engine._build_context(pid, q, search_mode=search_mode)
 
     mem = get_project_memory(pid)
     if mem:
@@ -310,14 +312,22 @@ _qa_app = None
 _ingest_app = None
 
 
-def run_qa(project_id: int, question: str, history: Optional[list] = None) -> dict:
-    """출력 그래프 실행 → {answer, plan, sources, debug}."""
+def run_qa(
+    project_id: int,
+    question: str,
+    history: Optional[list] = None,
+    search_mode: str = "both",
+) -> dict:
+    """출력 그래프 실행 → {answer, plan, sources, debug}.
+    search_mode: "both" | "sql" | "vector"
+    """
     global _qa_app
     if _qa_app is None:
         _qa_app = build_qa_graph()
     out = _qa_app.invoke({
         "project_id": project_id, "question": question,
-        "history": history or [], "qa_retries": 0, "plan_retries": 0,
+        "history": history or [], "search_mode": search_mode,
+        "qa_retries": 0, "plan_retries": 0,
     })
     return out["result"]
 

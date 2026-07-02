@@ -23,7 +23,11 @@ def fake_qa_engine(monkeypatch):
     """qa_node가 DB/Chroma 없이 동작하도록 _build_context와 _get_chain을 stub."""
     import backend.retriever.qa_engine as qe
 
-    monkeypatch.setattr(qe, "_build_context", lambda pid, q: ("컨텍스트", ["src.md"], {"mysql_rows": [1], "chroma_chunks": []}))
+    monkeypatch.setattr(
+        qe,
+        "_build_context",
+        lambda pid, q, **kwargs: ("컨텍스트", ["src.md"], {"mysql_rows": [1], "chroma_chunks": []}),
+    )
 
     class _FakeChain:
         def invoke(self, inputs):

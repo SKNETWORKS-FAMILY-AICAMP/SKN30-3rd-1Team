@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaiM 평가 파이프라인 사용 설명서</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif; background: #f5f7fa; color: #2d3748; line-height: 1.7; }
+
+  .hero {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; padding: 60px 40px; text-align: center;
+  }
+  .hero h1 { font-size: 2.4em; margin-bottom: 12px; }
+  .hero p { font-size: 1.1em; opacity: 0.9; max-width: 600px; margin: 0 auto; }
+
+  .container { max-width: 860px; margin: 0 auto; padding: 40px 24px; }
+
+  .card {
+    background: white; border-radius: 16px; padding: 32px;
+    margin-bottom: 28px; box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+  }
+  .card h2 { font-size: 1.4em; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+
+  .step-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white; font-weight: 700; font-size: 0.95em; flex-shrink: 0;
+  }
+
+  .flow {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #f8f9ff; border-radius: 12px; padding: 20px 24px; margin: 16px 0;
+  }
+  .flow-item {
+    background: white; border: 2px solid #e2e8f0; border-radius: 10px;
+    padding: 10px 18px; font-size: 0.9em; font-weight: 600; color: #4a5568;
+    text-align: center;
+  }
+  .flow-item .icon { font-size: 1.4em; display: block; margin-bottom: 4px; }
+  .flow-arrow { color: #a0aec0; font-size: 1.4em; font-weight: 300; }
+
+  .file-tree {
+    background: #1a202c; color: #e2e8f0; border-radius: 12px;
+    padding: 24px; font-family: 'Courier New', monospace; font-size: 0.88em;
+    line-height: 2;
+  }
+  .file-tree .dir { color: #76e4f7; }
+  .file-tree .file { color: #9ae6b4; }
+  .file-tree .comment { color: #718096; }
+
+  code {
+    background: #edf2f7; border-radius: 6px; padding: 2px 8px;
+    font-family: 'Courier New', monospace; font-size: 0.88em; color: #553c9a;
+  }
+
+  .cmd-block {
+    background: #1a202c; color: #e2e8f0; border-radius: 12px;
+    padding: 20px 24px; font-family: 'Courier New', monospace; font-size: 0.9em;
+    margin: 16px 0; position: relative; overflow-x: auto;
+  }
+  .cmd-block .prompt { color: #68d391; user-select: none; }
+  .cmd-block .flag { color: #76e4f7; }
+  .cmd-block .value { color: #faf089; }
+  .cmd-block .comment { color: #718096; }
+
+  .arg-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .arg-table th {
+    background: #667eea; color: white; padding: 12px 16px;
+    text-align: left; font-size: 0.9em;
+  }
+  .arg-table th:first-child { border-radius: 8px 0 0 0; }
+  .arg-table th:last-child { border-radius: 0 8px 0 0; }
+  .arg-table td { padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-size: 0.9em; vertical-align: top; }
+  .arg-table tr:last-child td { border-bottom: none; }
+  .arg-table tr:nth-child(even) td { background: #f8f9ff; }
+  .arg-table code { font-size: 0.85em; }
+  .required { color: #e53e3e; font-weight: 700; font-size: 0.8em; }
+  .optional { color: #38a169; font-weight: 700; font-size: 0.8em; }
+
+  .output-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .output-table th {
+    background: #48bb78; color: white; padding: 10px 14px;
+    text-align: left; font-size: 0.88em;
+  }
+  .output-table th:first-child { border-radius: 8px 0 0 0; }
+  .output-table th:last-child { border-radius: 0 8px 0 0; }
+  .output-table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; font-size: 0.88em; }
+  .output-table tr:last-child td { border-bottom: none; }
+  .output-table tr:nth-child(even) td { background: #f0fff4; }
+
+  .tip {
+    border-left: 4px solid #667eea; background: #f0f0ff;
+    border-radius: 0 10px 10px 0; padding: 16px 20px; margin: 16px 0;
+  }
+  .tip .tip-title { font-weight: 700; color: #553c9a; margin-bottom: 6px; }
+
+  .warn {
+    border-left: 4px solid #ed8936; background: #fffaf0;
+    border-radius: 0 10px 10px 0; padding: 16px 20px; margin: 16px 0;
+  }
+  .warn .tip-title { font-weight: 700; color: #c05621; margin-bottom: 6px; }
+
+  .scenario { background: #f8f9ff; border-radius: 12px; padding: 20px 24px; margin: 12px 0; }
+  .scenario h4 { color: #553c9a; margin-bottom: 12px; font-size: 1em; }
+
+  .badge {
+    display: inline-block; border-radius: 20px; padding: 3px 12px;
+    font-size: 0.78em; font-weight: 700; margin-right: 6px;
+  }
+  .badge-blue { background: #ebf4ff; color: #2b6cb0; }
+  .badge-green { background: #f0fff4; color: #276749; }
+  .badge-purple { background: #faf5ff; color: #6b46c1; }
+
+  .result-preview {
+    background: #1a202c; color: #e2e8f0; border-radius: 12px;
+    padding: 20px 24px; font-family: 'Courier New', monospace; font-size: 0.82em;
+    line-height: 1.8; margin: 12px 0; overflow-x: auto;
+  }
+  .result-preview .g { color: #68d391; }
+  .result-preview .y { color: #faf089; }
+  .result-preview .b { color: #76e4f7; }
+  .result-preview .dim { color: #718096; }
+
+  footer { text-align: center; color: #a0aec0; font-size: 0.85em; padding: 32px; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>🔍 PaiM 평가 파이프라인</h1>
+  <p>회의록을 넣으면 검색 품질을 자동으로 측정해주는 도구예요.<br>명령어 하나로 인제스트 → 평가 → 비교표까지 한 번에!</p>
+</div>
+
+<div class="container">
+
+  <!-- 이게 뭐하는 도구예요? -->
+  <div class="card">
+    <h2>🤔 이게 뭐하는 도구예요?</h2>
+    <p style="margin-bottom: 16px;">회의록 파일을 AI 시스템에 넣고, <strong>"AI가 얼마나 잘 대답하는지"</strong>를 자동으로 측정해줘요.</p>
+    <p style="margin-bottom: 20px;">예를 들어 이런 걸 알 수 있어요:</p>
+    <ul style="padding-left: 20px; line-height: 2.2;">
+      <li>임베딩 모델을 <code>text-embedding-3-small</code> vs <code>text-embedding-3-large</code>로 바꾸면 답변이 얼마나 좋아질까?</li>
+      <li>청크 크기를 300자로 자르는 게 나을까, 600자로 자르는 게 나을까?</li>
+      <li>MySQL 검색만 쓸 때 vs 벡터 검색만 쓸 때 vs 둘 다 쓸 때 중에 어느 게 제일 좋을까?</li>
+    </ul>
+
+    <div class="flow" style="margin-top: 24px;">
+      <div class="flow-item"><span class="icon">📄</span>회의록 파일</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-item"><span class="icon">📥</span>인제스트<br><small style="color:#a0aec0">DB에 저장</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-item"><span class="icon">🤖</span>AI 답변<br><small style="color:#a0aec0">자동 생성</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-item"><span class="icon">⭐</span>점수 평가<br><small style="color:#a0aec0">0~10점</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-item"><span class="icon">📊</span>비교표<br><small style="color:#a0aec0">TSV 파일</small></div>
+    </div>
+  </div>
+
+  <!-- 준비물 -->
+  <div class="card">
+    <h2><span class="step-badge">0</span> 시작 전 준비물</h2>
+
+    <p style="margin-bottom: 16px;"><strong>1. 파일 위치 확인</strong></p>
+    <div class="file-tree">
+      <span class="dir">PaiM/</span><br>
+      <span class="dir">├── eval/</span><br>
+      <span class="dir">│   ├── docs/</span>       <span class="comment">← 여기에 회의록 파일 넣기 (.md 또는 .txt)</span><br>
+      <span class="dir">│   ├── qa/</span><br>
+      <span class="file">│   │   └── qa_set_A.json</span>  <span class="comment">← 질문-모범답변 세트</span><br>
+      <span class="dir">│   └── results/</span>    <span class="comment">← 결과가 여기 저장됨 (자동 생성)</span><br>
+      <span class="file">└── scripts/</span><br>
+      <span class="file">    └── run_pipeline.py</span>  <span class="comment">← 이 스크립트를 실행!</span>
+    </div>
+
+    <p style="margin-top: 20px; margin-bottom: 12px;"><strong>2. .env 파일에 아래 항목이 있는지 확인</strong></p>
+    <div class="cmd-block">
+      <span class="comment"># 필수</span><br>
+      OPENAI_API_KEY=sk-...<br>
+      DB_HOST=localhost<br>
+      DB_USER=root<br>
+      DB_PASSWORD=...<br>
+      DB_NAME=paiM_migration_test<br><br>
+      <span class="comment"># LangSmith 트레이싱 (선택, 있으면 자동 활성화)</span><br>
+      LANGCHAIN_TRACING_V2=true<br>
+      LANGCHAIN_API_KEY=ls__...
+    </div>
+
+    <p style="margin-top: 20px; margin-bottom: 12px;"><strong>3. 실행 위치</strong></p>
+    <p>터미널에서 <strong>PaiM 폴더 안</strong>에서 실행해야 해요.</p>
+    <div class="cmd-block">
+      <span class="prompt">$</span> pwd<br>
+      /home/.../PaiM  <span class="comment"># 이 경로여야 해요</span>
+    </div>
+  </div>
+
+  <!-- 가장 간단한 실행 -->
+  <div class="card">
+    <h2><span class="step-badge">1</span> 가장 간단한 실행</h2>
+    <p style="margin-bottom: 16px;">처음이라면 이것만 기억하세요!</p>
+
+    <div class="cmd-block">
+      <span class="prompt">$</span> uv run python scripts/run_pipeline.py \<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--docs-dir</span> <span class="value">eval/docs</span> \<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--qa-file</span> <span class="value">eval/qa/qa_set_A.json</span> \<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--project-id</span> <span class="value">12</span>
+    </div>
+
+    <p style="margin-top: 16px; margin-bottom: 12px;">이렇게 하면 자동으로 이걸 해줘요:</p>
+    <ol style="padding-left: 20px; line-height: 2.4;">
+      <li><strong>인제스트</strong> — <code>eval/docs/</code> 안의 회의록을 DB에 저장</li>
+      <li><strong>eval 3회</strong> — sql / vector / both 모드로 각각 평가</li>
+      <li><strong>TSV 생성</strong> — <code>eval/results/eval_comparison.tsv</code> 저장</li>
+    </ol>
+  </div>
+
+  <!-- 옵션 설명 -->
+  <div class="card">
+    <h2><span class="step-badge">2</span> 옵션 설명</h2>
+
+    <table class="arg-table">
+      <tr>
+        <th>옵션</th>
+        <th>설명</th>
+        <th>기본값</th>
+        <th></th>
+      </tr>
+      <tr>
+        <td><code>--docs-dir</code></td>
+        <td>회의록 파일이 들어있는 폴더 경로</td>
+        <td>-</td>
+        <td><span class="required">필수</span></td>
+      </tr>
+      <tr>
+        <td><code>--qa-file</code></td>
+        <td>질문-모범답변 JSON 파일 경로</td>
+        <td>-</td>
+        <td><span class="required">필수</span></td>
+      </tr>
+      <tr>
+        <td><code>--project-id</code></td>
+        <td>DB에 있는 프로젝트 번호</td>
+        <td>-</td>
+        <td><span class="required">필수</span></td>
+      </tr>
+      <tr>
+        <td><code>--embed-models</code></td>
+        <td>임베딩 모델 이름. 여러 개 입력 가능</td>
+        <td><code>text-embedding-3-small</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--chunk-sizes</code></td>
+        <td>청크 크기 (문자 수). 여러 개 입력 가능</td>
+        <td><code>600</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--chunk-overlap</code></td>
+        <td>청크 간 겹치는 문자 수</td>
+        <td><code>150</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--search-modes</code></td>
+        <td>검색 방식. <code>sql</code> <code>vector</code> <code>both</code> 중 선택</td>
+        <td><code>sql vector both</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--workers</code></td>
+        <td>동시에 처리할 질문 수 (높을수록 빠름, API 제한 주의)</td>
+        <td><code>5</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--skip-ingest</code></td>
+        <td>이미 저장된 데이터가 있으면 인제스트 건너뜀</td>
+        <td>false</td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--no-judge</code></td>
+        <td>AI 점수 평가 생략 (빠르게 테스트할 때)</td>
+        <td>false</td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--output-dir</code></td>
+        <td>결과 파일 저장 폴더</td>
+        <td><code>eval/results</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--tag</code></td>
+        <td>특정 태그 질문만 평가 (예: <code>decision</code> <code>action</code>)</td>
+        <td>전체</td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+      <tr>
+        <td><code>--judge-model</code></td>
+        <td>점수 매길 때 쓸 LLM 모델</td>
+        <td><code>gpt-4.1-mini</code></td>
+        <td><span class="optional">선택</span></td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- 사용 시나리오 -->
+  <div class="card">
+    <h2><span class="step-badge">3</span> 상황별 사용 예시</h2>
+
+    <div class="scenario">
+      <h4>💨 빠르게 결과만 보고 싶을 때 (AI 점수 없이)</h4>
+      <div class="cmd-block">
+        <span class="prompt">$</span> uv run python scripts/run_pipeline.py \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--docs-dir</span> <span class="value">eval/docs</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--qa-file</span> <span class="value">eval/qa/qa_set_A.json</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--project-id</span> <span class="value">12</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--no-judge</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--workers</span> <span class="value">5</span>
+      </div>
+    </div>
+
+    <div class="scenario">
+      <h4>🔄 이미 인제스트된 데이터로 eval만 다시 돌릴 때</h4>
+      <div class="cmd-block">
+        <span class="prompt">$</span> uv run python scripts/run_pipeline.py \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--docs-dir</span> <span class="value">eval/docs</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--qa-file</span> <span class="value">eval/qa/qa_set_A.json</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--project-id</span> <span class="value">12</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--skip-ingest</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--workers</span> <span class="value">5</span>
+      </div>
+    </div>
+
+    <div class="scenario">
+      <h4>🧪 임베딩 모델 2개 × 청크 크기 2개 비교 실험</h4>
+      <div class="cmd-block">
+        <span class="prompt">$</span> uv run python scripts/run_pipeline.py \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--docs-dir</span> <span class="value">eval/docs</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--qa-file</span> <span class="value">eval/qa/qa_set_A.json</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--project-id</span> <span class="value">12</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--embed-models</span> <span class="value">text-embedding-3-small text-embedding-3-large</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--chunk-sizes</span> <span class="value">300 600</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--search-modes</span> <span class="value">vector both</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--workers</span> <span class="value">5</span>
+      </div>
+      <div class="tip" style="margin-top: 12px;">
+        <div class="tip-title">💡 이 경우 자동으로 만들어지는 조합</div>
+        2 embed_models × 2 chunk_sizes = 4번 인제스트<br>
+        4 조합 × 2 search_modes = <strong>8번 eval</strong> 자동 실행
+      </div>
+    </div>
+
+    <div class="scenario">
+      <h4>🎯 특정 태그 질문만 테스트할 때</h4>
+      <div class="cmd-block">
+        <span class="prompt">$</span> uv run python scripts/run_pipeline.py \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--docs-dir</span> <span class="value">eval/docs</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--qa-file</span> <span class="value">eval/qa/qa_set_A.json</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--project-id</span> <span class="value">12</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--skip-ingest</span> \<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="flag">--tag</span> <span class="value">decision</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 결과 파일 설명 -->
+  <div class="card">
+    <h2><span class="step-badge">4</span> 결과 파일 설명</h2>
+
+    <p style="margin-bottom: 16px;">파이프라인이 끝나면 <code>eval/results/</code> 폴더에 파일이 생겨요.</p>
+
+    <div class="file-tree">
+      <span class="dir">eval/results/</span><br>
+      <span class="file">├── eval_3small_c600_sql_judged.json</span>    <span class="comment">← sql 모드 상세 결과</span><br>
+      <span class="file">├── eval_3small_c600_vector_judged.json</span> <span class="comment">← vector 모드 상세 결과</span><br>
+      <span class="file">├── eval_3small_c600_both_judged.json</span>   <span class="comment">← both 모드 상세 결과</span><br>
+      <span class="file">└── eval_comparison.tsv</span>                 <span class="comment">← 📊 전체 비교표 (엑셀로 열기)</span>
+    </div>
+
+    <p style="margin-top: 24px; margin-bottom: 12px;"><strong>eval_comparison.tsv 컬럼 구성</strong></p>
+
+    <table class="output-table">
+      <tr>
+        <th>컬럼명</th>
+        <th>설명</th>
+      </tr>
+      <tr>
+        <td><code>ID</code></td>
+        <td>질문 번호 (A1, B3 등)</td>
+      </tr>
+      <tr>
+        <td><code>TAG</code></td>
+        <td>질문 유형 (decision / action / conflict / hallu)</td>
+      </tr>
+      <tr>
+        <td><code>질문</code></td>
+        <td>질문 내용</td>
+      </tr>
+      <tr>
+        <td><code>예상답변</code></td>
+        <td>모범 답변</td>
+      </tr>
+      <tr>
+        <td><code>모범출처</code></td>
+        <td>모범 답변이 어느 회의록에서 온 건지</td>
+      </tr>
+      <tr>
+        <td><code>judge_[설정명]</code></td>
+        <td>해당 설정의 AI 평가 점수 (0~10)</td>
+      </tr>
+      <tr>
+        <td><code>sim_[설정명]</code></td>
+        <td>코사인 유사도 점수 (0~1, 높을수록 유사)</td>
+      </tr>
+      <tr>
+        <td><code>답변_[설정명]</code></td>
+        <td>해당 설정으로 AI가 실제로 한 답변</td>
+      </tr>
+      <tr>
+        <td><code>검색출처_[설정명]</code></td>
+        <td>AI가 어떤 문서를 검색해서 답변했는지</td>
+      </tr>
+    </table>
+
+    <div class="tip" style="margin-top: 20px;">
+      <div class="tip-title">💡 TSV 파일 여는 방법</div>
+      <strong>구글 시트:</strong> 파일 → 가져오기 → 탭으로 구분된 값 선택<br>
+      <strong>엑셀:</strong> 파일 열기 → 텍스트 파일 → 구분 기호: 탭
+    </div>
+  </div>
+
+  <!-- 콘솔 출력 미리보기 -->
+  <div class="card">
+    <h2><span class="step-badge">5</span> 실행하면 이런 화면이 나와요</h2>
+
+    <div class="result-preview">
+      <span class="g">============================================================</span><br>
+      PaiM 평가 파이프라인<br>
+      &nbsp;&nbsp;embed_models : ['text-embedding-3-small']<br>
+      &nbsp;&nbsp;chunk_sizes  : [600]<br>
+      &nbsp;&nbsp;search_modes : ['sql', 'vector', 'both']<br>
+      &nbsp;&nbsp;QA 항목      : 30개<br>
+      &nbsp;&nbsp;인제스트 조합 : 1개<br>
+      &nbsp;&nbsp;eval 조합    : 3개<br>
+      <span class="g">============================================================</span><br><br>
+      <span class="b">=== 1단계: 인제스트 ===</span><br>
+      &nbsp;&nbsp;[SKIP] 컬렉션 이미 존재: paiM_3small_c600  <span class="dim">← --skip-ingest 사용 시</span><br><br>
+      <span class="b">=== 2단계: eval ===</span><br><br>
+      [3small_c600_sql]<br>
+      &nbsp;&nbsp;[A1] 4.2s &nbsp;검색출처: 2026-06-16_개선방안_확정.md<br>
+      &nbsp;&nbsp;[A2] 3.8s &nbsp;검색출처: 2026-06-09_진단결과_원인분석.md<br>
+      &nbsp;&nbsp;<span class="dim">...</span><br>
+      &nbsp;&nbsp;→ <span class="y">eval_3small_c600_sql_judged.json</span>&nbsp;&nbsp;judge=<span class="g">6.8/10</span>&nbsp;&nbsp;sim=0.481<br><br>
+      <span class="b">=== 3단계: TSV 생성 ===</span><br>
+      &nbsp;&nbsp;TSV 저장: eval/results/eval_comparison.tsv (30행, 3개 실험)<br><br>
+      <span class="g">============================================================</span><br>
+      [최종 요약]<br>
+      실험&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;judge&nbsp;&nbsp;&nbsp;유사도<br>
+      -------------------------------------------------------<br>
+      3small_c600_sql&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="y">6.8/10</span>&nbsp;&nbsp;&nbsp;0.481<br>
+      3small_c600_vector&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="g">8.7/10</span>&nbsp;&nbsp;&nbsp;0.595<br>
+      3small_c600_both&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="g">8.5/10</span>&nbsp;&nbsp;&nbsp;0.589<br>
+      <span class="g">============================================================</span>
+    </div>
+  </div>
+
+  <!-- 주의사항 -->
+  <div class="card">
+    <h2>⚠️ 주의사항</h2>
+
+    <div class="warn">
+      <div class="tip-title">임베딩 모델을 바꾸면 반드시 재인제스트!</div>
+      <code>text-embedding-3-small</code>로 저장한 데이터를 <code>text-embedding-3-large</code>로 검색하면 안 돼요.
+      파이프라인이 자동으로 다른 컬렉션에 저장하니까 걱정 말고 돌리면 돼요.
+    </div>
+
+    <div class="warn" style="margin-top: 12px;">
+      <div class="tip-title">--skip-ingest는 같은 설정일 때만!</div>
+      청크 크기나 임베딩 모델을 바꿨는데 <code>--skip-ingest</code>를 쓰면 이전 데이터로 평가해요.
+      새 설정으로 처음 돌릴 땐 <code>--skip-ingest</code> 빼고 실행하세요.
+    </div>
+
+    <div class="tip" style="margin-top: 12px;">
+      <div class="tip-title">💰 API 비용 안내</div>
+      질문 30개 기준:<br>
+      • <strong>답변 생성</strong> (gpt-4.1-mini): 약 $0.02<br>
+      • <strong>judge</strong> (gpt-4.1-mini): 약 $0.03<br>
+      • <strong>임베딩</strong> (text-embedding-3-small): 약 $0.001<br>
+      전체 약 <strong>$0.05~0.10</strong> 수준이에요.
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  PaiM 평가 파이프라인 문서 &nbsp;·&nbsp; feature/eval-scripts 브랜치
+</footer>
+
+</body>
+</html>

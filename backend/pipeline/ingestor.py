@@ -9,7 +9,7 @@ from ..db.chroma import get_collection
 # ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
 _NO_ID = -1
 
-CHUNK_SIZE = 600  # ChromaDB 적재 시 원문 청크 크기 (문자 수)
+CHUNK_SIZE = 600  # ChromaDB 적재 시 원문 청크 크기 기본값 (문자 수)
 CHUNK_OVERLAP = 150
 
 
@@ -43,9 +43,9 @@ def _normalize_date(date_str: Optional[str]) -> Optional[str]:
     return None
 
 
-def _split_text(text: str) -> List[str]:
-    """원문 텍스트를 CHUNK_SIZE 단위로 분할. ChromaDB는 짧은 청크가 검색 정확도가 더 높음."""
-    if len(text) <= CHUNK_SIZE:
+def _split_text(text: str, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> List[str]:
+    """원문 텍스트를 chunk_size 단위로 분할. ChromaDB는 짧은 청크가 검색 정확도가 더 높음."""
+    if len(text) <= chunk_size:
         return [text.strip()] if text.strip() else []
 
     sentences = re.split(r'(?<=[.\n])\s*', text)
@@ -57,31 +57,31 @@ def _split_text(text: str) -> List[str]:
         if not sentence:
             continue
 
-        # 단일 문장이 CHUNK_SIZE를 초과하면 강제 분할 후 chunks에 직접 추가
-        if len(sentence) > CHUNK_SIZE:
+        # 단일 문장이 chunk_size를 초과하면 강제 분할 후 chunks에 직접 추가
+        if len(sentence) > chunk_size:
             if current_chunk:
                 chunks.append(current_chunk)
                 current_chunk = ""
-            for i in range(0, len(sentence), CHUNK_SIZE):
-                piece = sentence[i:i + CHUNK_SIZE].strip()
+            for i in range(0, len(sentence), chunk_size):
+                piece = sentence[i:i + chunk_size].strip()
                 if piece:
                     chunks.append(piece)
             continue
 
-        if len(current_chunk) + len(sentence) + (1 if current_chunk else 0) <= CHUNK_SIZE:
+        if len(current_chunk) + len(sentence) + (1 if current_chunk else 0) <= chunk_size:
             current_chunk = current_chunk + " " + sentence if current_chunk else sentence
         else:
             if current_chunk:
                 chunks.append(current_chunk)
 
             # 오버랩: 이전 청크 뒷부분 일부를 가져와 새 청크 시작
-            overlap_text = current_chunk[-CHUNK_OVERLAP:] if len(current_chunk) > CHUNK_OVERLAP else current_chunk
+            overlap_text = current_chunk[-chunk_overlap:] if len(current_chunk) > chunk_overlap else current_chunk
             if " " in overlap_text:
                 overlap_text = overlap_text[overlap_text.find(" ") + 1:]
 
             candidate = (overlap_text + " " + sentence).strip() if overlap_text else sentence
-            # overlap을 붙여도 CHUNK_SIZE를 넘으면 overlap 없이 sentence만으로 시작
-            current_chunk = candidate if len(candidate) <= CHUNK_SIZE else sentence
+            # overlap을 붙여도 chunk_size를 넘으면 overlap 없이 sentence만으로 시작
+            current_chunk = candidate if len(candidate) <= chunk_size else sentence
 
     if current_chunk.strip():
         chunks.append(current_chunk.strip())
@@ -128,12 +128,15 @@ def ingest(
     doc_type: str,
     repo_id: Optional[int] = None,
     source_metadata: Optional[dict] = None,
+    chunk_size: int = CHUNK_SIZE,
+    chunk_overlap: int = CHUNK_OVERLAP,
 ):
     """추출 결과를 두 DB에 순서대로 저장.
     1단계: MySQL — items 각각을 memory + memory_sources 테이블에 INSERT (같은 트랜잭션)
     2단계: ChromaDB — 원문(raw_text)을 청크로 분할해 벡터 임베딩으로 저장
+    chunk_size/chunk_overlap은 eval 스크립트에서 검색 품질 비교용으로 오버라이드 가능.
     """
-    chunks = _split_text(raw_text)
+    chunks = _split_text(raw_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     conn = get_connection()
     try:

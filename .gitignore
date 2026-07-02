@@ -203,3 +203,6 @@ AGENTS.md
 claude.md
 codex.md
 ignore
+
+# eval 결과 (로컬 보관용)
+eval/results/
