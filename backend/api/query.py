@@ -1,24 +1,84 @@
+import base64
+import binascii
+import os
+from pathlib import Path
 from typing import List, Dict
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..graph import update_project_memory, run_qa
-from .upload import _delete_document
+from ..retriever.query_intent import (
+    SemanticFallback,
+    answer_filter_lookup,
+    answer_overview,
+    classify_question,
+)
+from .upload import _ALLOWED_SUFFIXES, _MAX_FILE_BYTES, _delete_document, _extract_text
 from .auth import require_project_access
 
 router = APIRouter()
+_ATTACHMENT_MAX_CHARS_PER_FILE = int(os.getenv("QUERY_ATTACHMENT_MAX_CHARS_PER_FILE", "20000"))
+_ATTACHMENT_MAX_CHARS_TOTAL = int(os.getenv("QUERY_ATTACHMENT_MAX_CHARS_TOTAL", "40000"))
+
+
+class QueryAttachment(BaseModel):
+    filename: str
+    content_base64: str
 
 
 class QueryRequest(BaseModel):
     question: str
     history: List[Dict] = []
+    attachments: List[QueryAttachment] = []
+
+
+def _clip_attachment_text(text: str, limit: int, marker: str) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[{marker}]"
+
+
+def _prepare_attachment_context(attachments: List[QueryAttachment]) -> tuple[str, List[str]]:
+    sections = []
+    sources: List[str] = []
+    used_chars = 0
+
+    for attachment in attachments:
+        filename = Path(attachment.filename).name
+        if Path(filename).suffix.lower() not in _ALLOWED_SUFFIXES:
+            raise HTTPException(status_code=400, detail="지원하지 않는 첨부 파일 형식입니다. (.md / .txt / .pdf)")
+
+        try:
+            data = base64.b64decode(attachment.content_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=400, detail="첨부 파일을 읽을 수 없습니다.")
+
+        if len(data) > _MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="첨부 파일 크기는 10 MB를 초과할 수 없습니다.")
+
+        remaining = _ATTACHMENT_MAX_CHARS_TOTAL - used_chars
+        if remaining <= 0:
+            break
+
+        text = _extract_text(filename, data).strip() or "(텍스트를 추출할 수 없습니다.)"
+        text = _clip_attachment_text(text, _ATTACHMENT_MAX_CHARS_PER_FILE, "첨부 내용 잘림")
+        text = _clip_attachment_text(text, remaining, "전체 첨부 한도 초과로 잘림")
+        sections.append(f"### {filename}\n{text}")
+        sources.append(filename)
+        used_chars += len(text)
+
+    if not sections:
+        return "", []
+    return "[첨부 자료]\n" + "\n\n".join(sections), sources
 
 
 @router.post("/projects/{project_id}/query")
 def query(project_id: int, body: QueryRequest):
     require_project_access(project_id)
+    attachment_context, attachment_sources = _prepare_attachment_context(body.attachments)
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
@@ -28,14 +88,46 @@ def query(project_id: int, body: QueryRequest):
     finally:
         conn.close()
 
-    # 출력 그래프(run_qa) 실행 → {answer, plan, sources, debug}
-    # 기존 answer()와 달리 프로젝트 메모리 읽기 + 자동 todo(plan) + 검증 루프가 포함된다.
+    # 질문 의도가 명확하면 SQL/조망형 경로를 쓰고, 아니면 기존 LangGraph RAG로 폴백한다.
     try:
-        return run_qa(
+        if attachment_context:
+            result = run_qa(
+                project_id=project_id,
+                question=body.question,
+                history=body.history,
+                attachment_context=attachment_context,
+                attachment_sources=attachment_sources,
+            )
+            result["route"] = "semantic"
+            debug = result.get("debug") or {}
+            debug["route"] = "semantic"
+            debug["router_stage"] = "attachment"
+            result["debug"] = debug
+            return result
+
+        decision = classify_question(body.question, body.history)
+        if decision.route == "filter_lookup":
+            try:
+                return answer_filter_lookup(
+                    project_id, body.question, body.history, decision.router_stage
+                )
+            except SemanticFallback:
+                pass
+        elif decision.route == "overview":
+            return answer_overview(project_id, body.question, decision.router_stage)
+
+        result = run_qa(
             project_id=project_id,
             question=body.question,
             history=body.history,
         )
+        result["route"] = "semantic"
+        debug = result.get("debug") or {}
+        debug["route"] = "semantic"
+        debug["router_stage"] = decision.router_stage
+        debug["router_model_tier"] = "fast" if decision.router_stage == "llm" else None
+        result["debug"] = debug
+        return result
     except Exception as e:
         import logging
         logging.getLogger(__name__).error("Q&A 처리 오류: %s", e, exc_info=True)

@@ -5,6 +5,7 @@ from typing import List, Optional
 from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
+from ..retriever.memory_vector import upsert_memory_vectors
 
 # ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
 _NO_ID = -1
@@ -89,6 +90,17 @@ def _split_text(text: str) -> List[str]:
     return chunks
 
 
+def _completed_at_sql(item: MemoryItem, item_date: Optional[str], source_date: str) -> tuple[str, list]:
+    """completed=true 항목의 완료 시각 SQL 조각을 만든다."""
+    if not item.completed:
+        return "%s", [None]
+
+    completed_date = item_date or _normalize_date(source_date)
+    if completed_date:
+        return "%s", [f"{completed_date} 00:00:00"]
+    return "NOW()", []
+
+
 def _insert_memory_source(
     cursor,
     memory_id: int,
@@ -136,31 +148,53 @@ def ingest(
     chunks = _split_text(raw_text)
 
     conn = get_connection()
+    memory_rows = []
     try:
         with conn.cursor() as cursor:
             for item in items:
+                item_date = _normalize_date(item.date)
+                completed_sql, completed_params = _completed_at_sql(item, item_date, date)
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO memory
                         (project_id, doc_id, repo_id, category, content,
-                         reason, topic, owner, date, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         reason, topic, owner, date, source, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {completed_sql})
                     """,
-                    (
+                    [
                         project_id, doc_id, repo_id,
                         item.category, item.content,
                         item.reason, item.topic,
-                        item.owner, _normalize_date(item.date),
+                        item.owner, item_date,
                         source,
-                    ),
+                    ] + completed_params,
                 )
-                _insert_memory_source(cursor, cursor.lastrowid, doc_id, repo_id, source_metadata)
+                memory_id = cursor.lastrowid
+                completed_at = completed_params[0] if completed_params else "NOW"
+                _insert_memory_source(cursor, memory_id, doc_id, repo_id, source_metadata)
+                memory_rows.append({
+                    "id": memory_id,
+                    "project_id": project_id,
+                    "doc_id": doc_id,
+                    "repo_id": repo_id,
+                    "category": item.category,
+                    "content": item.content,
+                    "reason": item.reason,
+                    "topic": item.topic,
+                    "owner": item.owner,
+                    "date": item_date,
+                    "due_date": None,
+                    "completed_at": completed_at if item.completed else None,
+                    "source": source,
+                })
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+    upsert_memory_vectors(memory_rows)
 
     if not chunks:
         return
@@ -186,6 +220,7 @@ def ingest(
             "doc_id":      doc_id if doc_id is not None else _NO_ID,
             "repo_id":     repo_id if repo_id is not None else _NO_ID,
             "source":      source,
+            "item_type":   "document",
             "date":        date or "",
             "doc_type":    doc_type,
             "source_kind": sm.get("source_kind", ""),

@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ArrowUp,
   Brain,
   ChevronDown,
@@ -17,10 +18,12 @@ import {
   PanelRight,
   Pencil,
   Plus,
+  Settings as SettingsIcon,
   Square,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -39,6 +42,7 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import packageJson from "../package.json";
 import paimWatermark from "./assets/paim-watermark.png";
 import { GithubPanel } from "./GithubPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -76,6 +80,15 @@ import {
   updateProjectFileEntry,
   type ProjectFileVisualMeta,
 } from "./projectFiles";
+import {
+  DEFAULT_PAIM_API_ROOT_URL,
+  getPaimApiRootUrl,
+  loadPaimSettings,
+  normalizePaimSettings,
+  savePaimSettings,
+  type PaiMSettings,
+  type ThemeSetting,
+} from "./settings";
 import type {
   Attachment,
   ChatSession,
@@ -148,6 +161,11 @@ type ApiQueryHistoryMessage = {
   content: string;
 };
 
+type ApiQueryAttachment = {
+  filename: string;
+  content_base64: string;
+};
+
 type ApiQueryResponse = {
   answer: string;
   sources?: string[];
@@ -206,7 +224,44 @@ type ApiRepositoryStatusResponse = {
   extracted?: Record<string, number>;
 };
 
+type ApiProjectDeltaAction = {
+  id: number;
+  content: string;
+  owner?: string | null;
+  due_date?: string | null;
+};
+
+type ApiProjectDeltaResponse = {
+  since: string;
+  new_memory: {
+    decision: number;
+    action: number;
+    issue: number;
+    risk: number;
+  };
+  pending_suggestions: number;
+  completed_actions: number;
+  due_soon: ApiProjectDeltaAction[];
+  overdue: ApiProjectDeltaAction[];
+};
+
+type ApiDeltaBriefingResponse = {
+  answer: string;
+  sources: string[];
+};
+
+type ProjectDeltaBannerState = {
+  projectId: string;
+  since: string;
+  delta: ApiProjectDeltaResponse;
+};
+
 type ServerStatus = "online" | "offline";
+type MainView = "workspace" | "settings";
+type ServerTestState = {
+  message: string;
+  status: "idle" | "testing" | "ok" | "error";
+};
 
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
@@ -226,10 +281,11 @@ const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v7";
+const PROJECT_STORAGE_KEY = "paim.projects.v8";
 const PROJECT_BRIEFING_QUESTION =
   "이 프로젝트의 목적, 현재 상태(완료된 것과 진행 중인 것), 그리고 다음에 해야 할 액션을 프로젝트 기록을 근거로 간결하게 브리핑해줘. 담당자와 마감일이 있는 액션은 함께 표기해줘.";
 const LEGACY_PROJECT_STORAGE_KEYS = [
+  "paim.projects.v7",
   "paim.projects.v6",
   "paim.projects.v5",
   "paim.projects.v4",
@@ -667,6 +723,14 @@ function getFileName(path: string) {
   return normalizedPath.split(/[\\/]/).pop() || normalizedPath || path;
 }
 
+function getUploadName(rootPath: string, filePath: string) {
+  const root = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
+  const file = filePath.replace(/\\/g, "/");
+  const prefix = `${root}/`;
+  const relative = file.startsWith(prefix) ? file.slice(prefix.length) : getFileName(filePath);
+  return `${getFileName(rootPath)}/${relative}`;
+}
+
 function normalizeDialogPaths(selectedPaths: string | string[] | null) {
   if (!selectedPaths) {
     return [];
@@ -681,6 +745,11 @@ function getFileExtension(name: string) {
 
 function isSupportedProjectDocument(name: string) {
   return ["md", "txt", "pdf"].includes(getFileExtension(name));
+}
+
+function getBase64ByteLength(encoded: string) {
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
 }
 
 function getUploadMimeType(name: string) {
@@ -819,7 +888,7 @@ function mergeServerDocumentsIntoAttachments(
 
     return {
       ...attachment,
-      name: document.filename,
+      uploadName: document.filename,
       documentStatus: toProjectDocumentStatus(document.status),
     };
   });
@@ -1018,6 +1087,7 @@ function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
   return attachments.map((attachment) => ({
     id: attachment.id,
 	    name: attachment.name,
+	    uploadName: attachment.uploadName,
 	    path: attachment.path,
 	    kind: attachment.kind,
 	    children: attachment.children ? createStoredAttachments(attachment.children) : undefined,
@@ -1056,6 +1126,37 @@ function createStoredProjectState(
     selectedProjectId,
     selectedSessionId,
   };
+}
+
+function getProjectDeltaNewMemoryCount(delta: ApiProjectDeltaResponse) {
+  return Object.values(delta.new_memory).reduce((sum, count) => sum + count, 0);
+}
+
+function shouldShowProjectDelta(delta: ApiProjectDeltaResponse) {
+  return (
+    getProjectDeltaNewMemoryCount(delta) +
+    delta.pending_suggestions +
+    delta.completed_actions
+  ) > 0;
+}
+
+function formatProjectDeltaSummary(delta: ApiProjectDeltaResponse) {
+  const parts = [`메모리 +${getProjectDeltaNewMemoryCount(delta)}`];
+
+  if (delta.pending_suggestions > 0) {
+    parts.push(`제안 ${delta.pending_suggestions}건`);
+  }
+  if (delta.completed_actions > 0) {
+    parts.push(`완료 ${delta.completed_actions}건`);
+  }
+  if (delta.due_soon.length > 0) {
+    parts.push(`마감 임박 ${delta.due_soon.length}건`);
+  }
+  if (delta.overdue.length > 0) {
+    parts.push(`기한 초과 ${delta.overdue.length}건`);
+  }
+
+  return parts.join(" · ");
 }
 
 type AttachmentListProps = {
@@ -1149,6 +1250,16 @@ export function App() {
   const [statusRevision, setStatusRevision] = useState(0);
   const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
   const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
+  const [projectDeltaBanner, setProjectDeltaBanner] = useState<ProjectDeltaBannerState | null>(null);
+  const [mainView, setMainView] = useState<MainView>("workspace");
+  const [settings, setSettingsState] = useState(loadPaimSettings);
+  const [serverTestState, setServerTestState] = useState<ServerTestState>({
+    message: "",
+    status: "idle",
+  });
+  const [isCacheResetConfirming, setIsCacheResetConfirming] = useState(false);
+  const [appVersion, setAppVersion] = useState(`개발 모드 ${packageJson.version}`);
+  const [latestReleaseTag, setLatestReleaseTag] = useState("");
   const [isProjectPanelMaximized, setIsProjectPanelMaximized] = useState(false);
   const [projectFileTreeWidth, setProjectFileTreeWidth] = useState(
     DEFAULT_PROJECT_FILE_TREE_WIDTH,
@@ -1167,7 +1278,9 @@ export function App() {
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
   const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
+  const serverUrlSyncRef = useRef(settings.serverUrl);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
     startX: 0,
@@ -1184,6 +1297,7 @@ export function App() {
   const documentPollTimeoutsRef = useRef(new Map<string, number>());
   const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
   const demoStatusTimeoutRef = useRef<number | null>(null);
+  const ignoredProjectDeltaRef = useRef<Record<string, string>>({});
   const projectsRef = useRef(initialProjectState.projects);
   const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
   const selectedSessionIdRef = useRef(initialProjectState.selectedSessionId);
@@ -1198,6 +1312,7 @@ export function App() {
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
+  const showProjectPanel = mainView === "workspace" && Boolean(selectedProject);
   const activeProjectPanelTab = useMemo(
     () => projectPanelTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? null,
     [activeProjectPanelTabId, projectPanelTabs],
@@ -1296,6 +1411,10 @@ export function App() {
       : selectedProjectGithubSession?.status === "pending"
         ? "authing"
         : "signedout";
+  const selectedProjectDelta =
+    selectedProject && projectDeltaBanner?.projectId === selectedProject.id
+      ? projectDeltaBanner
+      : null;
   const selectedProjectDescription = selectedProject?.description?.trim() ?? "";
   const isSelectedProjectDefaultName = /^New Project(?: \d+)?$/.test(selectedProject?.name ?? "");
   const canOpenProjectMemory =
@@ -1308,6 +1427,13 @@ export function App() {
     selectedProjectDescription.length > 0;
   const isProjectBriefingDisabled =
     !hasProjectHomeContext || selectedProjectHasDocumentInProgress || isSending;
+  const mainDemoStatus = demoStatus?.scope === "github" ? null : demoStatus;
+  const mainDemoStatusKind = mainDemoStatus?.ok ? "info" : "error";
+  const showNoticeStack =
+    serverStatus === "offline" ||
+    selectedProjectDelta !== null ||
+    Boolean(selectedProject?.serverMissing) ||
+    mainDemoStatus !== null;
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -1331,6 +1457,61 @@ export function App() {
     if (nextStatus) {
       queueDemoStatusClear();
     }
+  }
+
+  function updateSettings(patch: Partial<PaiMSettings>) {
+    setSettingsState((currentSettings) => {
+      const nextSettings = normalizePaimSettings({ ...currentSettings, ...patch });
+      savePaimSettings(nextSettings);
+      return nextSettings;
+    });
+    setIsCacheResetConfirming(false);
+  }
+
+  function handleThemeChange(theme: ThemeSetting) {
+    updateSettings({ theme });
+  }
+
+  async function handleTestServerConnection() {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 3000);
+
+    setServerTestState({ message: "연결 확인 중", status: "testing" });
+
+    try {
+      const health = await fetchPaimRootJson<ApiHealthResponse>("/health", {
+        signal: controller.signal,
+      });
+
+      if (health.status !== "ok") {
+        throw new Error("서버 상태가 ok가 아닙니다");
+      }
+
+      setServerStatus("online");
+      setServerTestState({ message: "연결됨", status: "ok" });
+      void syncProjectsWithServer(false);
+    } catch {
+      setServerStatus("offline");
+      setServerTestState({ message: "연결 실패", status: "error" });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  function handleClearLocalCache() {
+    if (!isCacheResetConfirming) {
+      setIsCacheResetConfirming(true);
+      return;
+    }
+
+    Object.keys(window.localStorage)
+      .filter((storageKey) => storageKey.startsWith("paim."))
+      .forEach((storageKey) => window.localStorage.removeItem(storageKey));
+    window.location.reload();
+  }
+
+  function handleOpenReleasePage() {
+    void openUrl("https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases");
   }
 
   function applyProjectState(nextState: ProjectState) {
@@ -1485,6 +1666,50 @@ export function App() {
   } as CSSProperties;
 
   useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === "system") {
+      root.removeAttribute("data-theme");
+      return;
+    }
+    root.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  useEffect(() => {
+    setServerTestState({ message: "", status: "idle" });
+
+    if (serverUrlSyncRef.current === settings.serverUrl) {
+      return;
+    }
+
+    serverUrlSyncRef.current = settings.serverUrl;
+    const timeoutId = window.setTimeout(() => {
+      void syncProjectsWithServer(false);
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [settings.serverUrl]);
+
+  useEffect(() => {
+    void getVersion()
+      .then((version) => setAppVersion(version))
+      .catch(() => setAppVersion(`개발 모드 ${packageJson.version}`));
+
+    const controller = new AbortController();
+    void fetch("https://api.github.com/repos/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases/latest", {
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { tag_name?: unknown } | null) => {
+        if (typeof payload?.tag_name === "string") {
+          setLatestReleaseTag(payload.tag_name);
+        }
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
 
@@ -1556,6 +1781,67 @@ export function App() {
     selectedProject?.apiProjectId,
     selectedProject?.id,
     selectedProject?.serverMissing,
+    serverStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    if (serverStatus !== "online") {
+      return;
+    }
+
+    if (!selectedProject.lastSeenAt) {
+      markProjectSeen(selectedProject.id);
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    let isDisposed = false;
+    const projectId = selectedProject.id;
+    const apiProjectId = selectedProject.apiProjectId;
+    const since = selectedProject.lastSeenAt;
+
+    if (ignoredProjectDeltaRef.current[projectId] === since) {
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    void fetchProjectDelta(apiProjectId, since, settings.dueSoonDays)
+      .then((delta) => {
+        if (
+          isDisposed ||
+          selectedProjectIdRef.current !== projectId ||
+          ignoredProjectDeltaRef.current[projectId] === since
+        ) {
+          return;
+        }
+        setProjectDeltaBanner(
+          shouldShowProjectDelta(delta) ? { projectId, since, delta } : null,
+        );
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setProjectDeltaBanner(null);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.lastSeenAt,
+    selectedProject?.serverMissing,
+    settings.dueSoonDays,
     serverStatus,
   ]);
 
@@ -1943,6 +2229,15 @@ export function App() {
     );
   }
 
+  function markProjectSeen(projectId: string) {
+    const seenAt = new Date().toISOString();
+    updateProject(projectId, (project) => ({
+      ...project,
+      lastSeenAt: seenAt,
+    }));
+    return seenAt;
+  }
+
   function updateProjectAttachment(
     projectId: string,
     attachmentId: string,
@@ -2275,16 +2570,45 @@ export function App() {
     apiProjectId: number,
     question: string,
     history: ApiQueryHistoryMessage[],
+    queryAttachments: ApiQueryAttachment[] = [],
   ) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    const body =
+      queryAttachments.length > 0
+        ? { question, history, attachments: queryAttachments }
+        : { question, history };
 
     try {
       return await fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
         method: "POST",
         signal: controller.signal,
-        body: JSON.stringify({ question, history }),
+        body: JSON.stringify(body),
       });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  async function fetchProjectDelta(apiProjectId: number, since: string, dueSoonDays: number) {
+    return fetchPaimJson<ApiProjectDeltaResponse>(
+      `/projects/${apiProjectId}/delta?since=${encodeURIComponent(since)}&due_within_days=${dueSoonDays}`,
+    );
+  }
+
+  async function fetchProjectDeltaBriefing(apiProjectId: number, since: string) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+
+    try {
+      return await fetchPaimJson<ApiDeltaBriefingResponse>(
+        `/projects/${apiProjectId}/briefing/delta`,
+        {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify({ since }),
+        },
+      );
     } finally {
       window.clearTimeout(timeoutId);
     }
@@ -2306,6 +2630,14 @@ export function App() {
     return new File([bytes], entry.name, { type: getUploadMimeType(entry.name) });
   }
 
+  async function readQueryAttachment(entry: Attachment): Promise<ApiQueryAttachment> {
+    const encoded = await invoke<string>("read_file_base64", { path: entry.path });
+    if (getBase64ByteLength(encoded) > 10 * 1024 * 1024) {
+      throw new Error(`${entry.name}은 10 MB를 초과해 첨부할 수 없습니다`);
+    }
+    return { filename: entry.name, content_base64: encoded };
+  }
+
   async function uploadProjectDocument(
     projectId: string,
     apiProjectId: number,
@@ -2320,7 +2652,7 @@ export function App() {
     try {
       const file = await readUploadFile(entry);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", file, entry.uploadName ?? entry.name);
 
       const response = await fetchPaimFormData<ApiDocumentUploadResponse>(
         `/projects/${apiProjectId}/documents`,
@@ -2514,6 +2846,38 @@ export function App() {
     }
   }
 
+  // 서버 프로젝트가 있으면 이름 변경을 저장하고, 실패 시 로컬 이름을 되돌린다.
+  async function syncProjectName(projectId: string, title: string, previousTitle: string) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    const project = projectsRef.current.find((currentProject) => currentProject.id === projectId);
+
+    if (!project || project.serverMissing || typeof project.apiProjectId !== "number") {
+      return;
+    }
+
+    try {
+      await fetchPaimJson<ApiProjectResponse>(`/projects/${project.apiProjectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: title }),
+      });
+    } catch (error) {
+      updateProject(projectId, (currentProject) => ({
+        ...currentProject,
+        name: previousTitle,
+        serverMissing:
+          isPaimApiError(error) && error.status === 404 ? true : currentProject.serverMissing,
+      }));
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "프로젝트 이름을 서버에 저장할 수 없습니다"),
+        scope: "overview",
+      });
+    }
+  }
+
   // 서버 세션이 있으면 삭제하고, 404는 이미 삭제된 상태로 본다.
   async function deleteServerChatSession(project: ProjectWorkspace, session: ChatSession) {
     if (!session.serverSessionId) {
@@ -2553,6 +2917,42 @@ export function App() {
     }
   }
 
+  // 서버 프로젝트가 있으면 먼저 DELETE하고, 404는 이미 삭제된 상태로 본다.
+  async function deleteServerProject(project: ProjectWorkspace) {
+    if (typeof project.apiProjectId !== "number") {
+      return true;
+    }
+
+    if (serverStatus === "offline") {
+      setDemoStatus({
+        ok: false,
+        message: "서버에 연결되지 않아 프로젝트를 삭제할 수 없습니다",
+        scope: "overview",
+      });
+      return false;
+    }
+
+    if (project.serverMissing) {
+      return true;
+    }
+
+    try {
+      await fetchPaimJson<void>(`/projects/${project.apiProjectId}`, { method: "DELETE" });
+      return true;
+    } catch (error) {
+      if (isPaimApiError(error) && error.status === 404) {
+        return true;
+      }
+
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "프로젝트를 서버에서 삭제할 수 없습니다"),
+        scope: "overview",
+      });
+      return false;
+    }
+  }
+
   function handleSelectProject(projectId: string) {
     const nextProject = projects.find((project) => project.id === projectId);
 
@@ -2560,6 +2960,7 @@ export function App() {
       return;
     }
 
+    setMainView("workspace");
     setSelectedProjectId(nextProject.id);
     setSelectedSessionId(nextProject.sessions[0]?.id ?? null);
     clearDraft();
@@ -2570,6 +2971,7 @@ export function App() {
     const nextProject = createProject(createUniqueProjectName(projects, baseName), [], files);
 
     setProjects((currentProjects) => [nextProject, ...currentProjects]);
+    setMainView("workspace");
     setSelectedProjectId(nextProject.id);
     setSelectedSessionId(null);
     setProjectPanelTabs([]);
@@ -2648,6 +3050,7 @@ export function App() {
       ...project,
       sessions: [nextSession, ...project.sessions],
     }));
+    setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(nextSession.id);
     setCollapsedProjectIds((currentProjectIds) =>
@@ -2701,13 +3104,17 @@ export function App() {
     return children.map(createProjectFileEntry);
   }
 
-  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
+  async function createProjectDirectoryEntry(
+    path: string,
+    uploadedAt: number,
+    rootPath = path,
+  ): Promise<Attachment> {
     const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
     const nextChildren = await Promise.all(
       children.map((entry) =>
         entry.kind === "directory"
-          ? createProjectDirectoryEntry(entry.path, uploadedAt)
-          : { ...createProjectFileEntry(entry), uploadedAt },
+          ? createProjectDirectoryEntry(entry.path, uploadedAt, rootPath)
+          : { ...createProjectFileEntry(entry), uploadName: getUploadName(rootPath, entry.path), uploadedAt },
       ),
     );
 
@@ -3610,6 +4017,7 @@ export function App() {
     }
 
     setRenameDraft({ type: "project", projectId, value: targetProject.name });
+    setPendingDeleteProjectId(null);
     setOpenActionMenu(null);
   }
 
@@ -3641,10 +4049,14 @@ export function App() {
     }
 
     if (renameDraft.type === "project") {
+      const targetProject = projects.find((project) => project.id === renameDraft.projectId);
+      const previousName = targetProject?.name ?? nextValue;
+
       updateProject(renameDraft.projectId, (project) => ({
         ...project,
         name: nextValue,
       }));
+      void syncProjectName(renameDraft.projectId, nextValue, previousName);
     } else {
       updateSessionInProject(renameDraft.projectId, renameDraft.sessionId, (session) => ({
         ...session,
@@ -3809,35 +4221,140 @@ export function App() {
     }
   }
 
-  // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
-  function handleDeleteProject(projectId: string, event: MouseEvent<HTMLButtonElement>) {
-    const remainingProjects = projects.filter((project) => project.id !== projectId);
+  function handleDismissProjectDelta() {
+    if (!selectedProjectDelta) {
+      return;
+    }
 
+    ignoredProjectDeltaRef.current[selectedProjectDelta.projectId] = selectedProjectDelta.since;
+    markProjectSeen(selectedProjectDelta.projectId);
+    setProjectDeltaBanner(null);
+  }
+
+  async function handleRequestProjectDeltaBriefing() {
+    if (
+      !selectedProject ||
+      !selectedProjectDelta ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number" ||
+      isSending
+    ) {
+      return;
+    }
+
+    if (shouldSkipServerAction("overview")) {
+      return;
+    }
+
+    const targetProjectId = selectedProject.id;
+    let targetSessionId = selectedSession?.id ?? null;
+
+    if (!targetSessionId) {
+      const nextSession = createEmptySession();
+      targetSessionId = nextSession.id;
+      updateProject(targetProjectId, (project) => ({
+        ...project,
+        sessions: [nextSession, ...project.sessions],
+      }));
+      setSelectedSessionId(nextSession.id);
+    }
+
+    const requestStartedAt = Date.now();
+    setIsSending(true);
+    setThinkingStartedAt(requestStartedAt);
+    clearDraft();
+
+    try {
+      const response = await fetchProjectDeltaBriefing(
+        selectedProject.apiProjectId,
+        selectedProjectDelta.since,
+      );
+      const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
+
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("assistant"),
+            role: "assistant",
+            content: response.answer,
+            sources: response.sources?.filter(Boolean),
+            thinkingSeconds,
+          },
+        ],
+      }));
+      ignoredProjectDeltaRef.current[targetProjectId] = selectedProjectDelta.since;
+      markProjectSeen(targetProjectId);
+      setProjectDeltaBanner(null);
+    } catch (error) {
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("error"),
+            role: "error",
+            content: getQueryErrorMessage(error),
+          },
+        ],
+      }));
+    } finally {
+      setIsSending(false);
+      setThinkingStartedAt(null);
+      focusPrompt();
+    }
+  }
+
+  // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
+  async function handleDeleteProject(projectId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
 
-    if (remainingProjects.length === projects.length) {
+    const targetProject = projects.find((project) => project.id === projectId);
+
+    if (!targetProject) {
       return;
     }
 
-    if (remainingProjects.length === 0) {
-      setProjects([]);
-      setSelectedProjectId(null);
-      setSelectedSessionId(null);
-      setIsSending(false);
-      setOpenActionMenu(null);
-      clearDraft();
+    if (pendingDeleteProjectId !== projectId) {
+      setPendingDeleteProjectId(projectId);
+      setDemoStatus({
+        ok: false,
+        message:
+          typeof targetProject.apiProjectId === "number"
+            ? "한 번 더 누르면 서버의 문서·메모리·채팅까지 삭제됩니다"
+            : "한 번 더 누르면 로컬 프로젝트를 삭제합니다",
+        scope: "overview",
+      });
       return;
     }
 
-    setProjects(remainingProjects);
-
-    if (projectId === selectedProjectId) {
-      setSelectedProjectId(remainingProjects[0].id);
-      setSelectedSessionId(remainingProjects[0].sessions[0]?.id ?? null);
-      clearDraft();
+    if (!(await deleteServerProject(targetProject))) {
+      return;
     }
 
+    const currentProjects = projectsRef.current;
+    const remainingProjects = currentProjects.filter((project) => project.id !== projectId);
+
+    if (remainingProjects.length === currentProjects.length) {
+      return;
+    }
+
+    const wasSelected = projectId === selectedProjectIdRef.current;
+    const nextState = createProjectState(
+      remainingProjects,
+      selectedProjectIdRef.current,
+      selectedSessionIdRef.current,
+    );
+
+    applyProjectState(nextState);
+    setPendingDeleteProjectId(null);
+    setIsSending(false);
     setOpenActionMenu(null);
+
+    if (wasSelected) {
+      clearDraft();
+    }
   }
 
   // 렌더링이 끝난 뒤 채팅 입력창으로 포커스를 복원한다.
@@ -3854,6 +4371,7 @@ export function App() {
   }
 
   function handleSelectSession(projectId: string, sessionId: string) {
+    setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(sessionId);
     setCollapsedProjectIds((currentProjectIds) =>
@@ -3894,7 +4412,19 @@ export function App() {
       return;
     }
 
-    const nextAttachments = await Promise.all(paths.map(createAttachment));
+    const supportedPaths = paths.filter((path) => isSupportedProjectDocument(getFileName(path)));
+    if (supportedPaths.length !== paths.length) {
+      setDemoStatus({
+        ok: true,
+        message: "채팅 첨부는 md/txt/pdf만 이번 질문 참고용으로 사용할 수 있습니다",
+        scope: "overview",
+      });
+    }
+    if (supportedPaths.length === 0) {
+      return;
+    }
+
+    const nextAttachments = await Promise.all(supportedPaths.map(createAttachment));
 
     setAttachments((currentAttachments) => [...currentAttachments, ...nextAttachments]);
   }
@@ -4013,6 +4543,29 @@ export function App() {
         ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
         : selectedSession.title;
     const history = createQueryHistory(selectedSession.messages);
+    let queryAttachments: ApiQueryAttachment[] = [];
+    if (messageAttachments.length > 0) {
+      if (canUseTauriDialog()) {
+        try {
+          queryAttachments = await Promise.all(messageAttachments.map(readQueryAttachment));
+        } catch (error) {
+          setIsSending(false);
+          setThinkingStartedAt(null);
+          setDemoStatus({
+            ok: false,
+            message: getErrorMessage(error, "첨부 파일을 읽을 수 없습니다"),
+            scope: "overview",
+          });
+          return;
+        }
+      } else {
+        setDemoStatus({
+          ok: true,
+          message: "브라우저 모드에서는 채팅 첨부를 LLM에 전달하지 않습니다",
+          scope: "overview",
+        });
+      }
+    }
     const userMessage: Message = {
       id: createId("user"),
       role: "user",
@@ -4066,7 +4619,7 @@ export function App() {
     setAttachments([]);
 
     try {
-      const response = await fetchProjectQuery(apiProjectId, question, history);
+      const response = await fetchProjectQuery(apiProjectId, question, history, queryAttachments);
       const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
       updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
@@ -4111,12 +4664,158 @@ export function App() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  function renderSettingsPage() {
+    const effectiveServerUrl = settings.serverUrl || getPaimApiRootUrl() || DEFAULT_PAIM_API_ROOT_URL;
+
+    return (
+      <section className="settings-page" aria-label="설정">
+        <div className="settings-content">
+          <header className="settings-header">
+            <button
+              aria-label="설정에서 돌아가기"
+              className="settings-back-button"
+              onClick={() => setMainView("workspace")}
+              title="돌아가기"
+              type="button"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            <div>
+              <p>Settings</p>
+              <h1>설정</h1>
+            </div>
+          </header>
+
+          <section className="settings-group" aria-label="테마">
+            <div className="settings-copy">
+              <h2>테마</h2>
+              <p>시스템 설정을 따르거나 PaiM 화면만 고정합니다.</p>
+            </div>
+            <div className="settings-segmented">
+              {[
+                ["system", "시스템"],
+                ["dark", "다크"],
+                ["light", "라이트"],
+              ].map(([value, label]) => (
+                <button
+                  data-active={settings.theme === value ? "true" : undefined}
+                  key={value}
+                  onClick={() => handleThemeChange(value as ThemeSetting)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="서버 주소">
+            <div className="settings-copy">
+              <h2>서버 주소</h2>
+              <p>비우면 기본 주소 {DEFAULT_PAIM_API_ROOT_URL}로 돌아갑니다.</p>
+            </div>
+            <div className="settings-control-stack">
+              <div className="settings-inline-control">
+                <input
+                  aria-label="PaiM 서버 주소"
+                  onChange={(event) => updateSettings({ serverUrl: event.currentTarget.value })}
+                  placeholder={DEFAULT_PAIM_API_ROOT_URL}
+                  value={settings.serverUrl}
+                />
+                <button
+                  disabled={serverTestState.status === "testing"}
+                  onClick={() => void handleTestServerConnection()}
+                  type="button"
+                >
+                  연결 테스트
+                </button>
+              </div>
+              <p className="settings-status" data-kind={serverStatus === "online" ? "ok" : "error"}>
+                현재 {serverStatus === "online" ? "연결됨" : "오프라인"} · {effectiveServerUrl}
+                {serverTestState.message ? ` · ${serverTestState.message}` : ""}
+              </p>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="완료 제안 민감도">
+            <div className="settings-copy">
+              <h2>완료 제안 민감도</h2>
+              <p>서버 제안은 유지하고 인박스 표시만 조절합니다.</p>
+            </div>
+            <div className="settings-segmented">
+              <button
+                data-active={settings.suggestionMin === "high" ? "true" : undefined}
+                onClick={() => updateSettings({ suggestionMin: "high" })}
+                type="button"
+              >
+                확실할 때만
+              </button>
+              <button
+                data-active={settings.suggestionMin === "medium" ? "true" : undefined}
+                onClick={() => updateSettings({ suggestionMin: "medium" })}
+                type="button"
+              >
+                추정 포함
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="마감 임박 기준">
+            <div className="settings-copy">
+              <h2>마감 임박 기준</h2>
+              <p>델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.</p>
+            </div>
+            <div className="settings-range">
+              <input
+                aria-label="마감 임박 기준"
+                max={7}
+                min={1}
+                onChange={(event) => updateSettings({ dueSoonDays: Number(event.currentTarget.value) })}
+                type="range"
+                value={settings.dueSoonDays}
+              />
+              <strong>{settings.dueSoonDays}일</strong>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="캐시 초기화">
+            <div className="settings-copy">
+              <h2>캐시 초기화</h2>
+              <p>로컬 캐시와 설정만 지웁니다. 서버 데이터(프로젝트·메모리)는 삭제되지 않습니다.</p>
+            </div>
+            <button
+              className="settings-danger"
+              data-confirming={isCacheResetConfirming ? "true" : undefined}
+              onClick={handleClearLocalCache}
+              type="button"
+            >
+              {isCacheResetConfirming ? "다시 눌러 초기화" : "캐시 초기화"}
+            </button>
+          </section>
+
+          <section className="settings-group" aria-label="버전">
+            <div className="settings-copy">
+              <h2>버전</h2>
+              <p>
+                현재 {appVersion}
+                {latestReleaseTag ? ` · 최신 ${latestReleaseTag}` : ""}
+              </p>
+            </div>
+            <button onClick={handleOpenReleasePage} type="button">
+              릴리즈 페이지 열기
+            </button>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <div
       className="app-shell"
       data-drag-active={isDragActive}
       data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
-      data-project-panel={selectedProject ? "true" : "false"}
+      data-project-panel={showProjectPanel ? "true" : "false"}
       data-project-panel-collapsed={isProjectPanelCollapsed}
       data-project-panel-maximized={isProjectPanelMaximized}
       data-project-panel-resizing={isProjectPanelResizing}
@@ -4127,14 +4826,6 @@ export function App() {
       style={appShellStyle}
     >
       {isWindows ? <WindowsTitlebar /> : null}
-      {serverStatus === "offline" ? (
-        <div className="server-offline-banner" role="status">
-          <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
-          <button onClick={() => void syncProjectsWithServer(true)} type="button">
-            다시 연결
-          </button>
-        </div>
-      ) : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
@@ -4320,6 +5011,22 @@ export function App() {
           </div>
         </section>
 
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-settings-button"
+            data-active={mainView === "settings" ? "true" : undefined}
+            onClick={() => {
+              setMainView("settings");
+              setOpenActionMenu(null);
+            }}
+            title="설정"
+            type="button"
+          >
+            <SettingsIcon size={17} />
+            <span>Settings</span>
+          </button>
+        </div>
+
         <div
           aria-label="사이드바 크기 조절"
           aria-orientation="vertical"
@@ -4351,11 +5058,11 @@ export function App() {
                 <button
                   className="danger"
                   data-action="delete-project"
-                  onClick={(event) => handleDeleteProject(actionMenuProject.id, event)}
+                  onClick={(event) => void handleDeleteProject(actionMenuProject.id, event)}
                   role="menuitem"
                   type="button"
                 >
-                  Delete
+                  {pendingDeleteProjectId === actionMenuProject.id ? "Delete again" : "Delete"}
                 </button>
               </>
             ) : actionMenuSession ? (
@@ -4387,9 +5094,63 @@ export function App() {
 
       <main
         className="chat"
-        data-empty-chat={selectedSession?.messages.length === 0 ? "true" : undefined}
+        data-empty-chat={
+          mainView === "workspace" && selectedSession?.messages.length === 0 ? "true" : undefined
+        }
       >
-        {selectedSession ? (
+        {showNoticeStack ? (
+          <div className="notice-stack" aria-live="polite">
+            {serverStatus === "offline" ? (
+              <div className="notice" data-kind="offline" role="status">
+                <i aria-hidden="true" />
+                <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
+                <span className="notice-spacer" />
+                <button onClick={() => void syncProjectsWithServer(true)} type="button">
+                  다시 연결
+                </button>
+              </div>
+            ) : null}
+            {selectedProjectDelta ? (
+              <div className="notice" data-kind="delta" role="status">
+                <i aria-hidden="true" />
+                <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
+                <span className="notice-spacer" />
+                <div className="notice-actions">
+                  <button
+                    onClick={() => void handleRequestProjectDeltaBriefing()}
+                    type="button"
+                    disabled={isSending}
+                  >
+                    브리핑 받기
+                  </button>
+                  <button onClick={handleDismissProjectDelta} type="button">
+                    닫기
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {selectedProject?.serverMissing ? (
+              <div className="notice" data-kind="error" role="status">
+                <i aria-hidden="true" />
+                <span>서버에서 찾을 수 없어 로컬 캐시를 표시 중</span>
+              </div>
+            ) : null}
+            {mainDemoStatus ? (
+              <div
+                className="notice runtime-status"
+                data-kind={mainDemoStatusKind}
+                key={statusRevision}
+                role="status"
+              >
+                <i aria-hidden="true" />
+                <span>{mainDemoStatus.message}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {mainView === "settings" ? (
+          renderSettingsPage()
+        ) : selectedSession ? (
           <>
             {selectedSession.messages.length === 0 ? (
               <div className="chat-empty">
@@ -4433,7 +5194,12 @@ export function App() {
                           </>
                         )}
                         {message.attachments && message.attachments.length > 0 ? (
-                          <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                          <>
+                            <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                            {message.role === "user" ? (
+                              <span className="attachment-scope-note">이번 질문 참고용</span>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
@@ -4506,8 +5272,9 @@ export function App() {
             </form>
           </>
         ) : selectedProject ? (
-          <section className="project-home" aria-label="프로젝트 시작 화면">
-            <div className="project-home-content">
+          <>
+            <section className="project-home" aria-label="프로젝트 시작 화면">
+              <div className="project-home-content">
               <div className="project-home-name-row">
                 <input
                   aria-label="프로젝트 이름"
@@ -4526,20 +5293,20 @@ export function App() {
                       }));
                     }
                   }}
-	                  onChange={(event) => {
-	                    const nextName = event.currentTarget.value;
+                  onChange={(event) => {
+                    const nextName = event.currentTarget.value;
 
-	                    updateProject(selectedProject.id, (project) => ({
-	                      ...project,
-	                      name: nextName,
-	                    }));
-	                  }}
-	                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
-	                  placeholder="New Project 1"
-	                  value={selectedProject.name}
-	                />
-	                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
-	              </div>
+                    updateProject(selectedProject.id, (project) => ({
+                      ...project,
+                      name: nextName,
+                    }));
+                  }}
+                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
+                  placeholder="New Project 1"
+                  value={selectedProject.name}
+                />
+                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
+              </div>
               <textarea
                 aria-label="프로젝트 설명"
                 className="project-home-description"
@@ -4555,12 +5322,7 @@ export function App() {
                 rows={2}
                 value={selectedProject.description ?? ""}
               />
-              {selectedProject.serverMissing ? (
-                <p className="runtime-status project-home-status" data-ok="false" role="status">
-                  서버에서 찾을 수 없어 로컬 캐시를 표시 중
-                </p>
-              ) : null}
-	              <div className="project-home-divider" />
+              <div className="project-home-divider" />
 
               <div className="project-home-section-title">시작하기</div>
               <div className="project-home-upload-list">
@@ -4647,17 +5409,6 @@ export function App() {
 
               <div className="project-home-spacer" />
 
-              {demoStatus && demoStatus.scope !== "github" ? (
-                <p
-                  className="runtime-status project-home-status"
-                  data-ok={demoStatus.ok}
-                  key={statusRevision}
-                  role="status"
-                >
-                  {demoStatus.message}
-                </p>
-              ) : null}
-
               <p className="project-home-note">
                 분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
               </p>
@@ -4687,8 +5438,9 @@ export function App() {
                   <span>분석 없이 채팅 시작하기</span>
                 </button>
               </div>
-            </div>
-          </section>
+              </div>
+            </section>
+          </>
         ) : (
           <div className="project-start" role="status">
             <div className="project-start-content">
@@ -4697,16 +5449,6 @@ export function App() {
                 src={paimWatermark}
                 alt="PaiM AI Project Manager"
               />
-              {demoStatus && demoStatus.scope !== "github" ? (
-                <p
-                  className="runtime-status project-start-status"
-                  data-ok={demoStatus.ok}
-                  key={statusRevision}
-                  role="status"
-                >
-                  {demoStatus.message}
-                </p>
-              ) : null}
               <button
                 className="project-start-button"
                 onClick={() => createProjectFromName(createNextProjectName(projects))}
@@ -4721,7 +5463,7 @@ export function App() {
         )}
       </main>
 
-      {selectedProject ? (
+      {showProjectPanel && selectedProject ? (
         <aside
           className="project-panel"
           data-collapsed={isProjectPanelCollapsed}
@@ -4893,6 +5635,7 @@ export function App() {
               canManage={canOpenProjectMemory}
               isMaximized={isProjectPanelMaximized}
               project={selectedProject}
+              suggestionMin={settings.suggestionMin}
             />
           ) : null}
 

@@ -1,13 +1,69 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ..db.mysql import get_connection
+from ..storage import delete_file
 from .auth import get_current_user_id, ensure_dev_user, require_project_access
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ProjectCreate(BaseModel):
     name: str
+
+
+class ProjectUpdate(BaseModel):
+    name: str
+
+
+def _delete_project_chroma(project_id: int, has_indexed_children: bool) -> None:
+    """프로젝트에 속한 Chroma 벡터를 project_id 메타데이터로 한 번에 지운다."""
+    if not has_indexed_children:
+        return
+
+    from ..db.chroma import get_collection
+
+    get_collection().delete(where={"project_id": project_id})
+
+
+def _delete_project_files(document_rows: list[dict]) -> None:
+    """documents.file_path에 기록된 원본 파일을 기존 storage 헬퍼로 삭제한다."""
+    for row in document_rows:
+        file_path = row.get("file_path")
+        if file_path:
+            delete_file(file_path, strict=True)
+
+
+def _delete_project_rows(cursor, project_id: int) -> None:
+    """FK 제약을 피하도록 프로젝트 하위 MySQL row를 자식부터 삭제한다."""
+    cursor.execute("DELETE FROM memory_suggestions WHERE project_id = %s", (project_id,))
+    cursor.execute(
+        "DELETE ms FROM memory_sources ms"
+        " JOIN memory m ON ms.memory_id = m.id"
+        " WHERE m.project_id = %s",
+        (project_id,),
+    )
+    cursor.execute("DELETE FROM memory WHERE project_id = %s", (project_id,))
+    cursor.execute(
+        "DELETE FROM chat_messages WHERE session_id IN ("
+        " SELECT id FROM chat_sessions WHERE project_id = %s"
+        ")",
+        (project_id,),
+    )
+    cursor.execute(
+        "DELETE FROM chat_summaries WHERE session_id IN ("
+        " SELECT id FROM chat_sessions WHERE project_id = %s"
+        ")",
+        (project_id,),
+    )
+    cursor.execute("DELETE FROM chat_sessions WHERE project_id = %s", (project_id,))
+    cursor.execute("DELETE FROM project_memory WHERE project_id = %s", (project_id,))
+    cursor.execute("DELETE FROM documents WHERE project_id = %s", (project_id,))
+    cursor.execute("DELETE FROM repositories WHERE project_id = %s", (project_id,))
+    cursor.execute("DELETE FROM project_members WHERE project_id = %s", (project_id,))
+    cursor.execute("DELETE FROM projects WHERE id = %s", (project_id,))
 
 
 @router.post("/projects", status_code=201)
@@ -71,3 +127,63 @@ def get_project(project_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
     return row
+
+
+@router.patch("/projects/{project_id}")
+def update_project(project_id: int, body: ProjectUpdate):
+    require_project_access(project_id, min_role="member")
+    next_name = body.name.strip()
+    if not next_name:
+        raise HTTPException(status_code=400, detail="Project name must not be empty")
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Project not found")
+            cursor.execute("UPDATE projects SET name = %s WHERE id = %s", (next_name, project_id))
+        conn.commit()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, name, created_at FROM projects WHERE id = %s", (project_id,))
+            return cursor.fetchone()
+    except HTTPException:
+        raise
+    except Exception:
+        conn.rollback()
+        logger.exception("Project update failed project_id=%s", project_id)
+        raise HTTPException(status_code=500, detail="Project update failed")
+    finally:
+        conn.close()
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: int):
+    require_project_access(project_id, min_role="member")
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Project not found")
+            cursor.execute("SELECT id, file_path FROM documents WHERE project_id = %s", (project_id,))
+            document_rows = cursor.fetchall()
+            cursor.execute("SELECT id FROM repositories WHERE project_id = %s", (project_id,))
+            repository_rows = cursor.fetchall()
+            cursor.execute("SELECT id FROM memory WHERE project_id = %s LIMIT 1", (project_id,))
+            memory_rows = cursor.fetchall()
+
+        try:
+            _delete_project_chroma(project_id, bool(document_rows or repository_rows or memory_rows))
+            _delete_project_files(document_rows)
+            with conn.cursor() as cursor:
+                _delete_project_rows(cursor, project_id)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("Project delete cleanup failed project_id=%s", project_id)
+            raise HTTPException(status_code=500, detail="Project delete failed")
+    except HTTPException:
+        raise
+    finally:
+        conn.close()

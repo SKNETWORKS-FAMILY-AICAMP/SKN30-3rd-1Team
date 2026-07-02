@@ -199,7 +199,6 @@ desktop/src-tauri/target/
 
 # my agent files
 AGENT_LOG.md
-AGENTS.md
 claude.md
 codex.md
 ignore

@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -8,8 +9,9 @@ from pydantic import BaseModel
 from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
-from ..storage import save_file, delete_file
-from ..graph import update_project_memory
+from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
+from ..storage import save_file, delete_file, safe_upload_name
+from ..graph import refresh_project_memory_after_delete, update_project_memory
 from .auth import require_project_access
 
 router = APIRouter()
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_SUFFIXES = {".md", ".txt", ".pdf"}
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+_UPLOAD_PROCESS_LOCK = threading.Lock()
 
 _DOC_TYPE_KEYWORDS = {
     "meeting":  ["meeting", "회의", "회의록", "minutes"],
@@ -59,15 +62,17 @@ def _delete_chroma_vectors(doc_id: int):
         logger.warning("ChromaDB vector cleanup failed for doc_id=%s", doc_id, exc_info=True)
 
 
-def _delete_document(doc_id: int):
+def _delete_document(doc_id: int, refresh_project_memory: bool = True):
     """MySQL memory/documents 행 삭제 + ChromaDB 벡터 삭제 + 원본 파일 삭제."""
     conn = get_connection()
     file_path = None
+    project_id = None
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT file_path FROM documents WHERE id = %s", (doc_id,))
+            cursor.execute("SELECT project_id, file_path FROM documents WHERE id = %s", (doc_id,))
             row = cursor.fetchone()
             if row:
+                project_id = row.get("project_id")
                 file_path = row.get("file_path")
             cursor.execute("DELETE FROM memory WHERE doc_id = %s", (doc_id,))
             cursor.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
@@ -79,6 +84,8 @@ def _delete_document(doc_id: int):
     _delete_chroma_vectors(doc_id)
     if file_path:
         delete_file(file_path)
+    if refresh_project_memory and project_id is not None:
+        refresh_project_memory_after_delete(project_id)
 
 
 def _delete_doc_memory(doc_id: int):
@@ -92,6 +99,22 @@ def _delete_doc_memory(doc_id: int):
         logger.warning("memory cleanup failed doc_id=%s", doc_id, exc_info=True)
     finally:
         conn.close()
+
+
+def _upsert_memory_vector_best_effort(row: dict):
+    """수동 memory 변경 후 ChromaDB 보조 인덱스를 갱신한다."""
+    try:
+        upsert_memory_vector(row)
+    except Exception:
+        logger.warning("memory vector upsert failed memory_id=%s", row.get("id"), exc_info=True)
+
+
+def _delete_memory_vector_best_effort(memory_id: int):
+    """수동 memory 삭제 후 ChromaDB 보조 인덱스를 삭제한다."""
+    try:
+        delete_memory_vector(memory_id)
+    except Exception:
+        logger.warning("memory vector delete failed memory_id=%s", memory_id, exc_info=True)
 
 
 def _set_doc_status(doc_id: int, status: str, last_error: Optional[str] = None):
@@ -122,6 +145,22 @@ def _process_upload(
     file_path: str,
 ):
     """LLM extract → ingest → status 갱신 → 이전 문서 정리."""
+    # ponytail: global lock; per-project queues if folder ingest throughput matters.
+    with _UPLOAD_PROCESS_LOCK:
+        _process_upload_locked(project_id, doc_id, old_doc_ids, content, filename, date, doc_type, file_path)
+
+
+def _process_upload_locked(
+    project_id: int,
+    doc_id: int,
+    old_doc_ids: list,
+    content: str,
+    filename: str,
+    date: str,
+    doc_type: str,
+    file_path: str,
+):
+    """실제 업로드 처리 본문. 호출자는 동시 실행을 제한한다."""
     try:
         items = extract(content, default_source=filename)
     except Exception as exc:
@@ -162,7 +201,9 @@ def _process_upload(
         logger.warning("프로젝트 메모리 갱신 실패 (업로드는 성공): project_id=%s", project_id, exc_info=True)
 
     for old_id in old_doc_ids:
-        _delete_document(old_id)
+        _delete_document(old_id, refresh_project_memory=False)
+    if old_doc_ids:
+        refresh_project_memory_after_delete(project_id)
 
 
 # ── Documents ─────────────────────────────────────────────────────
@@ -175,7 +216,10 @@ async def upload_document(
     date: str = Form(""),
 ):
     require_project_access(project_id, min_role="member")
-    filename = Path(file.filename).name
+    try:
+        filename = safe_upload_name(file.filename or "")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if Path(filename).suffix.lower() not in _ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. (.md / .txt / .pdf)")
     doc_type = _infer_doc_type(filename)
@@ -333,7 +377,9 @@ def create_memory(project_id: int, body: MemoryCreate):
         conn.commit()
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
-            return cursor.fetchone()
+            row = cursor.fetchone()
+        _upsert_memory_vector_best_effort(row)
+        return row
     finally:
         conn.close()
 
@@ -401,7 +447,9 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
         conn.commit()
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
-            return cursor.fetchone()
+            row = cursor.fetchone()
+        _upsert_memory_vector_best_effort(row)
+        return row
     finally:
         conn.close()
 
@@ -421,3 +469,5 @@ def delete_memory(project_id: int, memory_id: int):
         conn.commit()
     finally:
         conn.close()
+    _delete_memory_vector_best_effort(memory_id)
+    refresh_project_memory_after_delete(project_id)

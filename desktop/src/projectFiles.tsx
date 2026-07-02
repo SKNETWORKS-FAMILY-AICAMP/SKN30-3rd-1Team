@@ -638,12 +638,13 @@ export function ProjectFilesPanel({
         </div>
         {demoStatus && demoStatus.scope !== "github" ? (
           <p
-            className="runtime-status project-panel-status"
-            data-ok={demoStatus.ok}
+            className="notice runtime-status project-panel-status"
+            data-kind={demoStatus.ok ? "info" : "error"}
             key={statusRevision}
             role="status"
           >
-            {demoStatus.message}
+            <i aria-hidden="true" />
+            <span>{demoStatus.message}</span>
           </p>
         ) : null}
       </div>

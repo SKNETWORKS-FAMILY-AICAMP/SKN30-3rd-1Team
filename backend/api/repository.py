@@ -7,6 +7,7 @@ from urllib import error, parse, request
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from ..db.mysql import get_connection
+from ..reconciler import reconcile_repository_prs
 from .auth import require_project_access
 
 router = APIRouter()
@@ -173,6 +174,56 @@ def _collect_repo_sources(
     return sources, latest_sha, warnings
 
 
+def _extract_source_kind(source_type: str | None) -> str:
+    """repo 수집 source_type을 extractor 전용 지침 키로 바꾼다."""
+    return {
+        "readme": "repo_readme",
+        "commits": "repo_commits",
+        "issues": "repo_issues",
+        "pulls": "repo_prs",
+    }.get(source_type or "", "document")
+
+
+def _summarize_pr_body(body: str | None) -> str:
+    """PR 본문을 Reconciler 입력용 짧은 요약 필드로 줄인다."""
+    text = (body or "").strip()
+    if len(text) <= 1200:
+        return text
+    return f"{text[:1200].rstrip()}..."
+
+
+def _collect_merged_prs(full_name: str, last_reconciled_pr: int | None, token: str | None = None) -> list[dict]:
+    """last_reconciled_pr 이후의 merged PR을 GitHub에서 조회해 Reconciler 입력으로 만든다."""
+    watermark = int(last_reconciled_pr or 0)
+    merged = []
+    page = 1
+    while True:
+        pulls = _gh_get(
+            f"/repos/{full_name}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page={page}",
+            token=token,
+        )
+        if not isinstance(pulls, list):
+            logger.warning("merged PR 수집 실패 full_name=%s page=%s", full_name, page)
+            return []
+        for pr in pulls:
+            number = pr.get("number")
+            if not number or int(number) <= watermark or not pr.get("merged_at"):
+                continue
+            merged.append(
+                {
+                    "number": int(number),
+                    "title": pr.get("title") or "",
+                    "body_summary": _summarize_pr_body(pr.get("body")),
+                    "url": pr.get("html_url") or "",
+                    "merged_at": pr.get("merged_at") or "",
+                }
+            )
+        if len(pulls) < 100:
+            break
+        page += 1
+    return sorted(merged, key=lambda item: item["number"])
+
+
 # ── DB 헬퍼 ──────────────────────────────────────────────────────
 
 class RepositoryConnect(BaseModel):
@@ -197,11 +248,16 @@ def _repo_or_404(cursor, project_id: int, repo_id: int) -> dict:
     return row
 
 
-def _clear_repo_indexed_data(repo_id: int):
+def _clear_repo_indexed_data(repo_id: int, refresh_project_memory: bool = False):
     """재동기화 전 기존 memory/vector 정리 (repositories 행은 유지)."""
+    project_id = None
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT project_id FROM repositories WHERE id = %s", (repo_id,))
+            row = cursor.fetchone()
+            if row:
+                project_id = row.get("project_id")
             cursor.execute("DELETE FROM memory WHERE repo_id = %s", (repo_id,))
         conn.commit()
     except Exception:
@@ -213,13 +269,21 @@ def _clear_repo_indexed_data(repo_id: int):
         get_collection().delete(where={"repo_id": repo_id})
     except Exception:
         logger.warning("기존 ChromaDB vector 정리 실패 repo_id=%s", repo_id, exc_info=True)
+    if refresh_project_memory and project_id is not None:
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
 
 
 def _delete_repo_data(repo_id: int):
     """memory 행 + repositories 행 + ChromaDB 벡터 삭제."""
+    project_id = None
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT project_id FROM repositories WHERE id = %s", (repo_id,))
+            row = cursor.fetchone()
+            if row:
+                project_id = row.get("project_id")
             cursor.execute("DELETE FROM memory WHERE repo_id = %s", (repo_id,))
             cursor.execute("DELETE FROM repositories WHERE id = %s", (repo_id,))
         conn.commit()
@@ -233,6 +297,9 @@ def _delete_repo_data(repo_id: int):
         get_collection().delete(where={"repo_id": repo_id})
     except Exception:
         logger.warning("ChromaDB vector cleanup failed for repo_id=%s", repo_id, exc_info=True)
+    if project_id is not None:
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
 
 
 # None은 commit_sha=None처럼 DB에 저장될 유효한 값이므로 "미전달"을 구분하는 sentinel 사용
@@ -271,6 +338,21 @@ def _set_repo_status(
         conn.close()
 
 
+def _get_last_reconciled_pr(repo_id: int) -> int | None:
+    """repositories 워터마크를 읽는다. 컬럼이 없거나 읽기 실패 시 첫 실행처럼 처리한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT last_reconciled_pr FROM repositories WHERE id = %s", (repo_id,))
+            row = cursor.fetchone()
+        return row.get("last_reconciled_pr") if row else None
+    except Exception:
+        logger.warning("last_reconciled_pr 조회 실패 repo_id=%s", repo_id, exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
 # ── 백그라운드 처리 ───────────────────────────────────────────────
 
 def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: str | None):
@@ -279,6 +361,7 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
     from ..pipeline.ingestor import ingest
 
     try:
+        last_reconciled_pr = _get_last_reconciled_pr(repo_id)
         sources, latest_sha, warnings = _collect_repo_sources(full_name, branch, token=token)
 
         if not sources:
@@ -287,6 +370,8 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
                 detail += " 비공개 저장소라면 GitHub App 인증 후 state를 전달해주세요."
             _set_repo_status(repo_id, "failed", last_error=detail)
             return
+
+        merged_prs = _collect_merged_prs(full_name, last_reconciled_pr, token=token)
 
         _clear_repo_indexed_data(repo_id)
 
@@ -297,7 +382,11 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
             if not content or not content.strip():
                 continue
             try:
-                items = extract(content, default_source=source_name)
+                items = extract(
+                    content,
+                    default_source=source_name,
+                    source_kind=_extract_source_kind(src_metadata.get("source_type")),
+                )
             except Exception:
                 logger.warning("extract 실패 — source=%s repo_id=%s", source_name, repo_id, exc_info=True)
                 items = []
@@ -317,6 +406,9 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
             except Exception:
                 logger.warning("ingest 실패 — source=%s repo_id=%s", source_name, repo_id, exc_info=True)
 
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
+
         import json as _json
         sync_warning = _json.dumps(warnings, ensure_ascii=False) if warnings else None
         if warnings:
@@ -329,6 +421,12 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
             last_error=None,
             sync_warning=sync_warning,
         )
+
+        try:
+            result = reconcile_repository_prs(project_id, repo_id, merged_prs)
+            logger.info("reconciler 완료 repo_id=%s result=%s", repo_id, result)
+        except Exception:
+            logger.warning("reconciler 실패 (sync는 성공 유지) repo_id=%s", repo_id, exc_info=True)
 
     except Exception as exc:
         logger.error("sync_bg 실패 repo_id=%s", repo_id, exc_info=True)

@@ -11,6 +11,7 @@
 #  2) 출력(질의): 질문 → [섹션(stub)] → [Q&A] → [검증] → (부족: 재검색 루프)
 #                        → [계획] → [검증] → (부족: 재기획 루프) → [응답] → END
 from typing import TypedDict, Optional, List, Dict
+import logging
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
@@ -22,6 +23,7 @@ from .retriever import qa_engine
 from .llm.chat_model_factory import get_chat_model
 
 MAX_RETRY = 1  # 재검색/재기획 최대 반복 (무한 루프 방지)
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -67,6 +69,70 @@ def upsert_project_memory(project_id: int, summary: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def delete_project_memory(project_id: int) -> None:
+    """프로젝트 응축 요약 캐시를 삭제한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM project_memory WHERE project_id = %s", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _format_summary_memory_row(row: dict) -> str:
+    """남은 memory row를 재요약 프롬프트용 한 줄로 만든다."""
+    meta = []
+    if row.get("owner"):
+        meta.append(f"담당: {row['owner']}")
+    if row.get("due_date"):
+        meta.append(f"마감: {str(row['due_date'])[:10]}")
+    if row.get("completed_at"):
+        meta.append(f"완료: {str(row['completed_at'])[:10]}")
+    meta_text = f" ({', '.join(meta)})" if meta else ""
+    return f"[{row['category']}] {row['content']}{meta_text}"
+
+
+def regenerate_project_memory(project_id: int) -> str:
+    """현재 남아 있는 memory row만 기준으로 프로젝트 요약 캐시를 재생성한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT category, content, owner, due_date, completed_at"
+                " FROM memory WHERE project_id = %s"
+                " ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC",
+                (project_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        delete_project_memory(project_id)
+        return ""
+
+    memory_lines = "\n".join(_format_summary_memory_row(row) for row in rows)
+    llm = get_chat_model(tier="quality")
+    prompt = (
+        "다음은 현재 프로젝트에 남아 있는 memory 항목 전체이다. "
+        "삭제된 항목은 절대 추측하거나 포함하지 말고, 남은 항목만 근거로 "
+        "핵심 결정·진행·이슈·리스크가 드러나도록 5문장 이내의 갱신 요약을 한국어로 작성하라.\n\n"
+        f"[남은 항목]\n{memory_lines}"
+    )
+    summary = llm.invoke(prompt).content
+    upsert_project_memory(project_id, summary)
+    return summary
+
+
+def refresh_project_memory_after_delete(project_id: int) -> None:
+    """삭제 후 요약 캐시를 best-effort로 정합화한다. 실패해도 삭제는 유지한다."""
+    try:
+        regenerate_project_memory(project_id)
+    except Exception:
+        logger.warning("project_memory refresh after delete failed project_id=%s", project_id, exc_info=True)
 
 
 # ═════════════════════════════════════════════════════════════
@@ -157,6 +223,8 @@ class QAState(TypedDict, total=False):
     project_id: int
     question: str
     history: list
+    attachment_context: str
+    attachment_sources: list
     # 노드가 채우는 값
     section: Optional[str]
     answer: str
@@ -182,9 +250,22 @@ def qa_node(state: QAState) -> dict:
     pid, q = state["project_id"], state["question"]
     context, sources, debug = qa_engine._build_context(pid, q)
 
+    parts = []
+    if state.get("attachment_context"):
+        parts.append(state["attachment_context"])
+
     mem = get_project_memory(pid)
     if mem:
-        context = f"[프로젝트 메모리]\n{mem}\n\n{context}"
+        parts.append(f"[프로젝트 메모리]\n{mem}")
+    if context:
+        parts.append(context)
+    context = "\n\n".join(parts)
+
+    for source in state.get("attachment_sources") or []:
+        if source not in sources:
+            sources.insert(0, source)
+    if state.get("attachment_sources"):
+        debug["attachments"] = state["attachment_sources"]
 
     # 대화 히스토리를 LangChain 메시지로 변환 (qa_engine.answer와 동일 규칙)
     hist_msgs = []
@@ -204,7 +285,11 @@ def verify_answer_node(state: QAState) -> dict:
     """검증(휴리스틱): 컨텍스트가 있었고 답변이 '확인 안 됨'류가 아니면 통과.
     ponytail: 휴리스틱. 정확도 필요 시 LLM 판정으로 교체(같은 위치)."""
     debug = state.get("debug", {})
-    has_ctx = bool(debug.get("mysql_rows")) or bool(debug.get("chroma_chunks"))
+    has_ctx = (
+        bool(debug.get("attachments"))
+        or bool(debug.get("mysql_rows"))
+        or bool(debug.get("chroma_chunks"))
+    )
     ans = state.get("answer", "")
     refused = ("확인되지 않" in ans) or ("확인할 수 없" in ans)
     return {"answer_ok": has_ctx and not refused}
@@ -310,7 +395,13 @@ _qa_app = None
 _ingest_app = None
 
 
-def run_qa(project_id: int, question: str, history: Optional[list] = None) -> dict:
+def run_qa(
+    project_id: int,
+    question: str,
+    history: Optional[list] = None,
+    attachment_context: str = "",
+    attachment_sources: Optional[list] = None,
+) -> dict:
     """출력 그래프 실행 → {answer, plan, sources, debug}."""
     global _qa_app
     if _qa_app is None:
@@ -318,6 +409,8 @@ def run_qa(project_id: int, question: str, history: Optional[list] = None) -> di
     out = _qa_app.invoke({
         "project_id": project_id, "question": question,
         "history": history or [], "qa_retries": 0, "plan_retries": 0,
+        "attachment_context": attachment_context,
+        "attachment_sources": attachment_sources or [],
     })
     return out["result"]
 

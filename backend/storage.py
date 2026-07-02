@@ -18,20 +18,38 @@ def _project_dir(project_id: int) -> Path:
     return _UPLOAD_DIR / str(project_id)
 
 
+def safe_upload_name(filename: str) -> str:
+    """업로드 파일명을 프로젝트 내부 상대경로로 정규화한다."""
+    parts = []
+    for part in filename.replace("\\", "/").split("/"):
+        part = part.strip()
+        if not part or part == ".":
+            continue
+        if part == "..":
+            raise ValueError("invalid filename")
+        parts.append(part)
+    if not parts:
+        raise ValueError("invalid filename")
+    return "/".join(parts)
+
+
 def save_file(project_id: int, filename: str, data: bytes) -> str:
     """파일을 저장하고 저장된 경로(문자열)를 반환한다."""
+    safe_name = safe_upload_name(filename)
     dest_dir = _project_dir(project_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / Path(filename).name  # path traversal 방지
+    dest = dest_dir / safe_name
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     return str(dest)
 
 
-def delete_file(file_path: str) -> None:
-    """저장된 파일을 삭제한다. 파일이 없으면 조용히 무시한다."""
+def delete_file(file_path: str, strict: bool = False) -> None:
+    """저장된 파일을 삭제한다. strict=True이면 삭제 실패를 호출자에게 알린다."""
     try:
         Path(file_path).unlink(missing_ok=True)
     except Exception:
+        if strict:
+            raise
         pass
 
 

@@ -12,8 +12,10 @@ import { fetchPaimJson, getErrorMessage, isPaimApiError } from "./paimApi";
 import type {
   ProjectMemoryCategory,
   ProjectMemoryItem,
+  ProjectMemorySuggestion,
   ProjectWorkspace,
 } from "./types";
+import type { SuggestionMinConfidence } from "./settings";
 
 type MemoryLoadState = "idle" | "loading" | "loaded" | "error";
 type MemoryTone = ProjectMemoryCategory;
@@ -22,6 +24,7 @@ type ProjectMemoryPanelProps = {
   canManage: boolean;
   isMaximized: boolean;
   project: ProjectWorkspace;
+  suggestionMin: SuggestionMinConfidence;
 };
 
 type MemoryDraft = {
@@ -235,6 +238,12 @@ function getActionTodoItems(items: ProjectMemoryItem[]) {
   return getActionDisplayItems(items).filter((item) => !isMemoryItemCompleted(item));
 }
 
+function formatSuggestionTitle(title: string) {
+  const trimmed = title.trim();
+
+  return trimmed.length > 56 ? `${trimmed.slice(0, 56).trim()}...` : trimmed;
+}
+
 function createMemoryPatch(item: ProjectMemoryItem, draft: MemoryDraft): MemoryPatchPayload {
   const payload: MemoryPatchPayload = {};
 
@@ -402,8 +411,14 @@ function MemoryItemRows({
   );
 }
 
-export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectMemoryPanelProps) {
+export function ProjectMemoryPanel({
+  canManage,
+  isMaximized,
+  project,
+  suggestionMin,
+}: ProjectMemoryPanelProps) {
   const [memoryItems, setMemoryItems] = useState<ProjectMemoryItem[]>([]);
+  const [memorySuggestions, setMemorySuggestions] = useState<ProjectMemorySuggestion[]>([]);
   const [loadState, setLoadState] = useState<MemoryLoadState>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [operationError, setOperationError] = useState("");
@@ -415,6 +430,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   const [savingItemIds, setSavingItemIds] = useState<number[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
+  const [resolvingSuggestionIds, setResolvingSuggestionIds] = useState<number[]>([]);
   const [draggingActionId, setDraggingActionId] = useState<number | null>(null);
   const [dragOverActionId, setDragOverActionId] = useState<number | null>(null);
   const [dragOverPlacement, setDragOverPlacement] = useState<ActionDropPlacement | null>(null);
@@ -422,8 +438,23 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   const [showAllDecisions, setShowAllDecisions] = useState(false);
   const apiProjectId = project.apiProjectId;
   const groupedItems = useMemo(() => groupMemoryItems(memoryItems), [memoryItems]);
+  const memoryItemsById = useMemo(
+    () => new Map(memoryItems.map((item) => [item.id, item])),
+    [memoryItems],
+  );
   const actionItems = useMemo(() => getActionDisplayItems(groupedItems.action), [groupedItems]);
   const actionTodoItems = useMemo(() => getActionTodoItems(groupedItems.action), [groupedItems]);
+  const visibleMemorySuggestions = useMemo(
+    () =>
+      suggestionMin === "high"
+        ? memorySuggestions.filter((suggestion) => suggestion.confidence === "high")
+        : memorySuggestions,
+    [memorySuggestions, suggestionMin],
+  );
+  const suggestedActionIds = useMemo(
+    () => new Set(visibleMemorySuggestions.map((suggestion) => suggestion.memory_id)),
+    [visibleMemorySuggestions],
+  );
   const actionCompletedCount = groupedItems.action.filter(isMemoryItemCompleted).length;
   const actionCompletionPercent = groupedItems.action.length > 0
     ? Math.round((actionCompletedCount / groupedItems.action.length) * 100)
@@ -441,6 +472,14 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
 
   function isItemSaving(memoryId: number) {
     return savingItemIds.includes(memoryId) || isReordering;
+  }
+
+  function setSuggestionResolving(suggestionId: number, resolving: boolean) {
+    setResolvingSuggestionIds((current) =>
+      resolving
+        ? [...new Set([...current, suggestionId])]
+        : current.filter((itemId) => itemId !== suggestionId),
+    );
   }
 
   function replaceMemoryItem(nextItem: ProjectMemoryItem) {
@@ -462,6 +501,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   async function loadProjectMemory() {
     if (typeof apiProjectId !== "number") {
       setMemoryItems([]);
+      setMemorySuggestions([]);
       setLoadState("idle");
       setErrorMessage("");
       setOperationError("");
@@ -473,14 +513,21 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     setOperationError("");
 
     try {
-      const items = await fetchPaimJson<ProjectMemoryItem[]>(
-        `/projects/${apiProjectId}/memory`,
-      );
+      const [items, suggestions] = await Promise.all([
+        fetchPaimJson<ProjectMemoryItem[]>(`/projects/${apiProjectId}/memory`),
+        canManage
+          ? fetchPaimJson<ProjectMemorySuggestion[]>(
+              `/projects/${apiProjectId}/suggestions?status=pending`,
+            )
+          : Promise.resolve([]),
+      ]);
 
       setMemoryItems(items.filter(isProjectMemoryItem));
+      setMemorySuggestions(suggestions);
       setLoadState("loaded");
     } catch (error) {
       setMemoryItems([]);
+      setMemorySuggestions([]);
       setErrorMessage(getErrorMessage(error, "프로젝트 메모리를 불러올 수 없습니다"));
       setLoadState("error");
     }
@@ -488,7 +535,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
 
   useEffect(() => {
     void loadProjectMemory();
-  }, [apiProjectId]);
+  }, [apiProjectId, canManage]);
 
   useEffect(() => {
     setEditingItemId(null);
@@ -497,6 +544,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     setAddDraft(createEmptyDraft());
     setPendingDeleteId(null);
     setOperationError("");
+    setResolvingSuggestionIds([]);
     setDraggingActionId(null);
     setDragOverActionId(null);
     setDragOverPlacement(null);
@@ -700,6 +748,40 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     }
   }
 
+  async function handleResolveSuggestion(suggestion: ProjectMemorySuggestion, resolution: "accept" | "reject") {
+    if (typeof apiProjectId !== "number") {
+      return;
+    }
+
+    const previousSuggestions = memorySuggestions;
+
+    setOperationError("");
+    setSuggestionResolving(suggestion.id, true);
+    setMemorySuggestions((current) => current.filter((candidate) => candidate.id !== suggestion.id));
+
+    try {
+      await fetchPaimJson<void>(
+        `/projects/${apiProjectId}/suggestions/${suggestion.id}/${resolution}`,
+        { method: "POST" },
+      );
+      if (resolution === "accept") {
+        await loadProjectMemory();
+      }
+    } catch (error) {
+      if (isPaimApiError(error) && error.status === 404) {
+        if (resolution === "accept") {
+          await loadProjectMemory();
+        }
+        return;
+      }
+
+      setMemorySuggestions(previousSuggestions);
+      setOperationError(getErrorMessage(error, "제안을 처리할 수 없습니다"));
+    } finally {
+      setSuggestionResolving(suggestion.id, false);
+    }
+  }
+
   async function reorderActionItems(sourceId: number, target: ActionDropTarget) {
     if (typeof apiProjectId !== "number") {
       return;
@@ -849,15 +931,84 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
 
   function renderActionMeta(item: ProjectMemoryItem) {
     const parts = getActionMetaParts(item);
+    const hasSuggestion = suggestedActionIds.has(item.id);
 
-    if (parts.length === 0) {
+    if (parts.length === 0 && !hasSuggestion) {
       return null;
     }
 
     return (
       <div className="project-memory-action-meta project-memory-meta">
         {renderMetaParts(parts)}
+        {parts.length > 0 && hasSuggestion ? <i>·</i> : null}
+        {hasSuggestion ? <span className="project-memory-suggestion-mark">완료 제안</span> : null}
       </div>
+    );
+  }
+
+  function renderSuggestionInbox() {
+    if (!canManage || visibleMemorySuggestions.length === 0) {
+      return null;
+    }
+
+    return (
+      <section className="project-memory-suggestion-inbox" aria-label="완료 제안">
+        <div className="project-memory-suggestion-head">
+          <h2>제안 {visibleMemorySuggestions.length}건</h2>
+        </div>
+        <div className="project-memory-suggestion-list">
+          {visibleMemorySuggestions.map((suggestion) => {
+            const action = memoryItemsById.get(suggestion.memory_id);
+            const resolving = resolvingSuggestionIds.includes(suggestion.id);
+            const title = formatSuggestionTitle(suggestion.evidence.title);
+
+            return (
+              <article className="project-memory-suggestion-card" key={suggestion.id}>
+                <div className="project-memory-suggestion-copy">
+                  <p className="project-memory-suggestion-title">
+                    PR #{suggestion.evidence.number} “{title}”이 이 액션을 해결한 것으로 보입니다
+                    {suggestion.confidence === "medium" ? (
+                      <span className="project-memory-suggestion-badge">추정</span>
+                    ) : null}
+                  </p>
+                  <p className="project-memory-suggestion-action" title={action?.content ?? ""}>
+                    {action?.content ?? "대상 액션을 찾을 수 없습니다"}
+                  </p>
+                  <p className="project-memory-suggestion-rationale">{suggestion.rationale}</p>
+                  {suggestion.evidence.url ? (
+                    <a
+                      className="project-memory-suggestion-link"
+                      href={suggestion.evidence.url}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      PR 링크
+                    </a>
+                  ) : null}
+                </div>
+                <div className="project-memory-suggestion-actions">
+                  <button
+                    className="project-memory-suggestion-accept"
+                    disabled={resolving}
+                    onClick={() => void handleResolveSuggestion(suggestion, "accept")}
+                    type="button"
+                  >
+                    승인
+                  </button>
+                  <button
+                    className="project-memory-suggestion-reject"
+                    disabled={resolving}
+                    onClick={() => void handleResolveSuggestion(suggestion, "reject")}
+                    type="button"
+                  >
+                    거절
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     );
   }
 
@@ -1058,6 +1209,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
           {operationError}
         </p>
       ) : null}
+      {renderSuggestionInbox()}
 
       {typeof apiProjectId !== "number" ? (
         <div className="project-memory-server-state" role="status">

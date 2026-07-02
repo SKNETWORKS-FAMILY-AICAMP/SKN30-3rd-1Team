@@ -1,10 +1,4 @@
-const PAIM_API_ROOT_URL = (
-  (import.meta.env.VITE_PAIM_API_BASE_URL as string | undefined) || "http://127.0.0.1:8000"
-)
-  .replace(/\/+$/, "")
-  .replace(/\/api\/v1$/, "");
-
-const PAIM_API_V1_BASE_URL = `${PAIM_API_ROOT_URL}/api/v1`;
+import { getPaimApiRootUrl } from "./settings";
 
 type PaimApiErrorPayload = {
   detail?: unknown;
@@ -58,7 +52,7 @@ async function fetchPaimJsonFrom<T>(baseUrl: string, path: string, init?: Reques
 
 // 일반 PaiM API는 /api/v1 prefix를 사용한다.
 export async function fetchPaimJson<T>(path: string, init?: RequestInit): Promise<T> {
-  return fetchPaimJsonFrom<T>(PAIM_API_V1_BASE_URL, path, init);
+  return fetchPaimJsonFrom<T>(`${getPaimApiRootUrl()}/api/v1`, path, init);
 }
 
 // FormData 업로드는 브라우저가 multipart boundary를 붙이도록 Content-Type을 지정하지 않는다.
@@ -67,7 +61,7 @@ export async function fetchPaimFormData<T>(
   formData: FormData,
   init?: Omit<RequestInit, "body">,
 ): Promise<T> {
-  const response = await fetch(`${PAIM_API_V1_BASE_URL}${path}`, {
+  const response = await fetch(`${getPaimApiRootUrl()}/api/v1${path}`, {
     ...init,
     method: init?.method ?? "POST",
     body: formData,
@@ -78,7 +72,7 @@ export async function fetchPaimFormData<T>(
 
 // GitHub App API와 health check는 서버 루트 경로를 사용한다.
 export async function fetchPaimRootJson<T>(path: string, init?: RequestInit): Promise<T> {
-  return fetchPaimJsonFrom<T>(PAIM_API_ROOT_URL, path, init);
+  return fetchPaimJsonFrom<T>(getPaimApiRootUrl(), path, init);
 }
 
 export function getErrorMessage(error: unknown, fallback: string) {

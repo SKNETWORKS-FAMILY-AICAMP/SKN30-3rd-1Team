@@ -8,30 +8,36 @@
 import os
 
 
-def get_chat_model():
+def get_chat_model(tier: str = "quality", temperature: float = 0):
     """LLM_PROVIDER 환경변수에 따라 LangChain 채팅 모델 반환.
+    tier="fast"는 OpenAI에서 OPENAI_MODEL_FAST가 있을 때만 더 저렴한 모델을 쓴다.
     - openai  : OpenAI API
     - claude  : Anthropic API
     - google  : Google Gemini API
     - local   : OpenAI 호환 로컬 서버 (Ollama / vLLM / LM Studio / llama.cpp 등)
                 LOCAL_LLM_URL, LOCAL_LLM_MODEL 환경변수로 엔드포인트·모델 지정
     """
+    if tier not in {"quality", "fast"}:
+        raise ValueError("tier는 quality 또는 fast여야 합니다.")
+
     p = os.getenv("LLM_PROVIDER", "openai").lower()
     if p == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0)
+        quality_model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+        model = os.getenv("OPENAI_MODEL_FAST") if tier == "fast" else quality_model
+        return ChatOpenAI(model=model or quality_model, temperature=temperature)
     if p == "claude":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"), temperature=0)
+        return ChatAnthropic(model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"), temperature=temperature)
     if p == "google":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL", "gemini-1.5-pro"), temperature=0)
+        return ChatGoogleGenerativeAI(model=os.getenv("GOOGLE_MODEL", "gemini-1.5-pro"), temperature=temperature)
     if p == "local":
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(
             model=os.getenv("LOCAL_LLM_MODEL", "local-model"),
             base_url=os.getenv("LOCAL_LLM_URL", "http://localhost:11434/v1"),
             api_key="local",  # OpenAI 클라이언트가 키를 요구하므로 dummy 값
-            temperature=0,
+            temperature=temperature,
         )
     raise ValueError(f"지원하지 않는 LLM_PROVIDER: {p} (openai/claude/google/local 중 하나)")

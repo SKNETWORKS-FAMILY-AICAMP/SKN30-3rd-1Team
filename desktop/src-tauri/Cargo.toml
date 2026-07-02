@@ -1,6 +1,6 @@
 [package]
 name = "paim"
-version = "0.3.0"
+version = "1.0.0"
 description = "PaiM desktop application"
 authors = ["PaiM Team"]
 edition = "2021"

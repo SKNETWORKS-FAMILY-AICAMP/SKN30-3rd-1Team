@@ -8,6 +8,8 @@ from .api.project import router as project_router
 from .api.upload import router as upload_router
 from .api.query import router as query_router
 from .api.repository import router as repository_router
+from .api.suggestion import router as suggestion_router
+from .api.delta import router as delta_router
 from .chat.router import router as chat_router
 from .github.router import router as github_router, SessionExpiredException
 
@@ -15,9 +17,15 @@ from .github.router import router as github_router, SessionExpiredException
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    import logging
     from .startup import recover_stale_tasks, backfill_dev_user_membership, stale_watchdog
+    from .retriever.memory_vector import backfill_memory_vectors
     recover_stale_tasks()
     backfill_dev_user_membership()
+    try:
+        backfill_memory_vectors()
+    except Exception:
+        logging.getLogger(__name__).warning("memory vector backfill failed", exc_info=True)
     watchdog_task = asyncio.create_task(stale_watchdog())
     yield
     watchdog_task.cancel()
@@ -54,6 +62,8 @@ app.include_router(project_router,    prefix="/api/v1")
 app.include_router(upload_router,     prefix="/api/v1")
 app.include_router(query_router,      prefix="/api/v1")
 app.include_router(repository_router, prefix="/api/v1")
+app.include_router(suggestion_router, prefix="/api/v1")
+app.include_router(delta_router,      prefix="/api/v1")
 app.include_router(chat_router,    prefix="/api/v1")
 # github_router는 자체 prefix(/github/app)를 사용하므로 /api/v1 붙이지 않음
 app.include_router(github_router)

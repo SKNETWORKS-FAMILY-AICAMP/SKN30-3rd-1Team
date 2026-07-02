@@ -179,6 +179,7 @@ def test_memory_patch_completed_true_sets_completed_at_without_verifying():
     }
     conn, cur = _conn_for_memory_patch(row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
         resp = _client.patch("/api/v1/projects/1/memory/10", json={"completed": True})
 
@@ -197,6 +198,7 @@ def test_memory_patch_completed_false_clears_completed_at():
     }
     conn, cur = _conn_for_memory_patch(row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
         resp = _client.patch("/api/v1/projects/1/memory/10", json={"completed": False})
 
@@ -215,6 +217,7 @@ def test_memory_patch_sort_order_allows_int_and_null_without_verifying():
     }
     int_conn, int_cur = _conn_for_memory_patch(int_row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=int_conn):
         int_resp = _client.patch("/api/v1/projects/1/memory/10", json={"sort_order": 3})
 
@@ -231,6 +234,7 @@ def test_memory_patch_sort_order_allows_int_and_null_without_verifying():
     }
     null_conn, null_cur = _conn_for_memory_patch(null_row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=null_conn):
         resp = _client.patch("/api/v1/projects/1/memory/10", json={"sort_order": None})
 
@@ -250,6 +254,7 @@ def test_memory_patch_due_date_sets_value_and_marks_verified():
     }
     conn, cur = _conn_for_memory_patch(row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
         resp = _client.patch("/api/v1/projects/1/memory/10", json={"due_date": "2026-07-10"})
 
@@ -269,6 +274,7 @@ def test_memory_patch_due_date_null_clears_without_verifying():
     }
     conn, cur = _conn_for_memory_patch(row)
     with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
         resp = _client.patch("/api/v1/projects/1/memory/10", json={"due_date": None})
 

@@ -6,6 +6,9 @@ def search(
     project_id: int,
     category: Optional[str] = None,
     owner: Optional[str] = None,
+    completed: Optional[bool] = None,
+    due_within_days: Optional[int] = None,
+    overdue: Optional[bool] = None,
 ) -> List[Dict]:
     conditions = ["m.project_id = %s"]
     params: list = [project_id]
@@ -16,6 +19,19 @@ def search(
     if owner:
         conditions.append("m.owner = %s")
         params.append(owner)
+    if completed is True:
+        conditions.append("m.completed_at IS NOT NULL")
+    elif completed is False:
+        conditions.append("m.completed_at IS NULL")
+    if overdue is True:
+        conditions.append("m.due_date IS NOT NULL")
+        conditions.append("m.due_date < CURDATE()")
+        conditions.append("m.completed_at IS NULL")
+    if due_within_days is not None:
+        days = max(0, min(int(due_within_days), 365))
+        conditions.append("m.due_date IS NOT NULL")
+        conditions.append("m.due_date >= CURDATE()")
+        conditions.append(f"m.due_date <= DATE_ADD(CURDATE(), INTERVAL {days} DAY)")
 
     where = " AND ".join(conditions)
     sql = (
