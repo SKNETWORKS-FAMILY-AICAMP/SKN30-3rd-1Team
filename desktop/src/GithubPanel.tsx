@@ -33,6 +33,7 @@ type GithubPanelProps = {
   isAuthChecking: boolean;
   isAuthStarting: boolean;
   isConnecting: boolean;
+  isDisconnectConfirming: boolean;
   isRepoLoading: boolean;
   isSyncing: boolean;
   onCheckLogin: () => void;
@@ -154,6 +155,38 @@ function getGithubEventCounts(events: GitHubTimelineEvent[]) {
   return counts;
 }
 
+function getGithubRepositorySyncLabel(repository: GitRepositoryInfo) {
+  if (repository.syncStatus === "syncing") {
+    return "진행 중";
+  }
+
+  if (repository.syncStatus === "indexed") {
+    return "완료";
+  }
+
+  if (repository.syncStatus === "failed") {
+    return "실패";
+  }
+
+  if (repository.syncStatus === "delayed") {
+    return "처리 지연";
+  }
+
+  return "서버 연결됨";
+}
+
+function getGithubRepositoryWarningLabel(repository: GitRepositoryInfo) {
+  const warning = repository.syncWarnings?.[0];
+
+  if (!warning) {
+    return null;
+  }
+
+  return warning.source_type && warning.reason
+    ? `${warning.source_type} 수집 실패: ${warning.reason}`
+    : "일부 소스 수집 실패";
+}
+
 // 우측 패널의 GitHub 로그인, repo 선택, 이벤트 타임라인 화면을 렌더링한다.
 export function GithubPanel({
   demoStatus,
@@ -163,6 +196,7 @@ export function GithubPanel({
   isAuthChecking,
   isAuthStarting,
   isConnecting,
+  isDisconnectConfirming,
   isRepoLoading,
   isSyncing,
   onCheckLogin,
@@ -461,11 +495,11 @@ export function GithubPanel({
                     type="button"
                   >
                     <GitBranch size={13} />
-                    <span>repo 변경</span>
+                    <span>{isDisconnectConfirming ? "변경 확인" : "repo 변경"}</span>
                   </button>
                   <button onClick={() => onDisconnect()} type="button">
                     <X size={13} />
-                    <span>연결 해제</span>
+                    <span>{isDisconnectConfirming ? "해제 확인" : "연결 해제"}</span>
                   </button>
                 </div>
               </details>
@@ -495,6 +529,32 @@ export function GithubPanel({
               >
                 <RefreshCcw size={15} />
               </button>
+            </div>
+            <div
+              className="overview-github-sync-state"
+              data-status={repository.syncStatus ?? "connected"}
+            >
+              <span>{getGithubRepositorySyncLabel(repository)}</span>
+              {repository.syncStatus === "indexed" ? (
+                <small>
+                  {repository.indexedFiles ?? 0} files
+                  {repository.commitSha ? ` · ${repository.commitSha.slice(0, 7)}` : ""}
+                </small>
+              ) : null}
+              {repository.syncStatus === "failed" || repository.syncStatus === "delayed" ? (
+                <>
+                  <small>{repository.lastError ?? "GitHub repo 동기화 실패"}</small>
+                  <button disabled={isSyncing} onClick={onSyncRepository} type="button">
+                    <RefreshCcw size={13} />
+                    <span>{isSyncing ? "재시도 중..." : "재시도"}</span>
+                  </button>
+                </>
+              ) : null}
+              {getGithubRepositoryWarningLabel(repository) ? (
+                <small className="overview-github-sync-warning">
+                  {getGithubRepositoryWarningLabel(repository)}
+                </small>
+              ) : null}
             </div>
           </div>
         </div>
