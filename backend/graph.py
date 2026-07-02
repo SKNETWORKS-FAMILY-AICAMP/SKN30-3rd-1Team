@@ -19,6 +19,7 @@ from .db.mysql import get_connection
 from .pipeline.extractor import extract
 from .pipeline.ingestor import ingest
 from .retriever import qa_engine
+from .llm.chat_model_factory import get_chat_model
 
 MAX_RETRY = 1  # 재검색/재기획 최대 반복 (무한 루프 방지)
 
@@ -121,7 +122,7 @@ def update_project_memory(project_id: int, items: list) -> str:
     if not items:
         return prev
     new_items = "\n".join(f"[{it.category}] {it.content}" for it in items)
-    llm = qa_engine._make_llm()
+    llm = get_chat_model()
     prompt = (
         "다음은 프로젝트의 기존 요약과 새로 추가된 항목이다. "
         "핵심 결정·진행·이슈·리스크가 드러나도록 5문장 이내의 갱신 요약을 한국어로 작성하라.\n\n"
@@ -229,7 +230,7 @@ def plan_node(state: QAState) -> dict:
     """계획 에이전트: 답변을 근거로 다음 할 일(todo) 목록 기획.
     best-effort: plan 생성용 LLM 호출이 실패해도 빈 plan을 반환한다. plan은 부가기능이므로,
     실패가 그래프 전체를 죽여 이미 생성된 답변까지 잃게 만들면 안 된다."""
-    llm = qa_engine._make_llm()
+    llm = get_chat_model()
     prompt = (
         "아래 답변을 근거로 프로젝트에서 다음에 해야 할 구체적 todo를 3개 이내로 제안하라. "
         "각 줄을 '- '로 시작하는 한 줄 액션으로만 작성하고, 근거가 부족하면 아무것도 쓰지 마라.\n\n"

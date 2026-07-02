@@ -6,7 +6,7 @@ from .google_client import GoogleClient
 
 
 def get_llm_client(provider: str = None) -> BaseLLMClient:
-    # 기본 provider는 openai로 통일한다 (Q&A 통로 qa_engine._make_llm과 동일 기본값).
+    # 기본 provider는 openai로 통일한다 (get_chat_model과 동일 기본값).
     # 환경변수 LLM_PROVIDER를 주면 그 값이 우선하므로 사용자의 모델 선택성은 유지된다.
     provider = provider or os.getenv("LLM_PROVIDER", "openai")
 
