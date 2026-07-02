@@ -1,4 +1,4 @@
-import { Check, GripVertical, Pencil, RefreshCw, Save, Trash2, X } from "lucide-react";
+import { Check, GripVertical, Pencil, Save, Trash2, X } from "lucide-react";
 import {
   Fragment,
   type FormEvent,
@@ -159,7 +159,7 @@ function isActionOverdue(item: ProjectMemoryItem) {
 }
 
 function getActionDropTarget(clientX: number, clientY: number): ActionDropTarget | null {
-  const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-action-id]"));
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-action-drop-row="true"]'));
 
   if (rows.length === 0) {
     return null;
@@ -772,11 +772,12 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     }
   }
 
-  function handleActionPointerDown(
-    event: ReactPointerEvent<HTMLSpanElement>,
-    item: ProjectMemoryItem,
-  ) {
+  function handleActionPointerDown(event: ReactPointerEvent<HTMLElement>, item: ProjectMemoryItem) {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (event.target instanceof HTMLElement && event.target.closest("button, input, textarea, select, a")) {
       return;
     }
 
@@ -907,6 +908,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     return (
       <div
         className="project-memory-manage-item"
+        data-action-drop-row={canDragAction ? "true" : undefined}
         data-action-id={canDragAction ? item.id : undefined}
         data-action={isAction ? "true" : undefined}
         data-bullet={!isAction ? "true" : undefined}
@@ -916,6 +918,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
         data-drag-placement={dragOverActionId === item.id ? dragOverPlacement ?? undefined : undefined}
         data-dragging={draggingActionId === item.id ? "true" : undefined}
         key={item.id}
+        onPointerDown={canDragAction ? (event) => handleActionPointerDown(event, item) : undefined}
       >
         {isAction ? (
           <input
@@ -948,7 +951,6 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
             <span
               className="project-memory-drag-handle"
               aria-hidden="true"
-              onPointerDown={(event) => handleActionPointerDown(event, item)}
               title="드래그로 순서 변경"
             >
               <GripVertical size={13} />
@@ -1057,14 +1059,6 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
           </p>
           {!isMaximized ? renderStatsStrip() : null}
         </div>
-        <button
-          disabled={loadState === "loading" || typeof apiProjectId !== "number"}
-          onClick={() => void loadProjectMemory()}
-          type="button"
-        >
-          <RefreshCw size={13} />
-          새로고침
-        </button>
       </div>
       {operationError ? (
         <p className="project-memory-operation-error" role="alert">
@@ -1130,7 +1124,18 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
                   data-completed={isMemoryItemCompleted(item)}
                   key={getMemoryItemKey(item, index)}
                 >
-                  <span className="project-memory-check-circle" aria-hidden="true" />
+                  {canManage && typeof apiProjectId === "number" ? (
+                    <input
+                      aria-label={`${item.content} 완료`}
+                      checked={isMemoryItemCompleted(item)}
+                      className="project-memory-check-circle"
+                      disabled={isItemSaving(item.id)}
+                      onChange={() => void handleToggleCompleted(item)}
+                      type="checkbox"
+                    />
+                  ) : (
+                    <span className="project-memory-check-circle" aria-hidden="true" />
+                  )}
                   <span className="project-memory-summary-content" title={item.content}>
                     {item.content}
                   </span>

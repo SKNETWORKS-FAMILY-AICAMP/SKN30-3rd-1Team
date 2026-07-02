@@ -1298,35 +1298,6 @@ button {
   line-height: 1.4;
 }
 
-.project-memory-header button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-}
-
-.project-memory-header button {
-  flex: 0 0 auto;
-  gap: 5px;
-  min-height: 28px;
-  padding: 0 9px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.project-memory-header button:disabled {
-  color: var(--faint);
-  cursor: not-allowed;
-}
-
-.project-memory-header button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 .project-memory-stats {
   display: flex;
   align-items: flex-start;
@@ -1565,6 +1536,7 @@ input.project-memory-check-circle {
 
 input.project-memory-check-circle:disabled {
   cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .project-memory-summary-action[data-completed="true"] > .project-memory-check-circle,
@@ -1695,6 +1667,19 @@ input.project-memory-check-circle:checked::after {
 
 .project-memory-manage-item[data-draggable="true"] {
   cursor: grab;
+}
+
+.project-memory-manage-item[data-draggable="true"] .project-memory-item-actions {
+  visibility: visible;
+}
+
+.project-memory-manage-item[data-draggable="true"] .project-memory-item-actions button {
+  visibility: hidden;
+}
+
+.project-memory-manage-item[data-draggable="true"]:hover .project-memory-item-actions button,
+.project-memory-manage-item[data-draggable="true"]:focus-within .project-memory-item-actions button {
+  visibility: visible;
 }
 
 .project-memory-manage-item[data-dragging="true"] {
