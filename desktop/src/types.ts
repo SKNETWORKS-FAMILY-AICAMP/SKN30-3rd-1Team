@@ -104,6 +104,7 @@ export type ProjectMemoryItem = {
   topic?: string | null;
   owner?: string | null;
   date?: string | null;
+  due_date?: string | null;
   source?: string | null;
   created_by?: string | null;
   updated_by?: string | null;

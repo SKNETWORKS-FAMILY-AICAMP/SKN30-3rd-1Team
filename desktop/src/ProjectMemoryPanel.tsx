@@ -27,13 +27,13 @@ type ProjectMemoryPanelProps = {
 type MemoryDraft = {
   content: string;
   owner: string;
-  date: string;
+  dueDate: string;
 };
 
 type MemoryPatchPayload = {
   content?: string;
   owner?: string;
-  date?: string | null;
+  due_date?: string | null;
   completed?: boolean;
   sort_order?: number | null;
 };
@@ -48,7 +48,6 @@ type ActionDropTarget = {
 const SUMMARY_ITEM_LIMIT = 5;
 const MANAGE_DECISION_LIMIT = 8;
 const MEMORY_CATEGORIES: ProjectMemoryCategory[] = ["action", "decision", "issue", "risk"];
-const EDITABLE_MEMORY_FIELDS = ["content", "owner", "date"] as const;
 const MEMORY_CATEGORY_META: Record<
   ProjectMemoryCategory,
   {
@@ -87,7 +86,7 @@ function createEmptyDraft(): MemoryDraft {
   return {
     content: "",
     owner: "",
-    date: "",
+    dueDate: "",
   };
 }
 
@@ -95,7 +94,7 @@ function createDraftFromItem(item: ProjectMemoryItem): MemoryDraft {
   return {
     content: item.content,
     owner: item.owner ?? "",
-    date: item.date ?? "",
+    dueDate: item.due_date ?? "",
   };
 }
 
@@ -153,7 +152,7 @@ function formatActionCompletedDate(value?: string | null) {
 }
 
 function isActionOverdue(item: ProjectMemoryItem) {
-  const dueDate = formatMemoryDate(item.date);
+  const dueDate = formatMemoryDate(item.due_date);
 
   return Boolean(dueDate) && !isMemoryItemCompleted(item) && dueDate < getTodayDateString();
 }
@@ -238,25 +237,19 @@ function getActionTodoItems(items: ProjectMemoryItem[]) {
 
 function createMemoryPatch(item: ProjectMemoryItem, draft: MemoryDraft): MemoryPatchPayload {
   const payload: MemoryPatchPayload = {};
-  const nextValues = {
-    content: draft.content.trim(),
-    owner: draft.owner.trim(),
-    date: draft.date.trim(),
-  };
 
-  for (const field of EDITABLE_MEMORY_FIELDS) {
-    const currentValue = item[field] ?? "";
-    const nextValue = nextValues[field];
+  const content = draft.content.trim();
+  const owner = draft.owner.trim();
+  const dueDate = draft.dueDate.trim();
 
-    if (currentValue === nextValue) {
-      continue;
-    }
-
-    if (field === "date") {
-      payload.date = nextValue || null;
-    } else {
-      payload[field] = nextValue;
-    }
+  if (item.content !== content) {
+    payload.content = content;
+  }
+  if ((item.owner ?? "") !== owner) {
+    payload.owner = owner;
+  }
+  if ((item.due_date ?? "") !== dueDate) {
+    payload.due_date = dueDate || null;
   }
 
   return payload;
@@ -268,13 +261,13 @@ function createMemoryPostBody(category: ProjectMemoryCategory, draft: MemoryDraf
     content: draft.content.trim(),
   };
   const owner = draft.owner.trim();
-  const date = draft.date.trim();
+  const dueDate = draft.dueDate.trim();
 
   if (owner) {
     body.owner = owner;
   }
-  if (date) {
-    body.date = date;
+  if (dueDate) {
+    body.due_date = dueDate;
   }
 
   return body;
@@ -300,7 +293,7 @@ function getMemoryItemKey(item: ProjectMemoryItem, index: number) {
 
 function getActionMetaParts(item: ProjectMemoryItem) {
   const completedAt = formatActionCompletedDate(item.completed_at);
-  const dueDateLabel = formatActionDueDate(item.date);
+  const dueDateLabel = formatActionDueDate(item.due_date);
   const parts: Array<{
     isOverdue?: boolean;
     isVerified?: boolean;
@@ -592,7 +585,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
       ...item,
       content,
       owner: editDraft.owner.trim(),
-      date: editDraft.date.trim() || item.date,
+      due_date: editDraft.dueDate.trim() || null,
       is_user_verified: 1,
       updated_by: "user",
     };
@@ -814,9 +807,9 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
           />
           <input
             aria-label="마감일"
-            onChange={(event) => onChange({ ...draft, date: event.currentTarget.value })}
+            onChange={(event) => onChange({ ...draft, dueDate: event.currentTarget.value })}
             type="date"
-            value={draft.date}
+            value={draft.dueDate}
             disabled={disabled}
           />
         </div>
