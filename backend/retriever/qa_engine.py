@@ -93,16 +93,23 @@ _reranker_model = None
 _reranker_tokenizer = None
 
 def _get_reranker():
+    """한국어 특화 cross-encoder 리랭커 로드(싱글톤).
+    메모리·속도 최적화: GPU면 fp16, CPU면 int8 동적 양자화(Linear 레이어) 적용.
+    (fp16은 CPU에서 일부 연산 미지원이라 int8로 — CPU 추론 메모리↓·속도↑)
+    모델은 RERANKER_MODEL env로 교체 가능(기본 dragonkue/bge-reranker-v2-m3-ko)."""
     global _reranker_model, _reranker_tokenizer
     if _reranker_model is None:
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
-        model_name = "dragonkue/bge-reranker-v2-m3-ko"
+        model_name = os.getenv("RERANKER_MODEL", "dragonkue/bge-reranker-v2-m3-ko")
         _reranker_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        _reranker_model = AutoModelForSequenceClassification.from_pretrained(model_name)
-        _reranker_model.eval()
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        model.eval()
         if torch.cuda.is_available():
-            _reranker_model.to("cuda")
+            model = model.half().to("cuda")
+        else:
+            model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+        _reranker_model = model
     return _reranker_model, _reranker_tokenizer
 
 _prompt = ChatPromptTemplate.from_messages([
@@ -170,34 +177,43 @@ def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict
         b_scores = _bm25_scores(question, texts)
         bm25_ranks = sorted(range(len(texts)), key=lambda i: -b_scores[i])[:CHROMA_K]
 
-        # c. [핵심 로직 교체] 중복 없는 후보군 구성 후 한국어 특화 AI 리랭커 실행
+        # c. 중복 없는 후보군 구성 후 한국어 특화 AI 리랭커로 재점수화.
+        #    리랭커 실패(모델 미설치·로드 오류 등) 시 dense+BM25 순위 RRF로 폴백해
+        #    원문 맥락이 통째로 비는 것을 막는다.
         candidate_indices = list(set(dense_ranks + bm25_ranks))
-        
+
         if candidate_indices:
-            import torch
-            model, tokenizer = _get_reranker()
-            pairs = [[question, texts[i]] for i in candidate_indices]
-            
-            with torch.no_grad():
-                inputs = tokenizer(pairs, padding=True, truncation=True, return_tensors="pt", max_length=512)
-                # GPU 장치가 사용 가능할 시 인풋 텐서를 동일 디바이스로 안전하게 이동시킴으로써 RuntimeError 원천 차단
-                if torch.cuda.is_available():
-                    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-                
-                outputs = model(**inputs)
-                # Sequence Classification의 출력 차원을 1차원 리스트로 안정적으로 평탄화
-                scores = outputs.logits.view(-1).cpu().float().tolist()
-            
-            # 높은 리랭크 점수 순으로 정렬 후 최종 요구사항 개수인 상위 4개만 슬라이싱
-            top_candidates = sorted(zip(candidate_indices, scores), key=lambda x: -x[1])[:CHROMA_TOP_N]
-            
+            reranked = None
+            try:
+                import torch
+                model, tokenizer = _get_reranker()
+                pairs = [[question, texts[i]] for i in candidate_indices]
+                with torch.no_grad():
+                    inputs = tokenizer(pairs, padding=True, truncation=True, return_tensors="pt", max_length=512)
+                    if torch.cuda.is_available():
+                        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+                    outputs = model(**inputs)
+                    scores = outputs.logits.view(-1).cpu().float().tolist()
+                reranked = sorted(zip(candidate_indices, scores), key=lambda x: -x[1])[:CHROMA_TOP_N]
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "리랭커 실패 → dense+BM25 RRF 폴백", exc_info=True
+                )
+                fb: dict = {}  # RRF: 각 리트리버 순위를 1/(60+rank)로 합산 (BM25:dense = 0.5:0.5 등가)
+                for ranks in (bm25_ranks, dense_ranks):
+                    for rank, i in enumerate(ranks):
+                        fb[i] = fb.get(i, 0.0) + 1.0 / (60 + rank + 1)
+                reranked = [(i, fb.get(i, 0.0))
+                            for i in sorted(candidate_indices, key=lambda i: -fb.get(i, 0.0))[:CHROMA_TOP_N]]
+
             kept = [
                 (i, {
                     "bm25_rank": bm25_ranks.index(i) + 1 if i in bm25_ranks else None,
                     "dense_rank": dense_ranks.index(i) + 1 if i in dense_ranks else None,
                     "rerank_score": round(score, 5),
                 })
-                for i, score in top_candidates
+                for i, score in reranked
             ]
 
     chroma_ctx = "\n".join(texts[i] for i, _ in kept)

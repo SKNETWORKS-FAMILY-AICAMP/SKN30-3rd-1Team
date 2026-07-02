@@ -17,5 +17,10 @@ def get_collection():
             api_key=os.getenv("OPENAI_API_KEY"),
             model_name=os.getenv("EMBED_MODEL", "text-embedding-3-small"),
         )
-        _collection = _client.get_or_create_collection("paiM", embedding_function=openai_ef)
+        # 검색측(qa_engine._get_vectorstore)과 동일한 env·기본값·거리지표를 써야 적재/검색이 같은 컬렉션을 본다.
+        collection_name = os.getenv("CHROMA_COLLECTION_NAME", "paiM_openai_v2")
+        _collection = _client.get_or_create_collection(
+            collection_name, embedding_function=openai_ef,
+            metadata={"hnsw:space": "cosine"},
+        )
     return _collection

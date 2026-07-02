@@ -203,3 +203,11 @@ AGENTS.md
 claude.md
 codex.md
 ignore
+
+# eval 전용 임시 (ragas 3.12 환경 — 재생성 가능)
+.venv-eval/
+.eval-libs/
+backend/test/eval_docs/
+backend/test/eval_collected.json
+backend/test/ragas_result.csv
+backend/test/eval_judge_*.json
