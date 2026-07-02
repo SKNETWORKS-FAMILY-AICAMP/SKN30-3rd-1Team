@@ -24,6 +24,7 @@ type ProjectMemoryPanelProps = {
   canManage: boolean;
   isMaximized: boolean;
   project: ProjectWorkspace;
+  reloadRevision: number;
   suggestionMin: SuggestionMinConfidence;
 };
 
@@ -415,6 +416,7 @@ export function ProjectMemoryPanel({
   canManage,
   isMaximized,
   project,
+  reloadRevision,
   suggestionMin,
 }: ProjectMemoryPanelProps) {
   const [memoryItems, setMemoryItems] = useState<ProjectMemoryItem[]>([]);
@@ -542,7 +544,7 @@ export function ProjectMemoryPanel({
 
   useEffect(() => {
     void loadProjectMemory();
-  }, [apiProjectId, canManage]);
+  }, [apiProjectId, canManage, reloadRevision]);
 
   useEffect(() => {
     setEditingItemId(null);

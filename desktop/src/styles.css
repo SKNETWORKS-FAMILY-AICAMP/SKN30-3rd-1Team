@@ -2761,6 +2761,34 @@ input.project-memory-check-circle:checked::after {
   color: var(--action-fg);
 }
 
+.overview-github-sync-progress {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--action-fg) 26%, var(--border));
+  border-radius: var(--radius-m);
+  padding: 10px;
+  background: color-mix(in srgb, var(--action-fg) 8%, transparent);
+  color: var(--action-fg);
+}
+
+.overview-github-sync-progress > svg {
+  animation: github-spin 1s linear infinite;
+}
+
+.overview-github-sync-progress p {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.overview-github-sync-progress small {
+  display: block;
+  margin-top: 2px;
+}
+
 .overview-github-sync-state[data-status="indexed"] > span {
   border-color: color-mix(in srgb, var(--decision-fg) 35%, var(--border));
   color: var(--decision-fg);

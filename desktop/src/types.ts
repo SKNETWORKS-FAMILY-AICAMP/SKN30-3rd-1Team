@@ -79,6 +79,7 @@ export type GitRepositoryInfo = {
   authProvider?: "public" | "github_oauth" | "github_app";
   repoId?: number;
   syncStatus?: GitRepositorySyncStatus;
+  syncStartedAt?: number;
   connectedAt?: string;
   commitSha?: string | null;
   indexedFiles?: number | null;

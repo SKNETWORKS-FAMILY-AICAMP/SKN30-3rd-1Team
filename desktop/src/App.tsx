@@ -963,6 +963,7 @@ function mergeGithubRepositoryInfo(
     authProvider: currentRepository?.authProvider ?? "public",
     repoId: repository.id,
     syncStatus: repository.status,
+    syncStartedAt: repository.status === "syncing" ? currentRepository?.syncStartedAt ?? Date.now() : undefined,
     connectedAt: repository.connected_at ?? undefined,
     commitSha: currentRepository?.commitSha,
     indexedFiles: currentRepository?.indexedFiles,
@@ -983,6 +984,7 @@ function applyGithubRepositoryStatus(
     remoteRepo: repository.remoteRepo ?? getGithubRemoteRepo(status.repository_url),
     repoId: status.repo_id,
     syncStatus: status.status,
+    syncStartedAt: status.status === "syncing" ? repository.syncStartedAt ?? Date.now() : undefined,
     commitSha: status.commit_sha ?? null,
     indexedFiles: status.indexed_files ?? null,
     lastError: status.last_error ?? null,
@@ -1251,6 +1253,7 @@ export function App() {
   const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
   const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
   const [projectDeltaBanner, setProjectDeltaBanner] = useState<ProjectDeltaBannerState | null>(null);
+  const [postSyncRefreshRevision, setPostSyncRefreshRevision] = useState(0);
   const [mainView, setMainView] = useState<MainView>("workspace");
   const [settings, setSettingsState] = useState(loadPaimSettings);
   const [serverTestState, setServerTestState] = useState<ServerTestState>({
@@ -1296,6 +1299,7 @@ export function App() {
   const didSyncProjectsRef = useRef(false);
   const documentPollTimeoutsRef = useRef(new Map<string, number>());
   const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
+  const postGithubSyncRefreshTimeoutsRef = useRef<number[]>([]);
   const demoStatusTimeoutRef = useRef<number | null>(null);
   const ignoredProjectDeltaRef = useRef<Record<string, string>>({});
   const projectsRef = useRef(initialProjectState.projects);
@@ -1841,6 +1845,7 @@ export function App() {
     selectedProject?.id,
     selectedProject?.lastSeenAt,
     selectedProject?.serverMissing,
+    postSyncRefreshRevision,
     settings.dueSoonDays,
     serverStatus,
   ]);
@@ -2061,6 +2066,8 @@ export function App() {
         window.clearTimeout(timeoutId);
       }
       githubRepositoryPollTimeoutsRef.current.clear();
+      postGithubSyncRefreshTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      postGithubSyncRefreshTimeoutsRef.current = [];
     },
     [],
   );
@@ -2363,6 +2370,32 @@ export function App() {
     githubRepositoryPollTimeoutsRef.current.delete(pollKey);
   }
 
+  function refreshAfterGithubSync(projectId: string) {
+    delete ignoredProjectDeltaRef.current[projectId];
+    setPostSyncRefreshRevision((currentRevision) => currentRevision + 1);
+
+    const timeoutId = window.setTimeout(() => {
+      setPostSyncRefreshRevision((currentRevision) => currentRevision + 1);
+      postGithubSyncRefreshTimeoutsRef.current = postGithubSyncRefreshTimeoutsRef.current.filter(
+        (currentTimeoutId) => currentTimeoutId !== timeoutId,
+      );
+    }, 10000);
+
+    postGithubSyncRefreshTimeoutsRef.current.push(timeoutId);
+  }
+
+  function handleGithubSyncSettled(projectId: string, status: ApiRepositoryStatus) {
+    if (status === "indexed") {
+      setDemoStatus({ ok: true, message: "GitHub 동기화 완료", scope: "overview" });
+      refreshAfterGithubSync(projectId);
+      return;
+    }
+
+    if (status === "failed") {
+      setDemoStatus({ ok: false, message: "GitHub 동기화 실패", scope: "overview" });
+    }
+  }
+
   function scheduleGithubRepositoryStatusPoll(
     projectId: string,
     apiProjectId: number,
@@ -2384,6 +2417,7 @@ export function App() {
 
         if (status.status === "indexed" || status.status === "failed") {
           githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+          handleGithubSyncSettled(projectId, status.status);
           return;
         }
 
@@ -2391,6 +2425,7 @@ export function App() {
           updateGithubRepository(projectId, (repository) => ({
             ...repository,
             syncStatus: "delayed",
+            syncStartedAt: undefined,
             lastError: "처리 지연 — 나중에 다시 확인",
           }));
           githubRepositoryPollTimeoutsRef.current.delete(pollKey);
@@ -2408,9 +2443,11 @@ export function App() {
         updateGithubRepository(projectId, (repository) => ({
           ...repository,
           syncStatus: "failed",
+          syncStartedAt: undefined,
           lastError: getErrorMessage(error, "GitHub repo 동기화 상태를 확인할 수 없습니다"),
         }));
         githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+        handleGithubSyncSettled(projectId, "failed");
       }
     }, GITHUB_REPOSITORY_SYNC_POLL_INTERVAL_MS);
 
@@ -2551,6 +2588,7 @@ export function App() {
       ...repository,
       repoId: response.repo_id,
       syncStatus: response.status,
+      syncStartedAt: response.status === "syncing" ? repository.syncStartedAt ?? Date.now() : undefined,
       lastError: null,
       syncWarnings: undefined,
     }));
@@ -3829,6 +3867,13 @@ export function App() {
     }
 
     setIsGithubSyncing(true);
+    updateGithubRepository(projectId, (repository) => ({
+      ...repository,
+      syncStatus: "syncing",
+      syncStartedAt: Date.now(),
+      lastError: null,
+      syncWarnings: undefined,
+    }));
     setDemoStatus({
       ok: true,
       message: "GitHub repo 서버 동기화 중...",
@@ -3874,6 +3919,7 @@ export function App() {
           repoId: connected.repo_id,
           branch: connected.branch ?? repository.branch,
           syncStatus: connected.status,
+          syncStartedAt: connected.status === "syncing" ? repository.syncStartedAt ?? Date.now() : undefined,
           lastError: null,
           syncWarnings: undefined,
         }));
@@ -3892,21 +3938,24 @@ export function App() {
         await startGithubRepositorySync(projectId, apiProject.apiProjectId, repoId, session?.state);
       }
 
-      setDemoStatus({
-        ok: true,
-        message: "GitHub repo 서버 동기화를 시작했습니다",
-        scope: "github",
-      });
+      setDemoStatus({ ok: true, message: "GitHub repo 서버 동기화를 시작했습니다", scope: "github" });
     } catch (error) {
       if (isGithubSessionExpiredError(error)) {
         handleGithubSessionExpired(projectId);
         return;
       }
 
+      const message = getErrorMessage(error, "GitHub repo 서버 동기화를 시작할 수 없습니다");
+      updateGithubRepository(projectId, (repository) => ({
+        ...repository,
+        syncStatus: "failed",
+        syncStartedAt: undefined,
+        lastError: message,
+      }));
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "GitHub repo 서버 동기화를 시작할 수 없습니다"),
-        scope: "github",
+        message,
+        scope: "overview",
       });
     } finally {
       setIsGithubSyncing(false);
@@ -5640,6 +5689,7 @@ export function App() {
               canManage={canOpenProjectMemory}
               isMaximized={isProjectPanelMaximized}
               project={selectedProject}
+              reloadRevision={postSyncRefreshRevision}
               suggestionMin={settings.suggestionMin}
             />
           ) : null}
