@@ -74,6 +74,20 @@ export type GitRepositoryInfo = {
   issuePrStatus: string;
   visibility?: "public" | "private";
   authProvider?: "public" | "github_oauth" | "github_app";
+  repoId?: number;
+  syncStatus?: GitRepositorySyncStatus;
+  connectedAt?: string;
+  commitSha?: string | null;
+  indexedFiles?: number | null;
+  lastError?: string | null;
+  syncWarnings?: GitRepositorySyncWarning[];
+};
+
+export type GitRepositorySyncStatus = "connected" | "syncing" | "indexed" | "failed" | "delayed";
+
+export type GitRepositorySyncWarning = {
+  source_type?: string;
+  reason?: string;
 };
 
 export type ProjectMemoryCategory = "decision" | "action" | "issue" | "risk";

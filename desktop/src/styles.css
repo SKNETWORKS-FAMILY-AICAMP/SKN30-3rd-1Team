@@ -1914,6 +1914,69 @@ button {
   background: var(--border);
 }
 
+.overview-github-sync-state {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.overview-github-sync-state > span {
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.overview-github-sync-state[data-status="syncing"] > span {
+  border-color: color-mix(in srgb, var(--action-fg) 35%, var(--border));
+  color: var(--action-fg);
+}
+
+.overview-github-sync-state[data-status="indexed"] > span {
+  border-color: color-mix(in srgb, var(--decision-fg) 35%, var(--border));
+  color: var(--decision-fg);
+}
+
+.overview-github-sync-state[data-status="failed"] > span,
+.overview-github-sync-state[data-status="delayed"] > span {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  color: var(--danger);
+}
+
+.overview-github-sync-state small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.overview-github-sync-state button {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.overview-github-sync-warning {
+  color: var(--issue-fg);
+}
+
 .overview-github-sync-button {
   display: grid;
   place-items: center;

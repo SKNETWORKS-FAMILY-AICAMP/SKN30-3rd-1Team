@@ -82,6 +82,8 @@ import type {
   GithubAvailableRepository,
   GithubLoginSessionState,
   GithubPanelState,
+  GitRepositoryInfo,
+  GitRepositorySyncWarning,
   Message,
   ProjectDocumentStatus,
   ProjectFilePreview,
@@ -151,6 +153,36 @@ type ApiQueryResponse = {
   debug?: unknown;
 };
 
+type ApiRepositoryStatus = "connected" | "syncing" | "indexed" | "failed";
+
+type ApiRepositoryConnectResponse = {
+  repo_id: number;
+  status: ApiRepositoryStatus;
+  branch?: string;
+};
+
+type ApiRepositoryListItem = {
+  id: number;
+  provider: string;
+  repository_url: string;
+  branch: string;
+  status: ApiRepositoryStatus;
+  connected_at?: string | null;
+};
+
+type ApiRepositoryStatusResponse = {
+  repo_id: number;
+  status: ApiRepositoryStatus;
+  provider: string;
+  repository_url: string;
+  branch: string;
+  commit_sha?: string | null;
+  indexed_files?: number | null;
+  last_error?: string | null;
+  sync_warning?: string | null;
+  extracted?: Record<string, number>;
+};
+
 type ServerStatus = "online" | "offline";
 
 type ActionMenuState =
@@ -165,13 +197,20 @@ const DEMO_REPLY_DELAY_MS = 360;
 const SERVER_SYNC_TIMEOUT_MS = 3000;
 const DOCUMENT_STATUS_POLL_INTERVAL_MS = 3000;
 const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 180000;
+const GITHUB_REPOSITORY_SYNC_POLL_INTERVAL_MS = 3000;
+const GITHUB_REPOSITORY_SYNC_TIMEOUT_MS = 600000;
 const QUERY_HISTORY_LIMIT = 20;
 const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v4";
-const LEGACY_PROJECT_STORAGE_KEYS = ["paim.projects.v3", "paim.projects.v2", "paim.projects.v1"];
+const PROJECT_STORAGE_KEY = "paim.projects.v5";
+const LEGACY_PROJECT_STORAGE_KEYS = [
+  "paim.projects.v4",
+  "paim.projects.v3",
+  "paim.projects.v2",
+  "paim.projects.v1",
+];
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
@@ -663,6 +702,96 @@ function mergeServerDocumentsIntoAttachments(
   return [...serverOnlyAttachments, ...updatedAttachments];
 }
 
+function getGithubRepositoryUrl(repository: GitRepositoryInfo) {
+  return repository.path || (repository.remoteRepo ? `https://github.com/${repository.remoteRepo}` : "");
+}
+
+function getGithubRemoteRepo(repositoryUrl: string) {
+  try {
+    const parsed = new URL(repositoryUrl);
+    const [owner, repo] = parsed.pathname.replace(/\.git$/, "").split("/").filter(Boolean);
+
+    return owner && repo ? `${owner}/${repo}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getGithubRepositoryName(repositoryUrl: string) {
+  const remoteRepo = getGithubRemoteRepo(repositoryUrl);
+
+  if (remoteRepo) {
+    return remoteRepo.split("/").pop() ?? remoteRepo;
+  }
+
+  return repositoryUrl.replace(/\/+$/, "").split("/").pop()?.replace(/\.git$/, "") || "GitHub repo";
+}
+
+function parseGithubSyncWarnings(rawWarning?: string | null): GitRepositorySyncWarning[] | undefined {
+  if (!rawWarning) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(rawWarning) as unknown;
+
+    if (!Array.isArray(parsed)) {
+      return [{ reason: "일부 소스 수집 실패" }];
+    }
+
+    return parsed
+      .filter((warning): warning is Record<string, unknown> => warning !== null && typeof warning === "object")
+      .map((warning) => ({
+        source_type: typeof warning.source_type === "string" ? warning.source_type : undefined,
+        reason: typeof warning.reason === "string" ? warning.reason : undefined,
+      }));
+  } catch {
+    return [{ reason: "일부 소스 수집 실패" }];
+  }
+}
+
+function mergeGithubRepositoryInfo(
+  currentRepository: GitRepositoryInfo | undefined,
+  repository: ApiRepositoryListItem,
+): GitRepositoryInfo {
+  return {
+    path: repository.repository_url,
+    name: currentRepository?.name ?? getGithubRepositoryName(repository.repository_url),
+    branch: repository.branch,
+    isDirty: false,
+    remoteRepo: currentRepository?.remoteRepo ?? getGithubRemoteRepo(repository.repository_url),
+    issuePrStatus: currentRepository?.issuePrStatus ?? "서버 연결됨",
+    visibility: currentRepository?.visibility ?? "public",
+    authProvider: currentRepository?.authProvider ?? "public",
+    repoId: repository.id,
+    syncStatus: repository.status,
+    connectedAt: repository.connected_at ?? undefined,
+    commitSha: currentRepository?.commitSha,
+    indexedFiles: currentRepository?.indexedFiles,
+    lastError: currentRepository?.lastError,
+    syncWarnings: currentRepository?.syncWarnings,
+  };
+}
+
+function applyGithubRepositoryStatus(
+  repository: GitRepositoryInfo,
+  status: ApiRepositoryStatusResponse,
+): GitRepositoryInfo {
+  return {
+    ...repository,
+    path: status.repository_url,
+    name: repository.name || getGithubRepositoryName(status.repository_url),
+    branch: status.branch,
+    remoteRepo: repository.remoteRepo ?? getGithubRemoteRepo(status.repository_url),
+    repoId: status.repo_id,
+    syncStatus: status.status,
+    commitSha: status.commit_sha ?? null,
+    indexedFiles: status.indexed_files ?? null,
+    lastError: status.last_error ?? null,
+    syncWarnings: parseGithubSyncWarnings(status.sync_warning),
+  };
+}
+
 function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -932,6 +1061,7 @@ export function App() {
   const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
+  const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
@@ -947,6 +1077,7 @@ export function App() {
   const didHydrateAttachmentPreviewsRef = useRef(false);
   const didSyncProjectsRef = useRef(false);
   const documentPollTimeoutsRef = useRef(new Map<string, number>());
+  const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
   const demoStatusTimeoutRef = useRef<number | null>(null);
   const projectsRef = useRef(initialProjectState.projects);
   const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
@@ -1225,6 +1356,24 @@ export function App() {
   ]);
 
   useEffect(() => {
+    if (
+      serverStatus !== "online" ||
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      return;
+    }
+
+    void syncProjectRepositories(selectedProject.id, selectedProject.apiProjectId);
+  }, [
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.serverMissing,
+    serverStatus,
+  ]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       PROJECT_STORAGE_KEY,
       JSON.stringify(createStoredProjectState(projects, selectedProjectId, selectedSessionId)),
@@ -1414,9 +1563,17 @@ export function App() {
         window.clearTimeout(timeoutId);
       }
       documentPollTimeoutsRef.current.clear();
+      for (const timeoutId of githubRepositoryPollTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      githubRepositoryPollTimeoutsRef.current.clear();
     },
     [],
   );
+
+  useEffect(() => {
+    setPendingGithubDisconnectProjectId(null);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (didHydrateAttachmentPreviewsRef.current) {
@@ -1674,6 +1831,156 @@ export function App() {
         scope: "overview",
       });
     }
+  }
+
+  function updateGithubRepository(
+    projectId: string,
+    updater: (repository: GitRepositoryInfo) => GitRepositoryInfo,
+  ) {
+    updateProject(projectId, (project) =>
+      project.githubRepository
+        ? { ...project, githubRepository: updater(project.githubRepository) }
+        : project,
+    );
+  }
+
+  function clearGithubRepositoryPoll(projectId: string, repoId: number) {
+    const pollKey = `${projectId}:${repoId}`;
+    const timeoutId = githubRepositoryPollTimeoutsRef.current.get(pollKey);
+
+    if (typeof timeoutId === "number") {
+      window.clearTimeout(timeoutId);
+    }
+
+    githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+  }
+
+  function scheduleGithubRepositoryStatusPoll(
+    projectId: string,
+    apiProjectId: number,
+    repoId: number,
+    startedAt = Date.now(),
+  ) {
+    clearGithubRepositoryPoll(projectId, repoId);
+
+    const pollKey = `${projectId}:${repoId}`;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const status = await fetchPaimJson<ApiRepositoryStatusResponse>(
+          `/projects/${apiProjectId}/repositories/${repoId}/status`,
+        );
+
+        updateGithubRepository(projectId, (repository) =>
+          applyGithubRepositoryStatus(repository, status),
+        );
+
+        if (status.status === "indexed" || status.status === "failed") {
+          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+          return;
+        }
+
+        if (Date.now() - startedAt >= GITHUB_REPOSITORY_SYNC_TIMEOUT_MS) {
+          updateGithubRepository(projectId, (repository) => ({
+            ...repository,
+            syncStatus: "delayed",
+            lastError: "처리 지연 — 나중에 다시 확인",
+          }));
+          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+          return;
+        }
+
+        scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, repoId, startedAt);
+      } catch (error) {
+        updateGithubRepository(projectId, (repository) => ({
+          ...repository,
+          syncStatus: "failed",
+          lastError: getErrorMessage(error, "GitHub repo 동기화 상태를 확인할 수 없습니다"),
+        }));
+        githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+      }
+    }, GITHUB_REPOSITORY_SYNC_POLL_INTERVAL_MS);
+
+    githubRepositoryPollTimeoutsRef.current.set(pollKey, timeoutId);
+  }
+
+  async function syncProjectRepositories(projectId: string, apiProjectId: number) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    try {
+      const repositories = await fetchPaimJson<ApiRepositoryListItem[]>(
+        `/projects/${apiProjectId}/repositories`,
+      );
+      const serverRepository = repositories[0];
+
+      updateProject(projectId, (project) => {
+        if (!serverRepository) {
+          return project.githubRepository?.repoId
+            ? {
+                ...project,
+                githubConnected: false,
+                githubEvents: undefined,
+                githubRepository: undefined,
+              }
+            : project;
+        }
+
+        return {
+          ...project,
+          githubConnected: true,
+          githubRepository: mergeGithubRepositoryInfo(project.githubRepository, serverRepository),
+        };
+      });
+
+      if (!serverRepository) {
+        return;
+      }
+
+      const status = await fetchPaimJson<ApiRepositoryStatusResponse>(
+        `/projects/${apiProjectId}/repositories/${serverRepository.id}/status`,
+      );
+      updateGithubRepository(projectId, (repository) =>
+        applyGithubRepositoryStatus(repository, status),
+      );
+
+      if (status.status === "syncing") {
+        scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, serverRepository.id);
+      }
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "GitHub repo 연결 정보를 불러올 수 없습니다"),
+        scope: "github",
+      });
+    }
+  }
+
+  async function startGithubRepositorySync(
+    projectId: string,
+    apiProjectId: number,
+    repoId: number,
+    state?: string,
+  ) {
+    // TODO: SESSION_EXPIRED 구분 (협의 R2)
+    const response = await fetchPaimJson<ApiRepositoryConnectResponse>(
+      `/projects/${apiProjectId}/repositories/${repoId}/sync`,
+      {
+        method: "POST",
+        body: JSON.stringify(state ? { state } : {}),
+      },
+    );
+
+    updateGithubRepository(projectId, (repository) => ({
+      ...repository,
+      repoId: response.repo_id,
+      syncStatus: response.status,
+      lastError: null,
+      syncWarnings: undefined,
+    }));
+    scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, response.repo_id);
+
+    return response;
   }
 
   function createQueryHistory(messages: Message[]): ApiQueryHistoryMessage[] {
@@ -2685,6 +2992,7 @@ export function App() {
         githubEvents: events,
         githubRepository: repository,
       }));
+      setPendingGithubDisconnectProjectId(null);
       setDemoStatus({
         ok: true,
         message: `${repository.remoteRepo ?? repository.name} repo 연결됨`,
@@ -2704,6 +3012,7 @@ export function App() {
 
   async function handleSyncGithubRepository(projectId: string) {
     const project = projects.find((currentProject) => currentProject.id === projectId);
+    const session = githubLoginSessions[projectId] ?? null;
 
     if (!project?.githubRepository || isGithubSyncing) {
       return;
@@ -2721,25 +3030,72 @@ export function App() {
     });
 
     try {
-      // TODO: POST /api/v1/projects/{id}/repositories 흐름으로 재작성 예정 (API 협의 쟁점 4)
-      await fetchPaimRootJson("/github/sync", {
-        method: "POST",
-        body: JSON.stringify({
-          projectId: project.id,
-          projectName: project.name,
-          repository: project.githubRepository,
-          events: project.githubEvents ?? [],
-        }),
-      });
+      if (project.serverMissing) {
+        throw new Error("서버에서 찾을 수 없는 프로젝트에는 GitHub repo를 동기화할 수 없습니다");
+      }
+
+      const apiProject = await ensureApiProject(project);
+
+      if (typeof apiProject.apiProjectId !== "number") {
+        throw new Error("서버 프로젝트를 준비할 수 없습니다");
+      }
+
+      let repoId = project.githubRepository.repoId;
+
+      if (typeof repoId !== "number") {
+        const repositoryUrl = getGithubRepositoryUrl(project.githubRepository);
+
+        if (!repositoryUrl) {
+          throw new Error("GitHub repository URL을 확인할 수 없습니다");
+        }
+
+        // TODO: SESSION_EXPIRED 구분 (협의 R2)
+        const connected = await fetchPaimJson<ApiRepositoryConnectResponse>(
+          `/projects/${apiProject.apiProjectId}/repositories`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              provider: "github",
+              repository_url: repositoryUrl,
+              branch: project.githubRepository.branch,
+              ...(session?.state ? { state: session.state } : {}),
+            }),
+          },
+        );
+        repoId = connected.repo_id;
+
+        updateGithubRepository(projectId, (repository) => ({
+          ...repository,
+          repoId: connected.repo_id,
+          branch: connected.branch ?? repository.branch,
+          syncStatus: connected.status,
+          lastError: null,
+          syncWarnings: undefined,
+        }));
+
+        if (connected.status === "syncing") {
+          scheduleGithubRepositoryStatusPoll(projectId, apiProject.apiProjectId, connected.repo_id);
+        } else {
+          await startGithubRepositorySync(
+            projectId,
+            apiProject.apiProjectId,
+            connected.repo_id,
+            session?.state,
+          );
+        }
+      } else {
+        await startGithubRepositorySync(projectId, apiProject.apiProjectId, repoId, session?.state);
+      }
+
       setDemoStatus({
         ok: true,
-        message: "GitHub repo 서버 동기화 완료",
+        message: "GitHub repo 서버 동기화를 시작했습니다",
         scope: "github",
       });
     } catch (error) {
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "GitHub sync API에 연결할 수 없습니다"),
+        message: getErrorMessage(error, "GitHub repo 서버 동기화를 시작할 수 없습니다"),
         scope: "github",
       });
     } finally {
@@ -2747,13 +3103,66 @@ export function App() {
     }
   }
 
-  function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
+  async function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
+    const project = projects.find((currentProject) => currentProject.id === projectId);
+    const repoId = project?.githubRepository?.repoId;
+
+    if (!project?.githubRepository) {
+      return;
+    }
+
+    if (typeof repoId === "number" && pendingGithubDisconnectProjectId !== projectId) {
+      setPendingGithubDisconnectProjectId(projectId);
+      setDemoStatus({
+        ok: false,
+        message: "한 번 더 누르면 서버 메모리와 GitHub 연결을 해제합니다",
+        scope: "github",
+      });
+      return;
+    }
+
+    if (typeof repoId === "number") {
+      if (shouldSkipServerAction("github")) {
+        return;
+      }
+
+      if (typeof project.apiProjectId !== "number") {
+        setDemoStatus({
+          ok: false,
+          message: "서버 GitHub 연결 해제에 필요한 프로젝트 정보를 찾을 수 없습니다",
+          scope: "github",
+        });
+        return;
+      }
+
+      try {
+        await fetchPaimJson<void>(
+          `/projects/${project.apiProjectId}/repositories/${repoId}`,
+          { method: "DELETE" },
+        );
+      } catch (error) {
+        const detail = getErrorMessage(error, "GitHub repo 연결을 해제할 수 없습니다");
+
+        if (!/repository not found/i.test(detail)) {
+          setDemoStatus({
+            ok: false,
+            message: detail,
+            scope: "github",
+          });
+          return;
+        }
+      }
+
+      clearGithubRepositoryPoll(projectId, repoId);
+    }
+
     updateProject(projectId, (project) => ({
       ...project,
       githubConnected: false,
       githubEvents: undefined,
       githubRepository: undefined,
     }));
+    setPendingGithubDisconnectProjectId(null);
     setDemoStatus({
       ok: true,
       message,
@@ -4035,15 +4444,16 @@ export function App() {
               filteredRepositories={filteredSelectedProjectGithubRepositories}
               githubConnected={selectedProject.githubConnected}
               isAuthChecking={isGithubAuthChecking}
-              isAuthStarting={isGithubAuthStarting}
-              isConnecting={isGithubConnecting}
-              isRepoLoading={isGithubRepoLoading}
-              isSyncing={isGithubSyncing}
+	              isAuthStarting={isGithubAuthStarting}
+	              isConnecting={isGithubConnecting}
+	              isDisconnectConfirming={pendingGithubDisconnectProjectId === selectedProject.id}
+	              isRepoLoading={isGithubRepoLoading}
+	              isSyncing={isGithubSyncing}
               onCheckLogin={() => void handleCheckGithubLogin(selectedProject.id)}
               onConnectRepository={(repositoryUrl) =>
                 void connectGithubRepository(selectedProject.id, repositoryUrl)
               }
-              onDisconnect={(message) => handleDisconnectGithub(selectedProject.id, message)}
+	              onDisconnect={(message) => void handleDisconnectGithub(selectedProject.id, message)}
               onLoadRepositories={() => void handleLoadGithubRepositories(selectedProject.id)}
               onOpenVerification={() => void handleOpenGithubVerification(selectedProject.id)}
               onQueryChange={setGithubRepositoryQuery}
