@@ -2078,6 +2078,11 @@ export function App() {
     void hydrateStoredAttachmentPreviews();
   }, []);
 
+  // 드롭 리스너는 마운트 시 1회 등록이라, 최신 첨부 핸들러를 ref로 전달해
+  // 선택 프로젝트/세션이 초기 null 스냅샷에 갇히는 stale closure를 막는다.
+  const appendAttachmentPathsRef = useRef<((paths: string[]) => Promise<void>) | undefined>(undefined);
+  appendAttachmentPathsRef.current = appendAttachmentPaths;
+
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) {
       return;
@@ -2100,7 +2105,7 @@ export function App() {
         }
 
         setIsDragActive(false);
-        void appendAttachmentPaths(event.payload.paths);
+        void appendAttachmentPathsRef.current?.(event.payload.paths);
       })
       .then((unlisten) => {
         if (isDisposed) {
