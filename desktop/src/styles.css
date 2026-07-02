@@ -1324,35 +1324,22 @@ button {
   color: var(--text);
 }
 
+/* 좁은 패널에서 4개 항목이 계단식으로 밀리지 않게 2×2 그리드로 고정한다. */
 .project-memory-summary-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
   margin-top: 4px;
 }
 
 .project-memory-summary-stat {
-  flex: 0 0 auto;
   min-width: 0;
-  max-width: 100%;
-  border-right: 1px solid var(--border);
-  padding: 0 16px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.project-memory-summary-stat:first-child {
-  padding-left: 0;
-}
-
-.project-memory-summary-stat:last-child {
-  border-right: 0;
-  padding-right: 0;
 }
 
 .project-memory-summary-stat strong {
