@@ -72,8 +72,37 @@ def delete_memory_vector(memory_id: int) -> None:
     get_collection().delete(ids=[memory_vector_id(memory_id)])
 
 
+def cleanup_orphan_memory_vectors() -> int:
+    """MySQL에 없는 project_id/memory_id를 가리키는 memory 벡터를 삭제한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id FROM projects")
+            project_ids = {row["id"] for row in cursor.fetchall()}
+            cursor.execute("SELECT id FROM memory")
+            memory_ids = {row["id"] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+    collection = get_collection()
+    raw = collection.get()
+    delete_ids = []
+    for vector_id, metadata in zip(raw.get("ids") or [], raw.get("metadatas") or []):
+        metadata = metadata or {}
+        if not (str(vector_id).startswith("memory:") or metadata.get("item_type") == "memory"):
+            continue
+        if metadata.get("project_id") not in project_ids or metadata.get("memory_id") not in memory_ids:
+            delete_ids.append(vector_id)
+
+    if delete_ids:
+        collection.delete(ids=delete_ids)
+    return len(delete_ids)
+
+
 def backfill_memory_vectors() -> int:
     """아직 ChromaDB에 없는 기존 memory row만 1회 백필한다."""
+    cleanup_orphan_memory_vectors()
+
     conn = get_connection()
     try:
         with conn.cursor() as cursor:

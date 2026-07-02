@@ -238,11 +238,16 @@ def _repo_or_404(cursor, project_id: int, repo_id: int) -> dict:
     return row
 
 
-def _clear_repo_indexed_data(repo_id: int):
+def _clear_repo_indexed_data(repo_id: int, refresh_project_memory: bool = False):
     """재동기화 전 기존 memory/vector 정리 (repositories 행은 유지)."""
+    project_id = None
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT project_id FROM repositories WHERE id = %s", (repo_id,))
+            row = cursor.fetchone()
+            if row:
+                project_id = row.get("project_id")
             cursor.execute("DELETE FROM memory WHERE repo_id = %s", (repo_id,))
         conn.commit()
     except Exception:
@@ -254,13 +259,21 @@ def _clear_repo_indexed_data(repo_id: int):
         get_collection().delete(where={"repo_id": repo_id})
     except Exception:
         logger.warning("기존 ChromaDB vector 정리 실패 repo_id=%s", repo_id, exc_info=True)
+    if refresh_project_memory and project_id is not None:
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
 
 
 def _delete_repo_data(repo_id: int):
     """memory 행 + repositories 행 + ChromaDB 벡터 삭제."""
+    project_id = None
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            cursor.execute("SELECT project_id FROM repositories WHERE id = %s", (repo_id,))
+            row = cursor.fetchone()
+            if row:
+                project_id = row.get("project_id")
             cursor.execute("DELETE FROM memory WHERE repo_id = %s", (repo_id,))
             cursor.execute("DELETE FROM repositories WHERE id = %s", (repo_id,))
         conn.commit()
@@ -274,6 +287,9 @@ def _delete_repo_data(repo_id: int):
         get_collection().delete(where={"repo_id": repo_id})
     except Exception:
         logger.warning("ChromaDB vector cleanup failed for repo_id=%s", repo_id, exc_info=True)
+    if project_id is not None:
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
 
 
 # None은 commit_sha=None처럼 DB에 저장될 유효한 값이므로 "미전달"을 구분하는 sentinel 사용
@@ -375,6 +391,9 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
                 indexed += 1
             except Exception:
                 logger.warning("ingest 실패 — source=%s repo_id=%s", source_name, repo_id, exc_info=True)
+
+        from ..graph import refresh_project_memory_after_delete
+        refresh_project_memory_after_delete(project_id)
 
         import json as _json
         sync_warning = _json.dumps(warnings, ensure_ascii=False) if warnings else None

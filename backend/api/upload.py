@@ -10,7 +10,7 @@ from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
 from ..storage import save_file, delete_file
-from ..graph import update_project_memory
+from ..graph import refresh_project_memory_after_delete, update_project_memory
 from .auth import require_project_access
 
 router = APIRouter()
@@ -60,15 +60,17 @@ def _delete_chroma_vectors(doc_id: int):
         logger.warning("ChromaDB vector cleanup failed for doc_id=%s", doc_id, exc_info=True)
 
 
-def _delete_document(doc_id: int):
+def _delete_document(doc_id: int, refresh_project_memory: bool = True):
     """MySQL memory/documents 행 삭제 + ChromaDB 벡터 삭제 + 원본 파일 삭제."""
     conn = get_connection()
     file_path = None
+    project_id = None
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT file_path FROM documents WHERE id = %s", (doc_id,))
+            cursor.execute("SELECT project_id, file_path FROM documents WHERE id = %s", (doc_id,))
             row = cursor.fetchone()
             if row:
+                project_id = row.get("project_id")
                 file_path = row.get("file_path")
             cursor.execute("DELETE FROM memory WHERE doc_id = %s", (doc_id,))
             cursor.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
@@ -80,6 +82,8 @@ def _delete_document(doc_id: int):
     _delete_chroma_vectors(doc_id)
     if file_path:
         delete_file(file_path)
+    if refresh_project_memory and project_id is not None:
+        refresh_project_memory_after_delete(project_id)
 
 
 def _delete_doc_memory(doc_id: int):
@@ -179,7 +183,9 @@ def _process_upload(
         logger.warning("프로젝트 메모리 갱신 실패 (업로드는 성공): project_id=%s", project_id, exc_info=True)
 
     for old_id in old_doc_ids:
-        _delete_document(old_id)
+        _delete_document(old_id, refresh_project_memory=False)
+    if old_doc_ids:
+        refresh_project_memory_after_delete(project_id)
 
 
 # ── Documents ─────────────────────────────────────────────────────
@@ -440,6 +446,7 @@ def delete_memory(project_id: int, memory_id: int):
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Memory item not found")
         conn.commit()
-        _delete_memory_vector_best_effort(memory_id)
     finally:
         conn.close()
+    _delete_memory_vector_best_effort(memory_id)
+    refresh_project_memory_after_delete(project_id)

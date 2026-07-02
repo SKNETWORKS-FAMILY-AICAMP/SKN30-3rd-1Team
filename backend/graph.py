@@ -11,6 +11,7 @@
 #  2) 출력(질의): 질문 → [섹션(stub)] → [Q&A] → [검증] → (부족: 재검색 루프)
 #                        → [계획] → [검증] → (부족: 재기획 루프) → [응답] → END
 from typing import TypedDict, Optional, List, Dict
+import logging
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
@@ -22,6 +23,7 @@ from .retriever import qa_engine
 from .llm.chat_model_factory import get_chat_model
 
 MAX_RETRY = 1  # 재검색/재기획 최대 반복 (무한 루프 방지)
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -67,6 +69,70 @@ def upsert_project_memory(project_id: int, summary: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def delete_project_memory(project_id: int) -> None:
+    """프로젝트 응축 요약 캐시를 삭제한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM project_memory WHERE project_id = %s", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _format_summary_memory_row(row: dict) -> str:
+    """남은 memory row를 재요약 프롬프트용 한 줄로 만든다."""
+    meta = []
+    if row.get("owner"):
+        meta.append(f"담당: {row['owner']}")
+    if row.get("due_date"):
+        meta.append(f"마감: {str(row['due_date'])[:10]}")
+    if row.get("completed_at"):
+        meta.append(f"완료: {str(row['completed_at'])[:10]}")
+    meta_text = f" ({', '.join(meta)})" if meta else ""
+    return f"[{row['category']}] {row['content']}{meta_text}"
+
+
+def regenerate_project_memory(project_id: int) -> str:
+    """현재 남아 있는 memory row만 기준으로 프로젝트 요약 캐시를 재생성한다."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT category, content, owner, due_date, completed_at"
+                " FROM memory WHERE project_id = %s"
+                " ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC",
+                (project_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        delete_project_memory(project_id)
+        return ""
+
+    memory_lines = "\n".join(_format_summary_memory_row(row) for row in rows)
+    llm = get_chat_model(tier="quality")
+    prompt = (
+        "다음은 현재 프로젝트에 남아 있는 memory 항목 전체이다. "
+        "삭제된 항목은 절대 추측하거나 포함하지 말고, 남은 항목만 근거로 "
+        "핵심 결정·진행·이슈·리스크가 드러나도록 5문장 이내의 갱신 요약을 한국어로 작성하라.\n\n"
+        f"[남은 항목]\n{memory_lines}"
+    )
+    summary = llm.invoke(prompt).content
+    upsert_project_memory(project_id, summary)
+    return summary
+
+
+def refresh_project_memory_after_delete(project_id: int) -> None:
+    """삭제 후 요약 캐시를 best-effort로 정합화한다. 실패해도 삭제는 유지한다."""
+    try:
+        regenerate_project_memory(project_id)
+    except Exception:
+        logger.warning("project_memory refresh after delete failed project_id=%s", project_id, exc_info=True)
 
 
 # ═════════════════════════════════════════════════════════════

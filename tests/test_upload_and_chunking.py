@@ -117,22 +117,24 @@ def test_ingest_failure_sets_failed_status():
 
 
 def test_success_cleans_up_all_old_docs():
-    """성공 후 old doc_ids 전체 삭제, 신규 doc(99)은 삭제 안 됨."""
+    """성공 후 old doc_ids 전체 삭제, 요약 갱신은 마지막에 한 번만 수행."""
     with patch("backend.api.upload.get_connection", side_effect=_conn_seq((10, 11), 99)), \
          patch("backend.api.upload.save_file", return_value="data/1/test.md"), \
          patch("backend.api.upload.delete_file"), \
          patch("backend.api.upload.extract", return_value=[]), \
          patch("backend.api.upload.ingest"), \
          patch("backend.api.upload._set_doc_status"), \
-         patch("backend.api.upload._delete_document") as mock_del:
+         patch("backend.api.upload._delete_document") as mock_del, \
+         patch("backend.api.upload.refresh_project_memory_after_delete") as mock_refresh:
 
         resp = _client.post(_URL, files={"file": _FILE}, data=_DATA)
 
         assert resp.status_code == 201
         assert resp.json()["status"] == "processing"
-        assert call(10) in mock_del.call_args_list
-        assert call(11) in mock_del.call_args_list
-        assert call(99) not in mock_del.call_args_list
+        assert call(10, refresh_project_memory=False) in mock_del.call_args_list
+        assert call(11, refresh_project_memory=False) in mock_del.call_args_list
+        assert call(99, refresh_project_memory=False) not in mock_del.call_args_list
+        mock_refresh.assert_called_once_with(1)
 
 
 def test_no_old_doc_skips_cleanup():
