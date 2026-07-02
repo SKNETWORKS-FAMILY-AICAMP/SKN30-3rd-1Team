@@ -43,6 +43,7 @@ export type Message = {
   content: string;
   attachments?: Attachment[];
   sources?: string[];
+  thinkingSeconds?: number;
 };
 
 export type ChatSession = {
