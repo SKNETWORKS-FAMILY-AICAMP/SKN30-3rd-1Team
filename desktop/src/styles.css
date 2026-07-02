@@ -1104,6 +1104,14 @@ button {
   line-height: 1.6;
 }
 
+.project-home-action-hint {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .project-home-actions {
   display: flex;
   gap: 10px;
@@ -1318,20 +1326,23 @@ button {
 
 .project-memory-summary-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0;
+  gap: 8px 0;
   margin-top: 4px;
 }
 
 .project-memory-summary-stat {
+  flex: 0 0 auto;
   min-width: 0;
+  max-width: 100%;
   border-right: 1px solid var(--border);
   padding: 0 16px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
 
@@ -1424,9 +1435,9 @@ button {
 
 .project-memory-summary-action {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 3px 12px;
+  align-items: start;
   color: var(--text);
   font-size: 14px;
   font-weight: 750;
@@ -1435,19 +1446,29 @@ button {
 
 .project-memory-summary-action > svg {
   color: var(--action-fg);
+  margin-top: 1px;
 }
 
 .project-memory-summary-action span {
   min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .project-memory-summary-action em {
+  grid-column: 2;
+  min-width: 0;
   color: var(--muted);
   font-size: 11px;
   font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-memory-summary-section p {
@@ -1458,9 +1479,39 @@ button {
   line-height: 1.45;
 }
 
-.project-memory-summary-section p span {
+.project-memory-summary-section p > span:first-child {
   margin-right: 7px;
   color: var(--faint);
+}
+
+.project-memory[data-mode="summary"] .project-memory-summary-item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 3px 6px;
+}
+
+.project-memory[data-mode="summary"] .project-memory-summary-item .project-memory-bullet {
+  margin-right: 0;
+}
+
+.project-memory[data-mode="summary"] .project-memory-summary-item .project-memory-content {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.project-memory[data-mode="summary"] .project-memory-summary-item .project-memory-meta {
+  grid-column: 2;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-memory-meta {

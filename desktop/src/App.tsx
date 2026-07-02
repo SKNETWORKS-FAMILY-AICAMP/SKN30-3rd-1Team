@@ -709,6 +709,54 @@ function isProjectDocumentTerminal(status?: ProjectDocumentStatus) {
   return status === "indexed" || status === "failed" || status === "delayed";
 }
 
+// 랜딩 화면은 서버 연동 문서 상태를 저장하지 않고 현재 첨부 목록에서만 집계한다.
+function getProjectDocumentStatusSummary(attachments: Attachment[]) {
+  const serverDocuments = collectFileAttachments(attachments).filter(
+    (attachment) =>
+      typeof attachment.docId === "number" || typeof attachment.documentStatus === "string",
+  );
+  const terminalCount = serverDocuments.filter((attachment) =>
+    isProjectDocumentTerminal(attachment.documentStatus),
+  ).length;
+  const incompleteCount = serverDocuments.filter(
+    (attachment) => attachment.documentStatus !== "indexed",
+  ).length;
+
+  return {
+    incompleteCount,
+    inProgressCount: serverDocuments.length - terminalCount,
+    terminalCount,
+    totalCount: serverDocuments.length,
+  };
+}
+
+function getProjectDocumentCardLabel(
+  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
+  fallbackReady: boolean,
+  fallbackLabel: string,
+) {
+  if (summary.totalCount === 0) {
+    return fallbackReady ? "완료" : fallbackLabel;
+  }
+
+  if (summary.inProgressCount > 0) {
+    return `처리중 ${summary.terminalCount}/${summary.totalCount}`;
+  }
+
+  return summary.incompleteCount > 0 ? "일부 실패" : "완료";
+}
+
+function getProjectDocumentCardReady(
+  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
+  fallbackReady: boolean,
+) {
+  if (summary.totalCount === 0) {
+    return fallbackReady;
+  }
+
+  return summary.inProgressCount === 0 && summary.incompleteCount === 0;
+}
+
 function createServerDocumentAttachment(document: ApiDocumentListItem): Attachment {
   const uploadedAt = Date.parse(document.uploaded_at ?? "");
 
@@ -1203,6 +1251,30 @@ export function App() {
     () => selectedProjectAttachments.filter((attachment) => attachment.kind === "directory").length,
     [selectedProjectAttachments],
   );
+  const selectedProjectDocumentStatusSummary = useMemo(
+    () => getProjectDocumentStatusSummary(selectedProjectAttachments),
+    [selectedProjectAttachments],
+  );
+  const selectedProjectHasDocumentInProgress =
+    selectedProjectDocumentStatusSummary.inProgressCount > 0;
+  const selectedProjectFileCardLabel = getProjectDocumentCardLabel(
+    selectedProjectDocumentStatusSummary,
+    selectedProjectRootFileCount > 0,
+    "파일",
+  );
+  const selectedProjectFolderCardLabel = getProjectDocumentCardLabel(
+    selectedProjectDocumentStatusSummary,
+    selectedProjectFolderCount > 0,
+    "폴더",
+  );
+  const selectedProjectFileCardReady = getProjectDocumentCardReady(
+    selectedProjectDocumentStatusSummary,
+    selectedProjectRootFileCount > 0,
+  );
+  const selectedProjectFolderCardReady = getProjectDocumentCardReady(
+    selectedProjectDocumentStatusSummary,
+    selectedProjectFolderCount > 0,
+  );
 	  const filteredSelectedProjectFiles = useMemo(
 	    () => filterProjectFileEntries(sortedSelectedProjectAttachments, projectFileQuery),
 	    [projectFileQuery, sortedSelectedProjectAttachments],
@@ -1255,6 +1327,8 @@ export function App() {
     selectedProjectFileCount > 0 ||
     selectedProjectGithubPanelState === "connected" ||
     selectedProjectDescription.length > 0;
+  const isProjectBriefingDisabled =
+    !hasProjectHomeContext || selectedProjectHasDocumentInProgress || isSending;
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -4426,9 +4500,9 @@ export function App() {
 
               <div className="project-home-section-title">시작하기</div>
               <div className="project-home-upload-list">
-                <div className="project-home-upload-card" data-ready={selectedProjectRootFileCount > 0}>
+                <div className="project-home-upload-card" data-ready={selectedProjectFileCardReady}>
                   <span className="project-home-upload-state">
-                    {selectedProjectRootFileCount > 0 ? "완료" : "파일"}
+                    {selectedProjectFileCardLabel}
                   </span>
                   <Files size={18} />
                   <span className="project-home-upload-copy">
@@ -4452,9 +4526,9 @@ export function App() {
                     ) : null}
                   </span>
                 </div>
-                <div className="project-home-upload-card" data-ready={selectedProjectFolderCount > 0}>
+                <div className="project-home-upload-card" data-ready={selectedProjectFolderCardReady}>
                   <span className="project-home-upload-state">
-                    {selectedProjectFolderCount > 0 ? "완료" : "폴더"}
+                    {selectedProjectFolderCardLabel}
                   </span>
                   <FolderOpen size={18} />
                   <span className="project-home-upload-copy">
@@ -4523,10 +4597,15 @@ export function App() {
               <p className="project-home-note">
                 분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
               </p>
+              {selectedProjectHasDocumentInProgress ? (
+                <p className="project-home-action-hint" role="status">
+                  자료 처리 중 — 완료 후 분석할 수 있습니다
+                </p>
+              ) : null}
               <div className="project-home-actions">
                 <button
                   className="project-home-primary"
-                  disabled={!hasProjectHomeContext || isSending}
+                  disabled={isProjectBriefingDisabled}
                   onClick={() =>
                     void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
                   }
