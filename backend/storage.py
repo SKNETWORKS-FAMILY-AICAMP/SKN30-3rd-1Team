@@ -27,11 +27,13 @@ def save_file(project_id: int, filename: str, data: bytes) -> str:
     return str(dest)
 
 
-def delete_file(file_path: str) -> None:
-    """저장된 파일을 삭제한다. 파일이 없으면 조용히 무시한다."""
+def delete_file(file_path: str, strict: bool = False) -> None:
+    """저장된 파일을 삭제한다. strict=True이면 삭제 실패를 호출자에게 알린다."""
     try:
         Path(file_path).unlink(missing_ok=True)
     except Exception:
+        if strict:
+            raise
         pass
 
 

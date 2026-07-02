@@ -19,6 +19,18 @@ def _make_conn(fetchone=None, fetchall=None, lastrowid=1):
     return conn, cursor
 
 
+def _make_conn_sequence(fetchone=None, fetchall=None, lastrowid=1):
+    """fetchone/fetchall 호출 순서를 지정하는 cursor와 conn을 반환한다."""
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = fetchone or []
+    cursor.fetchall.side_effect = fetchall or []
+    cursor.lastrowid = lastrowid
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    conn.cursor.return_value.__exit__.return_value = False
+    return conn, cursor
+
+
 # ── list_projects ──────────────────────────────────────────────────
 
 def test_list_projects_no_user_returns_all():
@@ -74,6 +86,86 @@ def test_create_project_without_dev_user_skips_member():
     assert resp.status_code == 201
     sql_calls = [c[0][0] for c in cursor.execute.call_args_list]
     assert not any("project_members" in sql for sql in sql_calls)
+
+
+# ── update/delete project ─────────────────────────────────────────
+
+def test_update_project_persists_name():
+    """PATCH /projects/{id} — name을 trim해서 projects row에 저장한다."""
+    conn, cursor = _make_conn_sequence(
+        fetchone=[
+            {"id": 1},
+            {"id": 1, "name": "renamed", "created_at": "2026-07-02"},
+        ],
+    )
+    with patch("backend.api.project.require_project_access"), \
+         patch("backend.api.project.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1", json={"name": "  renamed  "})
+
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "renamed"
+    assert any(
+        call.args[0] == "UPDATE projects SET name = %s WHERE id = %s"
+        and call.args[1] == ("renamed", 1)
+        for call in cursor.execute.call_args_list
+    )
+
+
+def test_delete_project_cleans_children_and_external_assets():
+    """DELETE /projects/{id} — FK 자식 row와 suggestion, Chroma, 원본 파일을 정리한다."""
+    conn, cursor = _make_conn_sequence(
+        fetchone=[{"id": 1}],
+        fetchall=[
+            [{"id": 3, "file_path": "data/uploads/1/spec.md"}],
+            [{"id": 4}],
+        ],
+    )
+    collection = MagicMock()
+
+    with patch("backend.api.project.require_project_access"), \
+         patch("backend.api.project.get_connection", return_value=conn), \
+         patch("backend.db.chroma.get_collection", return_value=collection), \
+         patch("backend.api.project.delete_file") as delete_file:
+        resp = _client.delete("/api/v1/projects/1")
+
+    assert resp.status_code == 204
+    collection.delete.assert_called_once_with(where={"project_id": 1})
+    delete_file.assert_called_once_with("data/uploads/1/spec.md", strict=True)
+
+    sql_calls = [call.args[0] for call in cursor.execute.call_args_list]
+
+    def sql_index(fragment: str) -> int:
+        return next(i for i, sql in enumerate(sql_calls) if fragment in sql)
+
+    assert any("DELETE FROM memory_suggestions" in sql for sql in sql_calls)
+    assert any("DELETE ms FROM memory_sources" in sql for sql in sql_calls)
+    assert any("DELETE FROM chat_messages" in sql for sql in sql_calls)
+    assert any("DELETE FROM chat_summaries" in sql for sql in sql_calls)
+    assert sql_index("DELETE FROM memory_suggestions") < sql_index("DELETE FROM memory WHERE")
+    assert sql_index("DELETE FROM memory WHERE") < sql_index("DELETE FROM documents")
+    assert sql_index("DELETE FROM chat_messages") < sql_index("DELETE FROM chat_sessions")
+    assert sql_index("DELETE FROM project_members") < sql_index("DELETE FROM projects")
+    conn.commit.assert_called_once()
+
+
+def test_delete_project_missing_returns_404():
+    """DELETE /projects/{id} — 없는 프로젝트는 404를 반환한다."""
+    conn, _ = _make_conn(fetchone=None)
+    with patch("backend.api.project.require_project_access"), \
+         patch("backend.api.project.get_connection", return_value=conn):
+        resp = _client.delete("/api/v1/projects/404")
+
+    assert resp.status_code == 404
+
+
+def test_get_project_missing_returns_404():
+    """GET /projects/{id} — 삭제된 프로젝트 조회는 404로 수렴한다."""
+    conn, _ = _make_conn(fetchone=None)
+    with patch("backend.api.project.require_project_access"), \
+         patch("backend.api.project.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/404")
+
+    assert resp.status_code == 404
 
 
 # ── ensure_dev_user ────────────────────────────────────────────────

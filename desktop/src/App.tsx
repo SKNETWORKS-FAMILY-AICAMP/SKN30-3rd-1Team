@@ -1167,6 +1167,7 @@ export function App() {
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
   const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
+  const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
@@ -2514,6 +2515,38 @@ export function App() {
     }
   }
 
+  // 서버 프로젝트가 있으면 이름 변경을 저장하고, 실패 시 로컬 이름을 되돌린다.
+  async function syncProjectName(projectId: string, title: string, previousTitle: string) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    const project = projectsRef.current.find((currentProject) => currentProject.id === projectId);
+
+    if (!project || project.serverMissing || typeof project.apiProjectId !== "number") {
+      return;
+    }
+
+    try {
+      await fetchPaimJson<ApiProjectResponse>(`/projects/${project.apiProjectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: title }),
+      });
+    } catch (error) {
+      updateProject(projectId, (currentProject) => ({
+        ...currentProject,
+        name: previousTitle,
+        serverMissing:
+          isPaimApiError(error) && error.status === 404 ? true : currentProject.serverMissing,
+      }));
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "프로젝트 이름을 서버에 저장할 수 없습니다"),
+        scope: "overview",
+      });
+    }
+  }
+
   // 서버 세션이 있으면 삭제하고, 404는 이미 삭제된 상태로 본다.
   async function deleteServerChatSession(project: ProjectWorkspace, session: ChatSession) {
     if (!session.serverSessionId) {
@@ -2547,6 +2580,42 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "채팅 세션을 서버에서 삭제할 수 없습니다"),
+        scope: "overview",
+      });
+      return false;
+    }
+  }
+
+  // 서버 프로젝트가 있으면 먼저 DELETE하고, 404는 이미 삭제된 상태로 본다.
+  async function deleteServerProject(project: ProjectWorkspace) {
+    if (typeof project.apiProjectId !== "number") {
+      return true;
+    }
+
+    if (serverStatus === "offline") {
+      setDemoStatus({
+        ok: false,
+        message: "서버에 연결되지 않아 프로젝트를 삭제할 수 없습니다",
+        scope: "overview",
+      });
+      return false;
+    }
+
+    if (project.serverMissing) {
+      return true;
+    }
+
+    try {
+      await fetchPaimJson<void>(`/projects/${project.apiProjectId}`, { method: "DELETE" });
+      return true;
+    } catch (error) {
+      if (isPaimApiError(error) && error.status === 404) {
+        return true;
+      }
+
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "프로젝트를 서버에서 삭제할 수 없습니다"),
         scope: "overview",
       });
       return false;
@@ -3610,6 +3679,7 @@ export function App() {
     }
 
     setRenameDraft({ type: "project", projectId, value: targetProject.name });
+    setPendingDeleteProjectId(null);
     setOpenActionMenu(null);
   }
 
@@ -3641,10 +3711,14 @@ export function App() {
     }
 
     if (renameDraft.type === "project") {
+      const targetProject = projects.find((project) => project.id === renameDraft.projectId);
+      const previousName = targetProject?.name ?? nextValue;
+
       updateProject(renameDraft.projectId, (project) => ({
         ...project,
         name: nextValue,
       }));
+      void syncProjectName(renameDraft.projectId, nextValue, previousName);
     } else {
       updateSessionInProject(renameDraft.projectId, renameDraft.sessionId, (session) => ({
         ...session,
@@ -3810,34 +3884,54 @@ export function App() {
   }
 
   // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
-  function handleDeleteProject(projectId: string, event: MouseEvent<HTMLButtonElement>) {
-    const remainingProjects = projects.filter((project) => project.id !== projectId);
-
+  async function handleDeleteProject(projectId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
 
-    if (remainingProjects.length === projects.length) {
+    const targetProject = projects.find((project) => project.id === projectId);
+
+    if (!targetProject) {
       return;
     }
 
-    if (remainingProjects.length === 0) {
-      setProjects([]);
-      setSelectedProjectId(null);
-      setSelectedSessionId(null);
-      setIsSending(false);
-      setOpenActionMenu(null);
-      clearDraft();
+    if (pendingDeleteProjectId !== projectId) {
+      setPendingDeleteProjectId(projectId);
+      setDemoStatus({
+        ok: false,
+        message:
+          typeof targetProject.apiProjectId === "number"
+            ? "한 번 더 누르면 서버의 문서·메모리·채팅까지 삭제됩니다"
+            : "한 번 더 누르면 로컬 프로젝트를 삭제합니다",
+        scope: "overview",
+      });
       return;
     }
 
-    setProjects(remainingProjects);
-
-    if (projectId === selectedProjectId) {
-      setSelectedProjectId(remainingProjects[0].id);
-      setSelectedSessionId(remainingProjects[0].sessions[0]?.id ?? null);
-      clearDraft();
+    if (!(await deleteServerProject(targetProject))) {
+      return;
     }
 
+    const currentProjects = projectsRef.current;
+    const remainingProjects = currentProjects.filter((project) => project.id !== projectId);
+
+    if (remainingProjects.length === currentProjects.length) {
+      return;
+    }
+
+    const wasSelected = projectId === selectedProjectIdRef.current;
+    const nextState = createProjectState(
+      remainingProjects,
+      selectedProjectIdRef.current,
+      selectedSessionIdRef.current,
+    );
+
+    applyProjectState(nextState);
+    setPendingDeleteProjectId(null);
+    setIsSending(false);
     setOpenActionMenu(null);
+
+    if (wasSelected) {
+      clearDraft();
+    }
   }
 
   // 렌더링이 끝난 뒤 채팅 입력창으로 포커스를 복원한다.
@@ -4351,11 +4445,11 @@ export function App() {
                 <button
                   className="danger"
                   data-action="delete-project"
-                  onClick={(event) => handleDeleteProject(actionMenuProject.id, event)}
+                  onClick={(event) => void handleDeleteProject(actionMenuProject.id, event)}
                   role="menuitem"
                   type="button"
                 >
-                  Delete
+                  {pendingDeleteProjectId === actionMenuProject.id ? "Delete again" : "Delete"}
                 </button>
               </>
             ) : actionMenuSession ? (
