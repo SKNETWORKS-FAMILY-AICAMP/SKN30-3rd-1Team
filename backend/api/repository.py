@@ -174,6 +174,16 @@ def _collect_repo_sources(
     return sources, latest_sha, warnings
 
 
+def _extract_source_kind(source_type: str | None) -> str:
+    """repo 수집 source_type을 extractor 전용 지침 키로 바꾼다."""
+    return {
+        "readme": "repo_readme",
+        "commits": "repo_commits",
+        "issues": "repo_issues",
+        "pulls": "repo_prs",
+    }.get(source_type or "", "document")
+
+
 def _summarize_pr_body(body: str | None) -> str:
     """PR 본문을 Reconciler 입력용 짧은 요약 필드로 줄인다."""
     text = (body or "").strip()
@@ -372,7 +382,11 @@ def _sync_bg(project_id: int, repo_id: int, full_name: str, branch: str, token: 
             if not content or not content.strip():
                 continue
             try:
-                items = extract(content, default_source=source_name)
+                items = extract(
+                    content,
+                    default_source=source_name,
+                    source_kind=_extract_source_kind(src_metadata.get("source_type")),
+                )
             except Exception:
                 logger.warning("extract 실패 — source=%s repo_id=%s", source_name, repo_id, exc_info=True)
                 items = []

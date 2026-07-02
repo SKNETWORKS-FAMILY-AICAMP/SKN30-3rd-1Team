@@ -90,6 +90,17 @@ def _split_text(text: str) -> List[str]:
     return chunks
 
 
+def _completed_at_sql(item: MemoryItem, item_date: Optional[str], source_date: str) -> tuple[str, list]:
+    """completed=true 항목의 완료 시각 SQL 조각을 만든다."""
+    if not item.completed:
+        return "%s", [None]
+
+    completed_date = item_date or _normalize_date(source_date)
+    if completed_date:
+        return "%s", [f"{completed_date} 00:00:00"]
+    return "NOW()", []
+
+
 def _insert_memory_source(
     cursor,
     memory_id: int,
@@ -142,22 +153,24 @@ def ingest(
         with conn.cursor() as cursor:
             for item in items:
                 item_date = _normalize_date(item.date)
+                completed_sql, completed_params = _completed_at_sql(item, item_date, date)
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO memory
                         (project_id, doc_id, repo_id, category, content,
-                         reason, topic, owner, date, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         reason, topic, owner, date, source, completed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {completed_sql})
                     """,
-                    (
+                    [
                         project_id, doc_id, repo_id,
                         item.category, item.content,
                         item.reason, item.topic,
                         item.owner, item_date,
                         source,
-                    ),
+                    ] + completed_params,
                 )
                 memory_id = cursor.lastrowid
+                completed_at = completed_params[0] if completed_params else "NOW"
                 _insert_memory_source(cursor, memory_id, doc_id, repo_id, source_metadata)
                 memory_rows.append({
                     "id": memory_id,
@@ -171,7 +184,7 @@ def ingest(
                     "owner": item.owner,
                     "date": item_date,
                     "due_date": None,
-                    "completed_at": None,
+                    "completed_at": completed_at if item.completed else None,
                     "source": source,
                 })
         conn.commit()

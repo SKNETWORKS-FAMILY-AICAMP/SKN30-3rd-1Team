@@ -3,6 +3,8 @@ import base64
 from unittest.mock import patch, MagicMock, call
 
 from backend.api.repository import _collect_merged_prs, _collect_repo_sources, _sync_bg
+from backend.llm.base import LLMResponse
+from backend.pipeline.extractor import extract
 from backend.pipeline.ingestor import ingest
 from backend.pipeline.models import MemoryItem
 from backend.retriever.mysql_search import search
@@ -17,6 +19,16 @@ def _make_conn(lastrowid=10):
     conn.cursor.return_value.__enter__.return_value = cursor
     conn.cursor.return_value.__exit__.return_value = False
     return conn, cursor
+
+
+class _FakeExtractorClient:
+    def __init__(self, items=None):
+        self.system = ""
+        self.items = items or []
+
+    def chat(self, messages, system=None, tool_schema=None, tool_name=None):
+        self.system = system or ""
+        return LLMResponse(content="", tool_input={"items": self.items})
 
 
 # ── ingest() memory_sources INSERT ───────────────────────────────
@@ -85,6 +97,81 @@ def test_ingest_source_metadata_in_chroma():
     assert metadatas[0]["source_kind"] == "repository"
     assert metadatas[0]["source_type"] == "readme"
     assert metadatas[0]["source_ref"] == "abc1234"
+
+
+def test_ingest_completed_item_sets_completed_at_from_item_date():
+    """completed=true 항목은 item.date 기준 completed_at을 저장한다."""
+    item = MemoryItem(
+        category="action",
+        content="FastAPI backend implemented",
+        date="2026-07-02",
+        completed=True,
+    )
+    conn, cursor = _make_conn(lastrowid=2)
+    with patch("backend.pipeline.ingestor.get_connection", return_value=conn), \
+         patch("backend.pipeline.ingestor.upsert_memory_vectors"), \
+         patch("backend.pipeline.ingestor.get_collection") as mock_coll:
+        mock_coll.return_value.add = MagicMock()
+        ingest(
+            project_id=1,
+            doc_id=None,
+            repo_id=3,
+            items=[item],
+            raw_text="commit text",
+            source="commits.txt",
+            date="",
+            doc_type="repository",
+        )
+
+    insert_call = cursor.execute.call_args_list[0]
+    assert "completed_at" in insert_call.args[0]
+    assert insert_call.args[1][-1] == "2026-07-02 00:00:00"
+
+
+def test_extractor_adds_repo_readme_rules_without_changing_document_prompt(monkeypatch):
+    """document는 기존 프롬프트, repo_readme는 README 전용 금지 규칙을 추가한다."""
+    doc_client = _FakeExtractorClient()
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: doc_client)
+    extract("설치: npm install", default_source="meeting.md")
+    assert "Do not extract installation steps" not in doc_client.system
+
+    readme_client = _FakeExtractorClient()
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: readme_client)
+    extract("설치: npm install", default_source="README.md", source_kind="repo_readme")
+    assert "Do not extract installation steps" in readme_client.system
+
+
+def test_extractor_repo_commits_prompt_marks_actions_completed(monkeypatch):
+    """repo_commits 지침은 커밋 action을 completed=true로 표기하게 한다."""
+    client = _FakeExtractorClient()
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: client)
+    extract("[abc1234] 2026-07-02: implement settings", default_source="commits.txt", source_kind="repo_commits")
+    assert "completed must be true" in client.system
+
+
+def test_extractor_filters_readme_setup_actions(monkeypatch):
+    """README 설치·실행 지시문이 action으로 새어 나오면 저장 전 제거한다."""
+    client = _FakeExtractorClient(items=[
+        {"category": "action", "content": "Docker로 MySQL 8.0을 실행하겠습니다", "topic": "DB 실행"},
+        {"category": "decision", "content": "FastAPI를 백엔드로 사용하기로 결정함", "topic": "기술스택"},
+    ])
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: client)
+
+    items = extract("README setup", default_source="README.md", source_kind="repo_readme")
+
+    assert [item.category for item in items] == ["decision"]
+
+
+def test_extractor_forces_commit_actions_completed(monkeypatch):
+    """커밋에서 action이 추출되면 LLM 누락과 무관하게 completed=true로 보정한다."""
+    client = _FakeExtractorClient(items=[
+        {"category": "action", "content": "settings 화면을 구현함", "topic": "설정", "completed": False},
+    ])
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: client)
+
+    items = extract("[abc1234] 2026-07-02: implement settings", default_source="commits.txt", source_kind="repo_commits")
+
+    assert items[0].completed is True
 
 
 # ── _collect_repo_sources 반환 형태 ──────────────────────────────
@@ -156,10 +243,11 @@ def test_sync_bg_passes_source_metadata_to_ingest():
          patch("backend.api.repository._clear_repo_indexed_data"), \
          patch("backend.api.repository._set_repo_status"), \
          patch("backend.api.repository.reconcile_repository_prs"), \
-         patch("backend.pipeline.extractor.extract", return_value=[]), \
+         patch("backend.pipeline.extractor.extract", return_value=[]) as mock_extract, \
          patch("backend.pipeline.ingestor.ingest") as mock_ingest:
         _sync_bg(project_id=1, repo_id=10, full_name="owner/repo", branch="main", token=None)
 
+    assert mock_extract.call_args.kwargs["source_kind"] == "repo_readme"
     assert mock_ingest.called
     kwargs = mock_ingest.call_args.kwargs
     assert "source_metadata" in kwargs
