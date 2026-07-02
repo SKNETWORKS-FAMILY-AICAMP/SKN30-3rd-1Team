@@ -1,10 +1,10 @@
 from typing import List, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from ..retriever.qa_engine import answer
 from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
+from ..graph import update_project_memory, run_qa
 from .upload import _delete_document
 from .auth import require_project_access
 
@@ -28,8 +28,10 @@ def query(project_id: int, body: QueryRequest):
     finally:
         conn.close()
 
+    # 출력 그래프(run_qa) 실행 → {answer, plan, sources, debug}
+    # 기존 answer()와 달리 프로젝트 메모리 읽기 + 자동 todo(plan) + 검증 루프가 포함된다.
     try:
-        return answer(
+        return run_qa(
             project_id=project_id,
             question=body.question,
             history=body.history,
@@ -82,6 +84,15 @@ def upload_git_log(project_id: int, body: GitLogUpload):
     except Exception:
         _delete_document(doc_id)
         raise
+
+    # 프로젝트 메모리 갱신 (best-effort — 요약 실패해도 업로드는 성공 처리)
+    try:
+        update_project_memory(project_id, items)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "프로젝트 메모리 갱신 실패 (git 업로드는 성공): project_id=%s", project_id, exc_info=True
+        )
 
     counts = {"decision": 0, "action": 0, "issue": 0, "risk": 0}
     for item in items:

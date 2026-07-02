@@ -120,3 +120,10 @@ CREATE TABLE IF NOT EXISTS chat_summaries (
     updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES chat_sessions(id)
 );
+
+CREATE TABLE IF NOT EXISTS project_memory (
+    project_id INT PRIMARY KEY,
+    summary    TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+);

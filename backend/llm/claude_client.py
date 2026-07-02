@@ -14,6 +14,7 @@ class ClaudeClient(BaseLLMClient):
         kwargs = {
             "model":      self.model,
             "max_tokens": self.max_tokens,
+            "temperature": 0,  # 구조화 추출은 결정적이어야 하므로 0 고정 (qa_engine 생성 체인과 동일)
             "messages":   [{"role": m.role, "content": m.content} for m in messages],
         }
         if system:

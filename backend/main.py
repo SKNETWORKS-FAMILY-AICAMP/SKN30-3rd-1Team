@@ -58,4 +58,12 @@ def health():
 
 def serve():
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    # 로컬 데스크톱 전용 백엔드 — LAN 노출을 막기 위해 127.0.0.1에만 바인딩한다.
+    # reload는 파일 감시용 개발 옵션. 굳힌 sidecar 실행파일에서는 서브프로세스를 못 띄워
+    # 오작동하므로, 개발 중에만 PAIM_DEV_RELOAD=1로 켠다.
+    uvicorn.run(
+        "backend.main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=os.getenv("PAIM_DEV_RELOAD") == "1",
+    )

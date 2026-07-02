@@ -160,7 +160,15 @@ BEGIN
         INDEX idx_memory_sources_repo_id   (repo_id)
     );
 
-    -- ── 8) 채팅 세션 테이블 (기존 DB에 없는 경우 생성) ─────────────────
+    -- ── 8) project_memory 테이블 (graph.py 런타임 DDL 정식 등록) ────────
+    CREATE TABLE IF NOT EXISTS project_memory (
+        project_id INT PRIMARY KEY,
+        summary    TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id)
+    );
+
+    -- ── 9) 채팅 세션 테이블 (기존 DB에 없는 경우 생성) ─────────────────
     CREATE TABLE IF NOT EXISTS chat_sessions (
         id         VARCHAR(64) PRIMARY KEY,
         project_id INT NOT NULL,

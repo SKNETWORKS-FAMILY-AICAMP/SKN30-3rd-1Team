@@ -32,7 +32,8 @@ _MEMORY_DDL = """
 CREATE TABLE IF NOT EXISTS project_memory (
     project_id INT PRIMARY KEY,
     summary    TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
 )
 """
 
@@ -108,10 +109,18 @@ def store_node(state: IngestState) -> dict:
     return {"doc_id": doc_id, "items": items}
 
 
-def memory_node(state: IngestState) -> dict:
-    """메모리 에이전트: 기존 요약 + 이번 문서 항목을 LLM으로 응축해 프로젝트 요약 갱신."""
-    prev = get_project_memory(state["project_id"])
-    new_items = "\n".join(f"[{it.category}] {it.content}" for it in state.get("items", []))
+def update_project_memory(project_id: int, items: list) -> str:
+    """적재 성공 후 호출하는 재사용 함수.
+    기존 프로젝트 요약과 이번에 새로 추출된 항목(items)을 LLM으로 응축해
+    프로젝트 요약을 갱신하고, 갱신된 요약 문자열을 반환한다.
+
+    주의(best-effort): 이 함수는 실패 시 예외를 던진다. 업로드 흐름에서 호출하는 쪽이
+    try/except로 감싸, 요약 실패가 업로드 자체를 실패로 만들지 않도록 처리해야 한다.
+    """
+    prev = get_project_memory(project_id)
+    if not items:
+        return prev
+    new_items = "\n".join(f"[{it.category}] {it.content}" for it in items)
     llm = qa_engine._make_llm()
     prompt = (
         "다음은 프로젝트의 기존 요약과 새로 추가된 항목이다. "
@@ -119,7 +128,13 @@ def memory_node(state: IngestState) -> dict:
         f"[기존 요약]\n{prev or '(없음)'}\n\n[새 항목]\n{new_items or '(없음)'}"
     )
     summary = llm.invoke(prompt).content
-    upsert_project_memory(state["project_id"], summary)
+    upsert_project_memory(project_id, summary)
+    return summary
+
+
+def memory_node(state: IngestState) -> dict:
+    """메모리 에이전트: 재사용 함수(update_project_memory)로 프로젝트 요약 갱신."""
+    summary = update_project_memory(state["project_id"], state.get("items", []))
     return {"project_summary": summary}
 
 
@@ -211,14 +226,23 @@ def route_after_answer(state: QAState) -> str:
 
 
 def plan_node(state: QAState) -> dict:
-    """계획 에이전트: 답변을 근거로 다음 할 일(todo) 목록 기획."""
+    """계획 에이전트: 답변을 근거로 다음 할 일(todo) 목록 기획.
+    best-effort: plan 생성용 LLM 호출이 실패해도 빈 plan을 반환한다. plan은 부가기능이므로,
+    실패가 그래프 전체를 죽여 이미 생성된 답변까지 잃게 만들면 안 된다."""
     llm = qa_engine._make_llm()
     prompt = (
         "아래 답변을 근거로 프로젝트에서 다음에 해야 할 구체적 todo를 3개 이내로 제안하라. "
         "각 줄을 '- '로 시작하는 한 줄 액션으로만 작성하고, 근거가 부족하면 아무것도 쓰지 마라.\n\n"
         f"[답변]\n{state.get('answer', '')}"
     )
-    text = llm.invoke(prompt).content
+    try:
+        text = llm.invoke(prompt).content
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning(
+            "plan 생성 실패 (답변은 유지): project_id=%s", state.get("project_id"), exc_info=True
+        )
+        return {"plan": []}
     plan = [ln.lstrip("-").strip() for ln in text.splitlines() if ln.strip().startswith("-")]
     return {"plan": plan}
 
@@ -241,11 +265,14 @@ def route_after_plan(state: QAState) -> str:
 
 
 def respond_node(state: QAState) -> dict:
-    """응답 조립: 답변 + todo plan + 출처 + 디버그."""
+    """응답 조립: 답변 + todo plan + 출처 + 디버그.
+    route는 기존 answer() 응답과의 하위호환용으로 항상 "both"를 유지한다
+    (옛 계약 {answer, sources, route, debug}에 맞춰 짠 프론트가 안 깨지도록 상위집합 보장)."""
     return {"result": {
         "answer": state.get("answer", ""),
         "plan": state.get("plan", []),
         "sources": state.get("sources", []),
+        "route": "both",
         "debug": state.get("debug", {}),
     }}
 
