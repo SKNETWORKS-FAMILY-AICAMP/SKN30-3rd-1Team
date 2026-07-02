@@ -1,19 +1,12 @@
+import { Check, GripVertical, Pencil, RefreshCw, Save, Trash2, X } from "lucide-react";
 import {
-  AlertTriangle,
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  FileText,
-  Flame,
-  GripVertical,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Trash2,
-  X,
-} from "lucide-react";
-import { type DragEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+  Fragment,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { fetchPaimJson, getErrorMessage, isPaimApiError } from "./paimApi";
 import type {
@@ -45,38 +38,41 @@ type MemoryPatchPayload = {
   sort_order?: number | null;
 };
 
+type ActionDropPlacement = "before" | "after";
+
+type ActionDropTarget = {
+  id: number;
+  placement: ActionDropPlacement;
+};
+
 const SUMMARY_ITEM_LIMIT = 5;
+const MANAGE_DECISION_LIMIT = 8;
 const MEMORY_CATEGORIES: ProjectMemoryCategory[] = ["action", "decision", "issue", "risk"];
 const EDITABLE_MEMORY_FIELDS = ["content", "owner", "date"] as const;
 const MEMORY_CATEGORY_META: Record<
   ProjectMemoryCategory,
   {
-    Icon: typeof Check;
     empty: string;
     label: string;
     tone: MemoryTone;
   }
 > = {
   decision: {
-    Icon: Check,
     empty: "서버에 저장된 결정사항이 없습니다",
     label: "Decision",
     tone: "decision",
   },
   action: {
-    Icon: ArrowRight,
     empty: "서버에 저장된 액션이 없습니다",
     label: "Action",
     tone: "action",
   },
   issue: {
-    Icon: AlertTriangle,
     empty: "서버에 저장된 이슈가 없습니다",
     label: "Issue",
     tone: "issue",
   },
   risk: {
-    Icon: Flame,
     empty: "서버에 저장된 리스크가 없습니다",
     label: "Risk",
     tone: "risk",
@@ -119,6 +115,18 @@ function formatMemoryDate(value?: string | null) {
   return value.split("T")[0] || value;
 }
 
+function formatCompactMemoryDate(value?: string | null) {
+  const normalizedDate = formatMemoryDate(value);
+
+  if (!normalizedDate) {
+    return "";
+  }
+
+  const [, month, day] = normalizedDate.split("-");
+
+  return month && day ? `${Number(month)}/${Number(day)}` : normalizedDate;
+}
+
 function getTodayDateString() {
   const today = new Date();
   const year = today.getFullYear();
@@ -129,21 +137,70 @@ function getTodayDateString() {
 }
 
 function formatActionDueDate(value?: string | null) {
-  const normalizedDate = formatMemoryDate(value);
+  const compactDate = formatCompactMemoryDate(value);
 
-  if (!normalizedDate) {
+  if (!compactDate) {
     return "";
   }
 
-  const [, month, day] = normalizedDate.split("-");
+  return `~ ${compactDate}`;
+}
 
-  return month && day ? `~ ${month}.${day}` : `~ ${normalizedDate}`;
+function formatActionCompletedDate(value?: string | null) {
+  const compactDate = formatCompactMemoryDate(value);
+
+  return compactDate ? `${compactDate} 완료` : "";
 }
 
 function isActionOverdue(item: ProjectMemoryItem) {
   const dueDate = formatMemoryDate(item.date);
 
   return Boolean(dueDate) && !isMemoryItemCompleted(item) && dueDate < getTodayDateString();
+}
+
+function getActionDropTarget(clientX: number, clientY: number): ActionDropTarget | null {
+  const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-action-id]"));
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const firstRect = rows[0].getBoundingClientRect();
+  const lastRect = rows[rows.length - 1].getBoundingClientRect();
+  const bottomDropPadding = Math.max(64, lastRect.height * 1.5);
+  const left = Math.min(...rows.map((row) => row.getBoundingClientRect().left));
+  const right = Math.max(...rows.map((row) => row.getBoundingClientRect().right));
+
+  if (
+    clientX < left ||
+    clientX > right ||
+    clientY < firstRect.top - 12 ||
+    clientY > lastRect.bottom + bottomDropPadding
+  ) {
+    return null;
+  }
+
+  let row = rows.find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+
+    return clientY >= rect.top && clientY <= rect.bottom;
+  });
+
+  if (!row) {
+    row = clientY > lastRect.bottom ? rows[rows.length - 1] : rows[0];
+  }
+
+  const rect = row.getBoundingClientRect();
+  const rawId = Number(row.dataset.actionId);
+
+  if (!Number.isFinite(rawId)) {
+    return null;
+  }
+
+  return {
+    id: rawId,
+    placement: clientY > rect.top + rect.height / 2 ? "after" : "before",
+  };
 }
 
 function getActionDisplayItems(items: ProjectMemoryItem[]) {
@@ -241,6 +298,59 @@ function getMemoryItemKey(item: ProjectMemoryItem, index: number) {
   return `${item.id}-${item.category}-${index}`;
 }
 
+function getActionMetaParts(item: ProjectMemoryItem) {
+  const completedAt = formatActionCompletedDate(item.completed_at);
+  const dueDateLabel = formatActionDueDate(item.date);
+  const parts: Array<{
+    isOverdue?: boolean;
+    isVerified?: boolean;
+    key: string;
+    label: string;
+  }> = [];
+
+  if (isMemoryItemVerified(item)) {
+    parts.push({ isVerified: true, key: "verified", label: "✓ 검증됨" });
+  }
+
+  if (item.owner && !completedAt) {
+    parts.push({ key: "owner", label: `담당 ${item.owner}` });
+  }
+
+  if (completedAt) {
+    parts.push({ key: "completed", label: completedAt });
+  } else if (dueDateLabel) {
+    parts.push({
+      isOverdue: isActionOverdue(item),
+      key: "due",
+      label: isActionOverdue(item) ? `${dueDateLabel} 지남` : dueDateLabel,
+    });
+  }
+
+  return parts;
+}
+
+function renderMetaParts(parts: ReturnType<typeof getActionMetaParts>) {
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      {parts.map((part, index) => (
+        <Fragment key={part.key}>
+          {index > 0 ? <i>·</i> : null}
+          <em
+            data-overdue={part.isOverdue ? "true" : undefined}
+            data-verified={part.isVerified ? "true" : undefined}
+          >
+            {part.label}
+          </em>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 function MemoryItemRows({
   category,
   items,
@@ -314,11 +424,17 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   const [isReordering, setIsReordering] = useState(false);
   const [draggingActionId, setDraggingActionId] = useState<number | null>(null);
   const [dragOverActionId, setDragOverActionId] = useState<number | null>(null);
+  const [dragOverPlacement, setDragOverPlacement] = useState<ActionDropPlacement | null>(null);
+  const [dragPreview, setDragPreview] = useState<{ content: string; x: number; y: number } | null>(null);
+  const [showAllDecisions, setShowAllDecisions] = useState(false);
   const apiProjectId = project.apiProjectId;
   const groupedItems = useMemo(() => groupMemoryItems(memoryItems), [memoryItems]);
   const actionItems = useMemo(() => getActionDisplayItems(groupedItems.action), [groupedItems]);
   const actionTodoItems = useMemo(() => getActionTodoItems(groupedItems.action), [groupedItems]);
   const actionCompletedCount = groupedItems.action.filter(isMemoryItemCompleted).length;
+  const actionCompletionPercent = groupedItems.action.length > 0
+    ? Math.round((actionCompletedCount / groupedItems.action.length) * 100)
+    : 0;
   const totalCount = memoryItems.length;
   const showManageUi = isMaximized && canManage && typeof apiProjectId === "number";
 
@@ -390,7 +506,52 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     setOperationError("");
     setDraggingActionId(null);
     setDragOverActionId(null);
+    setDragOverPlacement(null);
+    setDragPreview(null);
+    setShowAllDecisions(false);
   }, [apiProjectId, isMaximized]);
+
+  useEffect(() => {
+    if (draggingActionId === null) {
+      return;
+    }
+
+    const sourceId = draggingActionId;
+
+    function handlePointerMove(event: PointerEvent) {
+      const target = getActionDropTarget(event.clientX, event.clientY);
+
+      setDragPreview((current) =>
+        current ? { ...current, x: event.clientX, y: event.clientY } : current,
+      );
+      setDragOverActionId(target && target.id !== sourceId ? target.id : null);
+      setDragOverPlacement(target && target.id !== sourceId ? target.placement : null);
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      const target = getActionDropTarget(event.clientX, event.clientY) ??
+        (dragOverActionId !== null && dragOverPlacement !== null
+          ? { id: dragOverActionId, placement: dragOverPlacement }
+          : null);
+
+      setDraggingActionId(null);
+      setDragOverActionId(null);
+      setDragOverPlacement(null);
+      setDragPreview(null);
+
+      if (target && target.id !== sourceId) {
+        void reorderActionItems(sourceId, target);
+      }
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [draggingActionId, dragOverActionId, dragOverPlacement, actionTodoItems, memoryItems]);
 
   function startEdit(item: ProjectMemoryItem) {
     setEditingItemId(item.id);
@@ -546,20 +707,27 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     }
   }
 
-  async function reorderActionItems(sourceId: number, targetId: number) {
+  async function reorderActionItems(sourceId: number, target: ActionDropTarget) {
     if (typeof apiProjectId !== "number") {
       return;
     }
 
     const currentIndex = actionTodoItems.findIndex((candidate) => candidate.id === sourceId);
-    const nextIndex = actionTodoItems.findIndex((candidate) => candidate.id === targetId);
+    const targetIndex = actionTodoItems.findIndex((candidate) => candidate.id === target.id);
 
-    if (currentIndex < 0 || nextIndex < 0 || currentIndex === nextIndex) {
+    if (currentIndex < 0 || targetIndex < 0) {
       return;
     }
 
     const reorderedItems = [...actionTodoItems];
     const [movedItem] = reorderedItems.splice(currentIndex, 1);
+    let nextIndex = target.placement === "after" ? targetIndex + 1 : targetIndex;
+
+    if (currentIndex < nextIndex) {
+      nextIndex -= 1;
+    }
+
+    nextIndex = Math.max(0, Math.min(nextIndex, reorderedItems.length));
     reorderedItems.splice(nextIndex, 0, movedItem);
     const nextOrders = new Map(reorderedItems.map((candidate, index) => [candidate.id, index + 1]));
     const changedItems = reorderedItems
@@ -604,40 +772,19 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     }
   }
 
-  function handleActionDragStart(event: DragEvent<HTMLDivElement>, item: ProjectMemoryItem) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", String(item.id));
+  function handleActionPointerDown(
+    event: ReactPointerEvent<HTMLSpanElement>,
+    item: ProjectMemoryItem,
+  ) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
     setDraggingActionId(item.id);
     setDragOverActionId(null);
-  }
-
-  function handleActionDragOver(event: DragEvent<HTMLDivElement>, item: ProjectMemoryItem) {
-    if (draggingActionId === null || draggingActionId === item.id) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDragOverActionId(item.id);
-  }
-
-  function handleActionDragEnd() {
-    setDraggingActionId(null);
-    setDragOverActionId(null);
-  }
-
-  async function handleActionDrop(event: DragEvent<HTMLDivElement>, item: ProjectMemoryItem) {
-    event.preventDefault();
-
-    const sourceId = Number(event.dataTransfer.getData("text/plain") || draggingActionId);
-    setDraggingActionId(null);
-    setDragOverActionId(null);
-
-    if (!Number.isFinite(sourceId)) {
-      return;
-    }
-
-    await reorderActionItems(sourceId, item.id);
+    setDragOverPlacement(null);
+    setDragPreview({ content: item.content, x: event.clientX, y: event.clientY });
   }
 
   function renderDraftFields(
@@ -706,23 +853,16 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     );
   }
 
-  function renderActionTags(item: ProjectMemoryItem) {
-    const dueDateLabel = formatActionDueDate(item.date);
-    const completedAt = formatMemoryDate(item.completed_at);
+  function renderActionMeta(item: ProjectMemoryItem) {
+    const parts = getActionMetaParts(item);
 
-    if (!item.owner && !dueDateLabel && !completedAt) {
+    if (parts.length === 0) {
       return null;
     }
 
     return (
-      <div className="project-memory-action-tags">
-        {item.owner ? <span>담당 {item.owner}</span> : null}
-        {dueDateLabel ? (
-          <span data-overdue={isActionOverdue(item) ? "true" : undefined}>
-            {dueDateLabel}
-          </span>
-        ) : null}
-        {completedAt ? <span>완료 {completedAt}</span> : null}
+      <div className="project-memory-action-meta project-memory-meta">
+        {renderMetaParts(parts)}
       </div>
     );
   }
@@ -767,41 +907,50 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
     return (
       <div
         className="project-memory-manage-item"
+        data-action-id={canDragAction ? item.id : undefined}
         data-action={isAction ? "true" : undefined}
+        data-bullet={!isAction ? "true" : undefined}
         data-completed={completed}
+        data-draggable={canDragAction ? "true" : undefined}
         data-drag-over={dragOverActionId === item.id ? "true" : undefined}
+        data-drag-placement={dragOverActionId === item.id ? dragOverPlacement ?? undefined : undefined}
         data-dragging={draggingActionId === item.id ? "true" : undefined}
-        draggable={canDragAction}
         key={item.id}
-        onDragEnd={canDragAction ? handleActionDragEnd : undefined}
-        onDragOver={canDragAction ? (event) => handleActionDragOver(event, item) : undefined}
-        onDragStart={canDragAction ? (event) => handleActionDragStart(event, item) : undefined}
-        onDrop={canDragAction ? (event) => void handleActionDrop(event, item) : undefined}
       >
         {isAction ? (
           <input
             aria-label={`${item.content} 완료`}
             checked={completed}
+            className="project-memory-check-circle"
             disabled={saving}
             onChange={() => void handleToggleCompleted(item)}
             type="checkbox"
           />
-        ) : null}
+        ) : (
+          <span className="project-memory-bullet">·</span>
+        )}
         <div className="project-memory-manage-copy">
           <p title={item.content}>{item.content}</p>
           <div className="project-memory-manage-meta">
-            {verified ? (
-              <span className="project-memory-verified-badge">
-                <CheckCircle2 size={11} />
-                검증됨
-              </span>
-            ) : null}
-            {isAction ? renderActionTags(item) : meta ? <span>{meta}</span> : null}
+            {isAction ? (
+              renderActionMeta(item)
+            ) : (
+              <>
+                {verified ? <em data-verified="true">✓ 검증됨</em> : null}
+                {verified && meta ? <i>·</i> : null}
+                {meta ? <span>{meta}</span> : null}
+              </>
+            )}
           </div>
         </div>
         <div className="project-memory-item-actions">
           {canDragAction ? (
-            <span className="project-memory-drag-handle" aria-hidden="true" title="드래그로 순서 변경">
+            <span
+              className="project-memory-drag-handle"
+              aria-hidden="true"
+              onPointerDown={(event) => handleActionPointerDown(event, item)}
+              title="드래그로 순서 변경"
+            >
               <GripVertical size={13} />
             </span>
           ) : null}
@@ -830,35 +979,69 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   }
 
   function renderManageSection(category: ProjectMemoryCategory) {
-    const { Icon, label, tone } = MEMORY_CATEGORY_META[category];
-    const items = category === "action" ? actionItems : groupedItems[category];
+    const { label, tone } = MEMORY_CATEGORY_META[category];
+    const allItems = category === "action" ? actionItems : groupedItems[category];
+    const shouldLimitDecision = category === "decision" && !showAllDecisions;
+    const items = shouldLimitDecision ? allItems.slice(0, MANAGE_DECISION_LIMIT) : allItems;
+    const hiddenDecisionCount = Math.max(allItems.length - items.length, 0);
 
     return (
-      <article className="overview-memory-card" data-tone={tone} key={category}>
+      <article className="project-memory-manage-section" data-tone={tone} key={category}>
         <div className="project-memory-manage-label">
-          <div className="overview-memory-label">
-            <Icon size={13} />
-            <span>{label}</span>
-            <small>{groupedItems[category].length}</small>
-          </div>
+          <h2 data-tone={tone}>{label}</h2>
+          <small>
+            {category === "action" && groupedItems.action.length > 0
+              ? `완료 ${actionCompletedCount}/${groupedItems.action.length}`
+              : groupedItems[category].length}
+          </small>
+          <span className="project-memory-label-spacer" />
           <button
             disabled={isAdding || addingCategory === category}
             onClick={() => startAdd(category)}
             type="button"
           >
-            <Plus size={13} />
-            추가
+            ＋ 추가
           </button>
         </div>
         {addingCategory === category ? renderAddForm(category) : null}
         <div className="project-memory-manage-list">
-          {items.length === 0 ? (
+          {allItems.length === 0 ? (
             <p className="project-memory-empty-row">{MEMORY_CATEGORY_META[category].empty}</p>
           ) : (
             items.map((item) => renderMemoryItem(item, category))
           )}
         </div>
+        {category === "decision" && (hiddenDecisionCount > 0 || showAllDecisions) ? (
+          <button
+            className="project-memory-more-button"
+            onClick={() => setShowAllDecisions((current) => !current)}
+            type="button"
+          >
+            {showAllDecisions ? "접기" : `외 ${hiddenDecisionCount}개 모두 보기`}
+          </button>
+        ) : null}
       </article>
+    );
+  }
+
+  function renderStatsStrip() {
+    return (
+      <div className="project-memory-stats" aria-label="프로젝트 메모리 요약">
+        {MEMORY_CATEGORIES.map((category) => (
+          <div className="project-memory-stat" data-tone={category} key={category}>
+            <strong>{groupedItems[category].length}</strong>
+            <span>{MEMORY_CATEGORY_META[category].label}</span>
+            {category === "action" ? (
+              <div
+                className="project-memory-action-progress"
+                title={`완료 ${actionCompletedCount}/${groupedItems.action.length}`}
+              >
+                <i style={{ width: `${actionCompletionPercent}%` }} />
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
     );
   }
 
@@ -872,23 +1055,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
               ? "서버 분석 결과로 저장된 프로젝트 메모리를 표시합니다"
               : "FastAPI 프로젝트 연결 후 메모리를 표시합니다"}
           </p>
-          {!isMaximized ? (
-            <div className="project-memory-summary-row">
-              {MEMORY_CATEGORIES.map((category) => (
-                <span
-                  className="project-memory-summary-stat"
-                  data-tone={category}
-                  key={category}
-                >
-                  <strong>{groupedItems[category].length}</strong>
-                  {MEMORY_CATEGORY_META[category].label}
-                  {category === "action" && groupedItems.action.length > 0 ? (
-                    <em>완료 {actionCompletedCount}/{groupedItems.action.length}</em>
-                  ) : null}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          {!isMaximized ? renderStatsStrip() : null}
         </div>
         <button
           disabled={loadState === "loading" || typeof apiProjectId !== "number"}
@@ -923,25 +1090,33 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
         </div>
       ) : showManageUi ? (
         <>
-          <div className="project-memory-stats" aria-label="프로젝트 메모리 요약">
-            {MEMORY_CATEGORIES.map((category) => (
-              <div data-tone={category} key={category}>
-                <span>{MEMORY_CATEGORY_META[category].label}</span>
-                <strong>{groupedItems[category].length}</strong>
-              </div>
-            ))}
-          </div>
+          {renderStatsStrip()}
 
           <section className="project-memory-manage" aria-label="프로젝트 메모리">
-            {MEMORY_CATEGORIES.map((category) => renderManageSection(category))}
+            <div className="project-memory-manage-column">
+              {renderManageSection("action")}
+              {renderManageSection("issue")}
+              {renderManageSection("risk")}
+            </div>
+            <div className="project-memory-manage-column">
+              {renderManageSection("decision")}
+            </div>
           </section>
+          {dragPreview ? (
+            <div
+              className="project-memory-drag-preview"
+              style={{ left: dragPreview.x + 12, top: dragPreview.y + 12 }}
+            >
+              {dragPreview.content}
+            </div>
+          ) : null}
         </>
       ) : (
         <div className="project-memory-summary-body">
           <section className="project-memory-summary-section" data-tone="action" aria-label="프로젝트 액션">
-            <div className="overview-memory-label">
-              <ArrowRight size={13} />
-              <span>Action</span>
+            <div className="project-memory-section-head">
+              <h2 data-tone="action">Action</h2>
+              <span className="project-memory-label-spacer" />
               <small>
                 {groupedItems.action.length > 0
                   ? `완료 ${actionCompletedCount}/${groupedItems.action.length}`
@@ -955,11 +1130,11 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
                   data-completed={isMemoryItemCompleted(item)}
                   key={getMemoryItemKey(item, index)}
                 >
-                  <FileText size={16} />
+                  <span className="project-memory-check-circle" aria-hidden="true" />
                   <span className="project-memory-summary-content" title={item.content}>
                     {item.content}
                   </span>
-                  {renderActionTags(item)}
+                  {renderActionMeta(item)}
                 </div>
               ))}
               {groupedItems.action.length === 0 ? (
@@ -975,7 +1150,7 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
 
           <section className="project-memory-summary-rest" aria-label="프로젝트 메모">
             {(["decision", "issue", "risk"] as const).map((category) => {
-              const { Icon, label, tone } = MEMORY_CATEGORY_META[category];
+              const { label, tone } = MEMORY_CATEGORY_META[category];
 
               return (
                 <article
@@ -983,9 +1158,9 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
                   data-tone={tone}
                   key={category}
                 >
-                  <div className="overview-memory-label">
-                    <Icon size={13} />
-                    <span>{label}</span>
+                  <div className="project-memory-section-head">
+                    <h2 data-tone={tone}>{label}</h2>
+                    <span className="project-memory-label-spacer" />
                     <small>{groupedItems[category].length}</small>
                   </div>
                   <MemoryItemRows
