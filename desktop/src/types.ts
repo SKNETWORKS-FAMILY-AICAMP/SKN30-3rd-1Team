@@ -114,6 +114,26 @@ export type ProjectMemoryItem = {
   created_at?: string | null;
 };
 
+export type ProjectMemorySuggestionEvidence = {
+  type: "pr";
+  number: number;
+  title: string;
+  url: string;
+  merged_at: string;
+};
+
+export type ProjectMemorySuggestion = {
+  id: number;
+  memory_id: number;
+  kind: "complete_action";
+  evidence: ProjectMemorySuggestionEvidence;
+  rationale: string;
+  confidence: "high" | "medium";
+  status: "pending" | "accepted" | "rejected";
+  created_at?: string | null;
+  resolved_at?: string | null;
+};
+
 export type ProjectWorkspace = {
   id: string;
   apiProjectId?: number;
