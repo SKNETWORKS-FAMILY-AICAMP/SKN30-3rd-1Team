@@ -723,6 +723,14 @@ function getFileName(path: string) {
   return normalizedPath.split(/[\\/]/).pop() || normalizedPath || path;
 }
 
+function getUploadName(rootPath: string, filePath: string) {
+  const root = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
+  const file = filePath.replace(/\\/g, "/");
+  const prefix = `${root}/`;
+  const relative = file.startsWith(prefix) ? file.slice(prefix.length) : getFileName(filePath);
+  return `${getFileName(rootPath)}/${relative}`;
+}
+
 function normalizeDialogPaths(selectedPaths: string | string[] | null) {
   if (!selectedPaths) {
     return [];
@@ -880,7 +888,7 @@ function mergeServerDocumentsIntoAttachments(
 
     return {
       ...attachment,
-      name: document.filename,
+      uploadName: document.filename,
       documentStatus: toProjectDocumentStatus(document.status),
     };
   });
@@ -1079,6 +1087,7 @@ function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
   return attachments.map((attachment) => ({
     id: attachment.id,
 	    name: attachment.name,
+	    uploadName: attachment.uploadName,
 	    path: attachment.path,
 	    kind: attachment.kind,
 	    children: attachment.children ? createStoredAttachments(attachment.children) : undefined,
@@ -2643,7 +2652,7 @@ export function App() {
     try {
       const file = await readUploadFile(entry);
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", file, entry.uploadName ?? entry.name);
 
       const response = await fetchPaimFormData<ApiDocumentUploadResponse>(
         `/projects/${apiProjectId}/documents`,
@@ -3095,13 +3104,17 @@ export function App() {
     return children.map(createProjectFileEntry);
   }
 
-  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
+  async function createProjectDirectoryEntry(
+    path: string,
+    uploadedAt: number,
+    rootPath = path,
+  ): Promise<Attachment> {
     const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
     const nextChildren = await Promise.all(
       children.map((entry) =>
         entry.kind === "directory"
-          ? createProjectDirectoryEntry(entry.path, uploadedAt)
-          : { ...createProjectFileEntry(entry), uploadedAt },
+          ? createProjectDirectoryEntry(entry.path, uploadedAt, rootPath)
+          : { ...createProjectFileEntry(entry), uploadName: getUploadName(rootPath, entry.path), uploadedAt },
       ),
     );
 

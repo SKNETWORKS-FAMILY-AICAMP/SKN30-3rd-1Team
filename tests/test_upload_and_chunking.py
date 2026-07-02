@@ -152,3 +152,26 @@ def test_no_old_doc_skips_cleanup():
         assert resp.status_code == 201
         assert resp.json()["status"] == "processing"
         mock_del.assert_not_called()
+
+
+def test_upload_preserves_folder_relative_filename():
+    """폴더 업로드 파일은 basename이 아니라 상대경로로 중복 판정한다."""
+    conns = _conn_seq((), 99)
+    first_cursor = conns[0].cursor.return_value.__enter__()
+    with patch("backend.api.upload.get_connection", side_effect=conns), \
+         patch("backend.api.upload.save_file", return_value="data/1/docs/README.md") as mock_save, \
+         patch("backend.api.upload.delete_file"), \
+         patch("backend.api.upload.extract", return_value=[]), \
+         patch("backend.api.upload.ingest"), \
+         patch("backend.api.upload._set_doc_status"), \
+         patch("backend.api.upload._delete_document"):
+
+        resp = _client.post(
+            _URL,
+            files={"file": ("docs/README.md", b"test content here", "text/markdown")},
+            data=_DATA,
+        )
+
+        assert resp.status_code == 201
+        assert mock_save.call_args.args[1] == "docs/README.md"
+        assert any(call.args[1] == (1, "docs/README.md") for call in first_cursor.execute.call_args_list)

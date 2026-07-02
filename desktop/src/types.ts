@@ -1,6 +1,7 @@
 export type Attachment = {
   id: string;
   name: string;
+  uploadName?: string;
   path: string;
   kind?: "file" | "directory";
   children?: Attachment[];

@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -9,7 +10,7 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
-from ..storage import save_file, delete_file
+from ..storage import save_file, delete_file, safe_upload_name
 from ..graph import refresh_project_memory_after_delete, update_project_memory
 from .auth import require_project_access
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _ALLOWED_SUFFIXES = {".md", ".txt", ".pdf"}
 _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+_UPLOAD_PROCESS_LOCK = threading.Lock()
 
 _DOC_TYPE_KEYWORDS = {
     "meeting":  ["meeting", "회의", "회의록", "minutes"],
@@ -143,6 +145,22 @@ def _process_upload(
     file_path: str,
 ):
     """LLM extract → ingest → status 갱신 → 이전 문서 정리."""
+    # ponytail: global lock; per-project queues if folder ingest throughput matters.
+    with _UPLOAD_PROCESS_LOCK:
+        _process_upload_locked(project_id, doc_id, old_doc_ids, content, filename, date, doc_type, file_path)
+
+
+def _process_upload_locked(
+    project_id: int,
+    doc_id: int,
+    old_doc_ids: list,
+    content: str,
+    filename: str,
+    date: str,
+    doc_type: str,
+    file_path: str,
+):
+    """실제 업로드 처리 본문. 호출자는 동시 실행을 제한한다."""
     try:
         items = extract(content, default_source=filename)
     except Exception as exc:
@@ -198,7 +216,10 @@ async def upload_document(
     date: str = Form(""),
 ):
     require_project_access(project_id, min_role="member")
-    filename = Path(file.filename).name
+    try:
+        filename = safe_upload_name(file.filename or "")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
     if Path(filename).suffix.lower() not in _ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail="지원하지 않는 파일 형식입니다. (.md / .txt / .pdf)")
     doc_type = _infer_doc_type(filename)
