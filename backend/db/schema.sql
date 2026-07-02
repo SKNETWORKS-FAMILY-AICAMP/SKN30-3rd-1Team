@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS memory (
     created_by       VARCHAR(10)  NOT NULL DEFAULT 'llm',
     updated_by       VARCHAR(10)  NULL,
     is_user_verified TINYINT(1)   NOT NULL DEFAULT 0,
+    completed_at     DATETIME     NULL,
+    sort_order       INT          NULL,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (doc_id)     REFERENCES documents(id),

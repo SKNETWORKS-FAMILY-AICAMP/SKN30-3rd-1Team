@@ -24,7 +24,8 @@ def search(
         f" ms.source_type, ms.source_path, ms.source_ref, ms.source_url"
         f" FROM memory m"
         f" LEFT JOIN memory_sources ms ON ms.memory_id = m.id"
-        f" WHERE {where} ORDER BY m.created_at DESC"
+        f" WHERE {where}"
+        f" ORDER BY (m.sort_order IS NULL), m.sort_order ASC, m.created_at DESC"
     )
 
     conn = get_connection()
