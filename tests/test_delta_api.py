@@ -33,7 +33,7 @@ def test_delta_counts_since_boundary_and_due_buckets():
 
     with patch("backend.api.delta.require_project_access"), \
          patch("backend.api.delta.get_connection", return_value=conn):
-        resp = _client.get("/api/v1/projects/1/delta?since=2026-07-01T00:00:00Z")
+        resp = _client.get("/api/v1/projects/1/delta?since=2026-07-01T00:00:00Z&due_within_days=7")
 
     assert resp.status_code == 200
     body = resp.json()
@@ -47,7 +47,8 @@ def test_delta_counts_since_boundary_and_due_buckets():
     sql_calls = [call.args[0] for call in cursor.execute.call_args_list]
     assert any("created_at > %s" in sql for sql in sql_calls)
     assert any("completed_at > %s" in sql for sql in sql_calls)
-    assert any("DATE_ADD(CURDATE(), INTERVAL 3 DAY)" in sql for sql in sql_calls)
+    assert any("DATE_ADD(CURDATE(), INTERVAL %s DAY)" in sql for sql in sql_calls)
+    assert any(call.args[1] == (1, 7) for call in cursor.execute.call_args_list)
     assert any("due_date < CURDATE()" in sql for sql in sql_calls)
 
 

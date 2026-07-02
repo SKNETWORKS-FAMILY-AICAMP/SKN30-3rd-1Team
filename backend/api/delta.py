@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
@@ -77,7 +77,7 @@ def _action_rows(rows: list[dict]) -> list[dict]:
     ]
 
 
-def _load_delta(cursor, project_id: int, since_sql: str) -> dict:
+def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 3) -> dict:
     """LLM 없이 SQL 집계만으로 델타 배너 데이터를 만든다."""
     cursor.execute(
         "SELECT category, COUNT(*) AS cnt FROM memory"
@@ -110,9 +110,9 @@ def _load_delta(cursor, project_id: int, since_sql: str) -> dict:
         " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
         " AND due_date IS NOT NULL"
         " AND due_date >= CURDATE()"
-        " AND due_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY)"
+        " AND due_date <= DATE_ADD(CURDATE(), INTERVAL %s DAY)"
         " ORDER BY due_date ASC, id ASC",
-        (project_id,),
+        (project_id, due_within_days),
     )
     due_soon = _action_rows(cursor.fetchall())
 
@@ -166,14 +166,14 @@ def _get_delta_briefing_chain():
 
 
 @router.get("/projects/{project_id}/delta")
-def get_project_delta(project_id: int, since: str):
+def get_project_delta(project_id: int, since: str, due_within_days: int = Query(3, ge=1, le=7)):
     require_project_access(project_id)
     since_raw, since_sql = _parse_since(since)
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
             _project_or_404(cursor, project_id)
-            delta = _load_delta(cursor, project_id, since_sql)
+            delta = _load_delta(cursor, project_id, since_sql, due_within_days)
     finally:
         conn.close()
     return {"since": since_raw, **delta}

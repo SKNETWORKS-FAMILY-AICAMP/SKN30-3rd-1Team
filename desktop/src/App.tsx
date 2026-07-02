@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ArrowUp,
   Brain,
   ChevronDown,
@@ -17,10 +18,12 @@ import {
   PanelRight,
   Pencil,
   Plus,
+  Settings as SettingsIcon,
   Square,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -39,6 +42,7 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import packageJson from "../package.json";
 import paimWatermark from "./assets/paim-watermark.png";
 import { GithubPanel } from "./GithubPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -76,6 +80,15 @@ import {
   updateProjectFileEntry,
   type ProjectFileVisualMeta,
 } from "./projectFiles";
+import {
+  DEFAULT_PAIM_API_ROOT_URL,
+  getPaimApiRootUrl,
+  loadPaimSettings,
+  normalizePaimSettings,
+  savePaimSettings,
+  type PaiMSettings,
+  type ThemeSetting,
+} from "./settings";
 import type {
   Attachment,
   ChatSession,
@@ -239,6 +252,11 @@ type ProjectDeltaBannerState = {
 };
 
 type ServerStatus = "online" | "offline";
+type MainView = "workspace" | "settings";
+type ServerTestState = {
+  message: string;
+  status: "idle" | "testing" | "ok" | "error";
+};
 
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
@@ -1214,6 +1232,15 @@ export function App() {
   const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
   const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
   const [projectDeltaBanner, setProjectDeltaBanner] = useState<ProjectDeltaBannerState | null>(null);
+  const [mainView, setMainView] = useState<MainView>("workspace");
+  const [settings, setSettingsState] = useState(loadPaimSettings);
+  const [serverTestState, setServerTestState] = useState<ServerTestState>({
+    message: "",
+    status: "idle",
+  });
+  const [isCacheResetConfirming, setIsCacheResetConfirming] = useState(false);
+  const [appVersion, setAppVersion] = useState(`개발 모드 ${packageJson.version}`);
+  const [latestReleaseTag, setLatestReleaseTag] = useState("");
   const [isProjectPanelMaximized, setIsProjectPanelMaximized] = useState(false);
   const [projectFileTreeWidth, setProjectFileTreeWidth] = useState(
     DEFAULT_PROJECT_FILE_TREE_WIDTH,
@@ -1234,6 +1261,7 @@ export function App() {
   const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
+  const serverUrlSyncRef = useRef(settings.serverUrl);
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
     startX: 0,
@@ -1265,6 +1293,7 @@ export function App() {
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
+  const showProjectPanel = mainView === "workspace" && Boolean(selectedProject);
   const activeProjectPanelTab = useMemo(
     () => projectPanelTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? null,
     [activeProjectPanelTabId, projectPanelTabs],
@@ -1409,6 +1438,61 @@ export function App() {
     if (nextStatus) {
       queueDemoStatusClear();
     }
+  }
+
+  function updateSettings(patch: Partial<PaiMSettings>) {
+    setSettingsState((currentSettings) => {
+      const nextSettings = normalizePaimSettings({ ...currentSettings, ...patch });
+      savePaimSettings(nextSettings);
+      return nextSettings;
+    });
+    setIsCacheResetConfirming(false);
+  }
+
+  function handleThemeChange(theme: ThemeSetting) {
+    updateSettings({ theme });
+  }
+
+  async function handleTestServerConnection() {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 3000);
+
+    setServerTestState({ message: "연결 확인 중", status: "testing" });
+
+    try {
+      const health = await fetchPaimRootJson<ApiHealthResponse>("/health", {
+        signal: controller.signal,
+      });
+
+      if (health.status !== "ok") {
+        throw new Error("서버 상태가 ok가 아닙니다");
+      }
+
+      setServerStatus("online");
+      setServerTestState({ message: "연결됨", status: "ok" });
+      void syncProjectsWithServer(false);
+    } catch {
+      setServerStatus("offline");
+      setServerTestState({ message: "연결 실패", status: "error" });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  function handleClearLocalCache() {
+    if (!isCacheResetConfirming) {
+      setIsCacheResetConfirming(true);
+      return;
+    }
+
+    Object.keys(window.localStorage)
+      .filter((storageKey) => storageKey.startsWith("paim."))
+      .forEach((storageKey) => window.localStorage.removeItem(storageKey));
+    window.location.reload();
+  }
+
+  function handleOpenReleasePage() {
+    void openUrl("https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases");
   }
 
   function applyProjectState(nextState: ProjectState) {
@@ -1563,6 +1647,50 @@ export function App() {
   } as CSSProperties;
 
   useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === "system") {
+      root.removeAttribute("data-theme");
+      return;
+    }
+    root.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  useEffect(() => {
+    setServerTestState({ message: "", status: "idle" });
+
+    if (serverUrlSyncRef.current === settings.serverUrl) {
+      return;
+    }
+
+    serverUrlSyncRef.current = settings.serverUrl;
+    const timeoutId = window.setTimeout(() => {
+      void syncProjectsWithServer(false);
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [settings.serverUrl]);
+
+  useEffect(() => {
+    void getVersion()
+      .then((version) => setAppVersion(version))
+      .catch(() => setAppVersion(`개발 모드 ${packageJson.version}`));
+
+    const controller = new AbortController();
+    void fetch("https://api.github.com/repos/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases/latest", {
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { tag_name?: unknown } | null) => {
+        if (typeof payload?.tag_name === "string") {
+          setLatestReleaseTag(payload.tag_name);
+        }
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
 
@@ -1667,7 +1795,7 @@ export function App() {
       return;
     }
 
-    void fetchProjectDelta(apiProjectId, since)
+    void fetchProjectDelta(apiProjectId, since, settings.dueSoonDays)
       .then((delta) => {
         if (
           isDisposed ||
@@ -1694,6 +1822,7 @@ export function App() {
     selectedProject?.id,
     selectedProject?.lastSeenAt,
     selectedProject?.serverMissing,
+    settings.dueSoonDays,
     serverStatus,
   ]);
 
@@ -2437,9 +2566,9 @@ export function App() {
     }
   }
 
-  async function fetchProjectDelta(apiProjectId: number, since: string) {
+  async function fetchProjectDelta(apiProjectId: number, since: string, dueSoonDays: number) {
     return fetchPaimJson<ApiProjectDeltaResponse>(
-      `/projects/${apiProjectId}/delta?since=${encodeURIComponent(since)}`,
+      `/projects/${apiProjectId}/delta?since=${encodeURIComponent(since)}&due_within_days=${dueSoonDays}`,
     );
   }
 
@@ -2799,6 +2928,7 @@ export function App() {
       return;
     }
 
+    setMainView("workspace");
     setSelectedProjectId(nextProject.id);
     setSelectedSessionId(nextProject.sessions[0]?.id ?? null);
     clearDraft();
@@ -2809,6 +2939,7 @@ export function App() {
     const nextProject = createProject(createUniqueProjectName(projects, baseName), [], files);
 
     setProjects((currentProjects) => [nextProject, ...currentProjects]);
+    setMainView("workspace");
     setSelectedProjectId(nextProject.id);
     setSelectedSessionId(null);
     setProjectPanelTabs([]);
@@ -2887,6 +3018,7 @@ export function App() {
       ...project,
       sessions: [nextSession, ...project.sessions],
     }));
+    setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(nextSession.id);
     setCollapsedProjectIds((currentProjectIds) =>
@@ -4203,6 +4335,7 @@ export function App() {
   }
 
   function handleSelectSession(projectId: string, sessionId: string) {
+    setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(sessionId);
     setCollapsedProjectIds((currentProjectIds) =>
@@ -4460,12 +4593,158 @@ export function App() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  function renderSettingsPage() {
+    const effectiveServerUrl = settings.serverUrl || getPaimApiRootUrl() || DEFAULT_PAIM_API_ROOT_URL;
+
+    return (
+      <section className="settings-page" aria-label="설정">
+        <div className="settings-content">
+          <header className="settings-header">
+            <button
+              aria-label="설정에서 돌아가기"
+              className="settings-back-button"
+              onClick={() => setMainView("workspace")}
+              title="돌아가기"
+              type="button"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            <div>
+              <p>Settings</p>
+              <h1>설정</h1>
+            </div>
+          </header>
+
+          <section className="settings-group" aria-label="테마">
+            <div className="settings-copy">
+              <h2>테마</h2>
+              <p>시스템 설정을 따르거나 PaiM 화면만 고정합니다.</p>
+            </div>
+            <div className="settings-segmented">
+              {[
+                ["system", "시스템"],
+                ["dark", "다크"],
+                ["light", "라이트"],
+              ].map(([value, label]) => (
+                <button
+                  data-active={settings.theme === value ? "true" : undefined}
+                  key={value}
+                  onClick={() => handleThemeChange(value as ThemeSetting)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="서버 주소">
+            <div className="settings-copy">
+              <h2>서버 주소</h2>
+              <p>비우면 기본 주소 {DEFAULT_PAIM_API_ROOT_URL}로 돌아갑니다.</p>
+            </div>
+            <div className="settings-control-stack">
+              <div className="settings-inline-control">
+                <input
+                  aria-label="PaiM 서버 주소"
+                  onChange={(event) => updateSettings({ serverUrl: event.currentTarget.value })}
+                  placeholder={DEFAULT_PAIM_API_ROOT_URL}
+                  value={settings.serverUrl}
+                />
+                <button
+                  disabled={serverTestState.status === "testing"}
+                  onClick={() => void handleTestServerConnection()}
+                  type="button"
+                >
+                  연결 테스트
+                </button>
+              </div>
+              <p className="settings-status" data-kind={serverStatus === "online" ? "ok" : "error"}>
+                현재 {serverStatus === "online" ? "연결됨" : "오프라인"} · {effectiveServerUrl}
+                {serverTestState.message ? ` · ${serverTestState.message}` : ""}
+              </p>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="완료 제안 민감도">
+            <div className="settings-copy">
+              <h2>완료 제안 민감도</h2>
+              <p>서버 제안은 유지하고 인박스 표시만 조절합니다.</p>
+            </div>
+            <div className="settings-segmented">
+              <button
+                data-active={settings.suggestionMin === "high" ? "true" : undefined}
+                onClick={() => updateSettings({ suggestionMin: "high" })}
+                type="button"
+              >
+                확실할 때만
+              </button>
+              <button
+                data-active={settings.suggestionMin === "medium" ? "true" : undefined}
+                onClick={() => updateSettings({ suggestionMin: "medium" })}
+                type="button"
+              >
+                추정 포함
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="마감 임박 기준">
+            <div className="settings-copy">
+              <h2>마감 임박 기준</h2>
+              <p>델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.</p>
+            </div>
+            <div className="settings-range">
+              <input
+                aria-label="마감 임박 기준"
+                max={7}
+                min={1}
+                onChange={(event) => updateSettings({ dueSoonDays: Number(event.currentTarget.value) })}
+                type="range"
+                value={settings.dueSoonDays}
+              />
+              <strong>{settings.dueSoonDays}일</strong>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label="캐시 초기화">
+            <div className="settings-copy">
+              <h2>캐시 초기화</h2>
+              <p>로컬 캐시와 설정만 지웁니다. 서버 데이터(프로젝트·메모리)는 삭제되지 않습니다.</p>
+            </div>
+            <button
+              className="settings-danger"
+              data-confirming={isCacheResetConfirming ? "true" : undefined}
+              onClick={handleClearLocalCache}
+              type="button"
+            >
+              {isCacheResetConfirming ? "다시 눌러 초기화" : "캐시 초기화"}
+            </button>
+          </section>
+
+          <section className="settings-group" aria-label="버전">
+            <div className="settings-copy">
+              <h2>버전</h2>
+              <p>
+                현재 {appVersion}
+                {latestReleaseTag ? ` · 최신 ${latestReleaseTag}` : ""}
+              </p>
+            </div>
+            <button onClick={handleOpenReleasePage} type="button">
+              릴리즈 페이지 열기
+            </button>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <div
       className="app-shell"
       data-drag-active={isDragActive}
       data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
-      data-project-panel={selectedProject ? "true" : "false"}
+      data-project-panel={showProjectPanel ? "true" : "false"}
       data-project-panel-collapsed={isProjectPanelCollapsed}
       data-project-panel-maximized={isProjectPanelMaximized}
       data-project-panel-resizing={isProjectPanelResizing}
@@ -4661,6 +4940,22 @@ export function App() {
           </div>
         </section>
 
+        <div className="sidebar-footer">
+          <button
+            className="sidebar-settings-button"
+            data-active={mainView === "settings" ? "true" : undefined}
+            onClick={() => {
+              setMainView("settings");
+              setOpenActionMenu(null);
+            }}
+            title="설정"
+            type="button"
+          >
+            <SettingsIcon size={17} />
+            <span>Settings</span>
+          </button>
+        </div>
+
         <div
           aria-label="사이드바 크기 조절"
           aria-orientation="vertical"
@@ -4728,7 +5023,9 @@ export function App() {
 
       <main
         className="chat"
-        data-empty-chat={selectedSession?.messages.length === 0 ? "true" : undefined}
+        data-empty-chat={
+          mainView === "workspace" && selectedSession?.messages.length === 0 ? "true" : undefined
+        }
       >
         {showNoticeStack ? (
           <div className="notice-stack" aria-live="polite">
@@ -4780,7 +5077,9 @@ export function App() {
             ) : null}
           </div>
         ) : null}
-        {selectedSession ? (
+        {mainView === "settings" ? (
+          renderSettingsPage()
+        ) : selectedSession ? (
           <>
             {selectedSession.messages.length === 0 ? (
               <div className="chat-empty">
@@ -5088,7 +5387,7 @@ export function App() {
         )}
       </main>
 
-      {selectedProject ? (
+      {showProjectPanel && selectedProject ? (
         <aside
           className="project-panel"
           data-collapsed={isProjectPanelCollapsed}
@@ -5260,6 +5559,7 @@ export function App() {
               canManage={canOpenProjectMemory}
               isMaximized={isProjectPanelMaximized}
               project={selectedProject}
+              suggestionMin={settings.suggestionMin}
             />
           ) : null}
 

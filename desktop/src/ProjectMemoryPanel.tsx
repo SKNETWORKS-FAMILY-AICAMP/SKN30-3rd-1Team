@@ -15,6 +15,7 @@ import type {
   ProjectMemorySuggestion,
   ProjectWorkspace,
 } from "./types";
+import type { SuggestionMinConfidence } from "./settings";
 
 type MemoryLoadState = "idle" | "loading" | "loaded" | "error";
 type MemoryTone = ProjectMemoryCategory;
@@ -23,6 +24,7 @@ type ProjectMemoryPanelProps = {
   canManage: boolean;
   isMaximized: boolean;
   project: ProjectWorkspace;
+  suggestionMin: SuggestionMinConfidence;
 };
 
 type MemoryDraft = {
@@ -409,7 +411,12 @@ function MemoryItemRows({
   );
 }
 
-export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectMemoryPanelProps) {
+export function ProjectMemoryPanel({
+  canManage,
+  isMaximized,
+  project,
+  suggestionMin,
+}: ProjectMemoryPanelProps) {
   const [memoryItems, setMemoryItems] = useState<ProjectMemoryItem[]>([]);
   const [memorySuggestions, setMemorySuggestions] = useState<ProjectMemorySuggestion[]>([]);
   const [loadState, setLoadState] = useState<MemoryLoadState>("idle");
@@ -437,9 +444,16 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   );
   const actionItems = useMemo(() => getActionDisplayItems(groupedItems.action), [groupedItems]);
   const actionTodoItems = useMemo(() => getActionTodoItems(groupedItems.action), [groupedItems]);
+  const visibleMemorySuggestions = useMemo(
+    () =>
+      suggestionMin === "high"
+        ? memorySuggestions.filter((suggestion) => suggestion.confidence === "high")
+        : memorySuggestions,
+    [memorySuggestions, suggestionMin],
+  );
   const suggestedActionIds = useMemo(
-    () => new Set(memorySuggestions.map((suggestion) => suggestion.memory_id)),
-    [memorySuggestions],
+    () => new Set(visibleMemorySuggestions.map((suggestion) => suggestion.memory_id)),
+    [visibleMemorySuggestions],
   );
   const actionCompletedCount = groupedItems.action.filter(isMemoryItemCompleted).length;
   const actionCompletionPercent = groupedItems.action.length > 0
@@ -933,17 +947,17 @@ export function ProjectMemoryPanel({ canManage, isMaximized, project }: ProjectM
   }
 
   function renderSuggestionInbox() {
-    if (!canManage || memorySuggestions.length === 0) {
+    if (!canManage || visibleMemorySuggestions.length === 0) {
       return null;
     }
 
     return (
       <section className="project-memory-suggestion-inbox" aria-label="완료 제안">
         <div className="project-memory-suggestion-head">
-          <h2>제안 {memorySuggestions.length}건</h2>
+          <h2>제안 {visibleMemorySuggestions.length}건</h2>
         </div>
         <div className="project-memory-suggestion-list">
-          {memorySuggestions.map((suggestion) => {
+          {visibleMemorySuggestions.map((suggestion) => {
             const action = memoryItemsById.get(suggestion.memory_id);
             const resolving = resolvingSuggestionIds.includes(suggestion.id);
             const title = formatSuggestionTitle(suggestion.evidence.title);
