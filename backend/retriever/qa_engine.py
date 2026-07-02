@@ -1,7 +1,7 @@
 # Q&A 엔진 (LangChain RAG): 질문 → MySQL(구조화) + ChromaDB(원문 맥락) 교차 조회 → LLM 답변 생성
 # - 신뢰도 향상을 위해 항상 두 소스를 모두 조회한다.
-# - 원문 검색은 하이브리드: BM25(한국어 형태소, 키워드 정확 매칭) 0.5 + dense(OpenAI 임베딩) 0.5
-#   를 RRF(순위 융합)로 합쳐 상위 CHROMA_TOP_N 청크만 사용한다.
+# - 원문 검색은 하이브리드: BM25(한국어 형태소, 키워드 정확 매칭) + dense(OpenAI 임베딩) 후보를
+#   한국어 cross-encoder 리랭커로 재점수화해 상위 CHROMA_TOP_N 청크만 사용한다(리랭커 실패 시 RRF 폴백).
 # - MySQL 구조화 기록도 행이 많으면 BM25로 질문 유관 상위 MYSQL_TOP_N만 선별(노이즈 컷).
 # - 생성은 LangChain ChatPromptTemplate + ChatOpenAI 체인(LCEL).
 import os
@@ -23,8 +23,8 @@ from ..db.chroma import get_collection
 from ..llm.chat_model_factory import get_chat_model
 
 MAX_HISTORY = 10    # 대화 히스토리 최대 유지 턴 수 (컨텍스트 길이 제한)
-CHROMA_K = 8        # 리트리버별(BM25/dense) 후보 청크 수 — 넉넉히 뽑고 융합으로 거른다
-CHROMA_TOP_N = 5    # RRF 융합 후 컨텍스트에 넣을 최종 원문 청크 수
+CHROMA_K = 15       # 리트리버별(BM25/dense) 1차 후보 수 — 리랭커에 풍부한 후보 제공
+CHROMA_TOP_N = 4    # 리랭커 재점수화 후 컨텍스트에 넣을 최종 원문 청크 수
 MYSQL_TOP_N = 12    # 구조화 기록 상한 (category 미매칭 시) — 초과 시 BM25 유관 상위 선별
 QA_MYSQL_ROWS_LIMIT = max(1, int(os.getenv("QA_MYSQL_ROWS_LIMIT", "60")))
 MYSQL_SUPPLEMENT = 5  # category 매칭 시 타 카테고리에서 BM25 유관 상위 보충 개수
@@ -127,12 +127,39 @@ def _bm25_scores(question: str, texts: List[str]) -> List[float]:
 
 
 def _rrf_fuse(rank_lists: List[List[int]], weights: List[float], n_docs: int) -> List[float]:
-    """RRF(Reciprocal Rank Fusion): 각 리트리버의 순위를 1/(k+rank)로 점수화해 가중 합산."""
+    """RRF(Reciprocal Rank Fusion): 각 리트리버의 순위를 1/(k+rank)로 점수화해 가중 합산.
+    리랭커 실패 시 폴백 랭킹으로도 쓴다."""
     scores = [0.0] * n_docs
     for ranks, w in zip(rank_lists, weights):
         for rank, idx in enumerate(ranks):
             scores[idx] += w / (_RRF_K + rank + 1)
     return scores
+
+
+# ── AI 리랭커 (한국어 특화 cross-encoder) — 지연 로딩 싱글톤 ─────────────
+_reranker_model = None
+_reranker_tokenizer = None
+
+
+def _get_reranker():
+    """한국어 특화 cross-encoder 리랭커 로드(싱글톤).
+    메모리·속도 최적화: GPU면 fp16, CPU면 int8 동적 양자화(Linear 레이어) 적용.
+    (fp16은 CPU에서 일부 연산 미지원이라 int8로 — CPU 추론 메모리↓·속도↑)
+    모델은 RERANKER_MODEL env로 교체 가능(기본 dragonkue/bge-reranker-v2-m3-ko)."""
+    global _reranker_model, _reranker_tokenizer
+    if _reranker_model is None:
+        import torch
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        model_name = os.getenv("RERANKER_MODEL", "dragonkue/bge-reranker-v2-m3-ko")
+        _reranker_tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        model.eval()
+        if torch.cuda.is_available():
+            model = model.half().to("cuda")
+        else:
+            model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+        _reranker_model = model
+    return _reranker_model, _reranker_tokenizer
 
 
 def _short_date(value) -> str:
@@ -230,12 +257,13 @@ def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict
         for r in rows
     ]
 
-    # 2) 원문 맥락 — 하이브리드: BM25(키워드) + dense(의미) 를 RRF로 융합해 상위 N 청크.
-    #    회의록은 고유명사·용어·날짜가 많아 BM25가 dense의 의미 검색을 보완한다.
+    # 2) 원문 맥락 — 하이브리드 후보(BM25 키워드 + dense 의미) → 한국어 cross-encoder 리랭커로
+    #    재점수화해 상위 N 청크. 회의록은 고유명사·용어·날짜가 많아 BM25가 dense를 보완하고,
+    #    리랭커가 질문-청크 쌍을 직접 비교해 최종 정밀도를 끌어올린다.
     raw = get_collection().get(where={"project_id": project_id})
     texts = raw.get("documents") or []
     metas = raw.get("metadatas") or []
-    kept: list = []  # (idx, {"bm25_rank": r|None, "dense_rank": r|None, "rrf": s})
+    kept: list = []  # (idx, {"bm25_rank": r|None, "dense_rank": r|None, "rerank_score": s})
     if texts:
         # a. dense 순위 — 벡터 검색 상위 K를 코퍼스 인덱스로 매핑
         scored = _get_vectorstore().similarity_search_with_score(
@@ -248,17 +276,35 @@ def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict
         b_scores = _bm25_scores(question, texts)
         bm25_ranks = sorted(range(len(texts)), key=lambda i: -b_scores[i])[:CHROMA_K]
 
-        # c. RRF 융합(0.5:0.5) → 상위 CHROMA_TOP_N
-        rrf = _rrf_fuse([bm25_ranks, dense_ranks], [BM25_WEIGHT, 1.0 - BM25_WEIGHT], len(texts))
-        top = sorted((i for i in range(len(texts)) if rrf[i] > 0), key=lambda i: -rrf[i])[:CHROMA_TOP_N]
-        kept = [
-            (i, {
-                "bm25_rank": bm25_ranks.index(i) + 1 if i in bm25_ranks else None,
-                "dense_rank": dense_ranks.index(i) + 1 if i in dense_ranks else None,
-                "rrf": round(rrf[i], 5),
-            })
-            for i in top
-        ]
+        # c. 후보군(중복 제거) → 리랭커 재점수화 → 상위 CHROMA_TOP_N.
+        #    리랭커 실패(모델 미설치·로드 오류 등) 시 BM25+dense RRF로 폴백해 원문 맥락이 비지 않게 한다.
+        candidate_indices = list(set(dense_ranks + bm25_ranks))
+        if candidate_indices:
+            try:
+                import torch
+                model, tokenizer = _get_reranker()
+                pairs = [[question, texts[i]] for i in candidate_indices]
+                with torch.no_grad():
+                    inputs = tokenizer(pairs, padding=True, truncation=True,
+                                       return_tensors="pt", max_length=512)
+                    if torch.cuda.is_available():
+                        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+                    scores = model(**inputs).logits.view(-1).cpu().float().tolist()
+                reranked = sorted(zip(candidate_indices, scores), key=lambda x: -x[1])[:CHROMA_TOP_N]
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning("리랭커 실패 → BM25+dense RRF 폴백", exc_info=True)
+                rrf = _rrf_fuse([bm25_ranks, dense_ranks], [BM25_WEIGHT, 1.0 - BM25_WEIGHT], len(texts))
+                reranked = [(i, rrf[i])
+                            for i in sorted(candidate_indices, key=lambda i: -rrf[i])[:CHROMA_TOP_N]]
+            kept = [
+                (i, {
+                    "bm25_rank": bm25_ranks.index(i) + 1 if i in bm25_ranks else None,
+                    "dense_rank": dense_ranks.index(i) + 1 if i in dense_ranks else None,
+                    "rerank_score": round(score, 5),
+                })
+                for i, score in reranked
+            ]
 
     chroma_ctx = "\n".join(texts[i] for i, _ in kept)
     for i, _ in kept:
