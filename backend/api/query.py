@@ -5,6 +5,12 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..graph import update_project_memory, run_qa
+from ..retriever.query_intent import (
+    SemanticFallback,
+    answer_filter_lookup,
+    answer_overview,
+    classify_question,
+)
 from .upload import _delete_document
 from .auth import require_project_access
 
@@ -28,14 +34,30 @@ def query(project_id: int, body: QueryRequest):
     finally:
         conn.close()
 
-    # 출력 그래프(run_qa) 실행 → {answer, plan, sources, debug}
-    # 기존 answer()와 달리 프로젝트 메모리 읽기 + 자동 todo(plan) + 검증 루프가 포함된다.
+    # 질문 의도가 명확하면 SQL/조망형 경로를 쓰고, 아니면 기존 LangGraph RAG로 폴백한다.
     try:
-        return run_qa(
+        decision = classify_question(body.question, body.history)
+        if decision.route == "filter_lookup":
+            try:
+                return answer_filter_lookup(
+                    project_id, body.question, body.history, decision.router_stage
+                )
+            except SemanticFallback:
+                pass
+        elif decision.route == "overview":
+            return answer_overview(project_id, body.question, decision.router_stage)
+
+        result = run_qa(
             project_id=project_id,
             question=body.question,
             history=body.history,
         )
+        result["route"] = "semantic"
+        debug = result.get("debug") or {}
+        debug["route"] = "semantic"
+        debug["router_stage"] = decision.router_stage
+        result["debug"] = debug
+        return result
     except Exception as e:
         import logging
         logging.getLogger(__name__).error("Q&A 처리 오류: %s", e, exc_info=True)
