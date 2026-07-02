@@ -6,12 +6,34 @@ const PAIM_API_ROOT_URL = (
 
 const PAIM_API_V1_BASE_URL = `${PAIM_API_ROOT_URL}/api/v1`;
 
+type PaimApiErrorPayload = {
+  detail?: unknown;
+  code?: unknown;
+};
+
+export class PaimApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "PaimApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function isPaimApiError(error: unknown): error is PaimApiError {
+  return error instanceof PaimApiError;
+}
+
 async function readPaimResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+    const payload = (await response.json().catch(() => null)) as PaimApiErrorPayload | null;
     const detail = typeof payload?.detail === "string" ? payload.detail : "PaiM API 요청 실패";
+    const code = typeof payload?.code === "string" ? payload.code : undefined;
 
-    throw new Error(detail);
+    throw new PaimApiError(detail, response.status, code);
   }
 
   if (response.status === 204) {

@@ -10,7 +10,14 @@ import type {
   GitRepositoryInfo,
 } from "./types";
 import { fetchPaimRootJson } from "./paimApi";
-export { fetchPaimFormData, fetchPaimJson, fetchPaimRootJson, getErrorMessage } from "./paimApi";
+export {
+  fetchPaimFormData,
+  fetchPaimJson,
+  fetchPaimRootJson,
+  getErrorMessage,
+  isPaimApiError,
+  PaimApiError,
+} from "./paimApi";
 
 type GitHubRepoApiResponse = {
   default_branch: string;

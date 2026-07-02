@@ -58,6 +58,7 @@ import {
   getErrorMessage,
   getGithubOAuthErrorMessage,
   getGithubPanelStateLabel,
+  isPaimApiError,
 } from "./github";
 import {
   clampProjectFileTreeWidth,
@@ -153,6 +154,27 @@ type ApiQueryResponse = {
   debug?: unknown;
 };
 
+type ApiChatSessionResponse = {
+  id: string;
+  project_id: number;
+  title: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type ApiChatMessageResponse = {
+  id: number;
+  role: string;
+  text: string;
+  token_count?: number;
+  created_at?: string;
+};
+
+type ApiChatSessionWithMessages = {
+  session: ApiChatSessionResponse;
+  messages: Message[];
+};
+
 type ApiRepositoryStatus = "connected" | "syncing" | "indexed" | "failed";
 
 type ApiRepositoryConnectResponse = {
@@ -204,8 +226,9 @@ const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v5";
+const PROJECT_STORAGE_KEY = "paim.projects.v6";
 const LEGACY_PROJECT_STORAGE_KEYS = [
+  "paim.projects.v5",
   "paim.projects.v4",
   "paim.projects.v3",
   "paim.projects.v2",
@@ -328,6 +351,61 @@ function createEmptySession(): ChatSession {
     createdAt: Date.now(),
     messages: [],
   };
+}
+
+// 서버 세션 row를 로컬 ChatSession 형태로 변환한다.
+function createSessionFromApi(apiSession: ApiChatSessionResponse, messages: Message[]): ChatSession {
+  const createdAt = Date.parse(apiSession.created_at ?? "");
+
+  return {
+    id: createId("session"),
+    serverSessionId: apiSession.id,
+    title: apiSession.title || "New Chat",
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    messages,
+  };
+}
+
+// 서버 메시지의 text 필드를 기존 content 필드로 매핑한다.
+function createMessageFromApi(apiMessage: ApiChatMessageResponse): Message | null {
+  if (apiMessage.role !== "assistant" && apiMessage.role !== "user") {
+    return null;
+  }
+
+  return {
+    id: `server-message-${apiMessage.id}`,
+    role: apiMessage.role,
+    content: apiMessage.text,
+  };
+}
+
+// 서버 세션 목록은 정렬 기준으로 삼고, 로컬 전용 세션은 아직 서버에 없으므로 뒤에 보존한다.
+function mergeServerChatSessions(
+  localSessions: ChatSession[],
+  serverSessions: ApiChatSessionWithMessages[],
+) {
+  const localSessionsByServerId = new Map(
+    localSessions
+      .filter((session) => session.serverSessionId)
+      .map((session) => [session.serverSessionId as string, session]),
+  );
+  const syncedSessions = serverSessions.map(({ session, messages }) => {
+    const localSession = localSessionsByServerId.get(session.id);
+
+    if (!localSession) {
+      return createSessionFromApi(session, messages);
+    }
+
+    return {
+      ...localSession,
+      serverSessionId: session.id,
+      title: session.title || localSession.title,
+      messages: messages.length > 0 ? messages : localSession.messages,
+    };
+  });
+  const localOnlySessions = localSessions.filter((session) => !session.serverSessionId);
+
+  return [...syncedSessions, ...localOnlySessions];
 }
 
 // 이전 버전이 자동으로 넣던 첫 assistant 인사는 새 empty state와 중복되므로 로딩 때만 걷어낸다.
@@ -1281,6 +1359,43 @@ export function App() {
     return true;
   }
 
+  function isGithubSessionExpiredError(error: unknown) {
+    return isPaimApiError(error) && (error.code === "SESSION_EXPIRED" || error.status === 410);
+  }
+
+  // GitHub App state가 만료되면 repo 선택부터 다시 시작할 수 있게 인증 상태를 비운다.
+  function handleGithubSessionExpired(projectId: string) {
+    setGithubLoginSessions((currentSessions) => {
+      const nextSessions = { ...currentSessions };
+      delete nextSessions[projectId];
+      return nextSessions;
+    });
+    setGithubRepositories((currentRepositories) => {
+      const nextRepositories = { ...currentRepositories };
+      delete nextRepositories[projectId];
+      return nextRepositories;
+    });
+    updateProject(projectId, (project) =>
+      project.githubRepository?.authProvider === "github_app"
+        ? {
+            ...project,
+            githubConnected: false,
+            githubEvents: undefined,
+            githubRepository: undefined,
+          }
+        : project,
+    );
+    setPendingGithubDisconnectProjectId((currentProjectId) =>
+      currentProjectId === projectId ? null : currentProjectId,
+    );
+    setGithubRepositoryQuery("");
+    setDemoStatus({
+      ok: false,
+      message: "GitHub 연결이 만료되었습니다. 다시 연결해 주세요",
+      scope: "github",
+    });
+  }
+
   const filteredSelectedProjectGithubRepositories = useMemo(() => {
     const query = githubRepositoryQuery.trim().toLowerCase();
 
@@ -1366,6 +1481,24 @@ export function App() {
     }
 
     void syncProjectRepositories(selectedProject.id, selectedProject.apiProjectId);
+  }, [
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.serverMissing,
+    serverStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      serverStatus !== "online" ||
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      return;
+    }
+
+    void syncProjectChatSessions(selectedProject.id, selectedProject.apiProjectId);
   }, [
     selectedProject?.apiProjectId,
     selectedProject?.id,
@@ -1891,6 +2024,12 @@ export function App() {
 
         scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, repoId, startedAt);
       } catch (error) {
+        if (isGithubSessionExpiredError(error)) {
+          handleGithubSessionExpired(projectId);
+          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
+          return;
+        }
+
         updateGithubRepository(projectId, (repository) => ({
           ...repository,
           syncStatus: "failed",
@@ -1948,10 +2087,73 @@ export function App() {
         scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, serverRepository.id);
       }
     } catch (error) {
+      if (isGithubSessionExpiredError(error)) {
+        handleGithubSessionExpired(projectId);
+        return;
+      }
+
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 연결 정보를 불러올 수 없습니다"),
         scope: "github",
+      });
+    }
+  }
+
+  // 서버 세션 목록과 각 세션의 복호화 메시지를 함께 가져온다.
+  async function fetchProjectChatSessions(apiProjectId: number) {
+    const sessions = await fetchPaimJson<ApiChatSessionResponse[]>(
+      `/projects/${apiProjectId}/sessions`,
+    );
+
+    return Promise.all(
+      sessions.map(async (session) => {
+        const messages = await fetchPaimJson<ApiChatMessageResponse[]>(
+          `/projects/${apiProjectId}/sessions/${encodeURIComponent(session.id)}/messages`,
+        );
+
+        return {
+          session,
+          messages: messages
+            .map(createMessageFromApi)
+            .filter((message): message is Message => message !== null),
+        };
+      }),
+    );
+  }
+
+  // 선택된 프로젝트의 서버 세션을 로컬 캐시에 병합한다.
+  async function syncProjectChatSessions(projectId: string, apiProjectId: number) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    try {
+      const serverSessions = await fetchProjectChatSessions(apiProjectId);
+      const currentProject = projectsRef.current.find((project) => project.id === projectId);
+
+      if (!currentProject) {
+        return;
+      }
+
+      const nextSessions = mergeServerChatSessions(currentProject.sessions, serverSessions);
+
+      updateProject(projectId, (project) => ({
+        ...project,
+        sessions: nextSessions,
+      }));
+
+      if (
+        selectedProjectIdRef.current === projectId &&
+        !nextSessions.some((session) => session.id === selectedSessionIdRef.current)
+      ) {
+        setSelectedSessionId(nextSessions[0]?.id ?? null);
+      }
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "서버 채팅 세션을 불러올 수 없습니다"),
+        scope: "overview",
       });
     }
   }
@@ -1962,7 +2164,6 @@ export function App() {
     repoId: number,
     state?: string,
   ) {
-    // TODO: SESSION_EXPIRED 구분 (협의 R2)
     const response = await fetchPaimJson<ApiRepositoryConnectResponse>(
       `/projects/${apiProjectId}/repositories/${repoId}/sync`,
       {
@@ -2172,6 +2373,109 @@ export function App() {
         session.id === sessionId ? updater(session) : session,
       ),
     }));
+  }
+
+  // 서버에 비어 있는 채팅 세션 row를 만든다.
+  async function createServerChatSession(apiProjectId: number, title: string) {
+    return fetchPaimJson<ApiChatSessionResponse>(`/projects/${apiProjectId}/sessions`, {
+      method: "POST",
+      body: JSON.stringify({ title: title || "New Chat" }),
+    });
+  }
+
+  // 로컬 세션은 첫 질문 전까지 서버 세션을 만들지 않는다.
+  async function ensureServerChatSession(
+    projectId: string,
+    session: ChatSession,
+    apiProjectId: number,
+    title: string,
+  ) {
+    if (session.serverSessionId) {
+      return session.serverSessionId;
+    }
+
+    const createdSession = await createServerChatSession(apiProjectId, title);
+
+    updateSessionInProject(projectId, session.id, (currentSession) => ({
+      ...currentSession,
+      serverSessionId: createdSession.id,
+      title: createdSession.title || currentSession.title,
+    }));
+
+    return createdSession.id;
+  }
+
+  // 서버에 이미 연결된 세션의 제목 변경만 동기화한다.
+  async function syncChatSessionTitle(projectId: string, sessionId: string, title: string) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    const project = projectsRef.current.find((currentProject) => currentProject.id === projectId);
+    const session = project?.sessions.find((currentSession) => currentSession.id === sessionId);
+
+    if (!project || !session?.serverSessionId || typeof project.apiProjectId !== "number") {
+      return;
+    }
+
+    try {
+      await fetchPaimJson<ApiChatSessionResponse>(
+        `/projects/${project.apiProjectId}/sessions/${encodeURIComponent(session.serverSessionId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ title }),
+        },
+      );
+    } catch (error) {
+      if (isPaimApiError(error) && error.status === 404) {
+        return;
+      }
+
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "채팅 세션 제목을 서버에 저장할 수 없습니다"),
+        scope: "overview",
+      });
+    }
+  }
+
+  // 서버 세션이 있으면 삭제하고, 404는 이미 삭제된 상태로 본다.
+  async function deleteServerChatSession(project: ProjectWorkspace, session: ChatSession) {
+    if (!session.serverSessionId) {
+      return true;
+    }
+
+    if (serverStatus === "offline") {
+      setDemoStatus({
+        ok: false,
+        message: "서버에 연결되지 않아 로컬 채팅만 삭제했습니다",
+        scope: "overview",
+      });
+      return true;
+    }
+
+    if (typeof project.apiProjectId !== "number") {
+      return true;
+    }
+
+    try {
+      await fetchPaimJson<void>(
+        `/projects/${project.apiProjectId}/sessions/${encodeURIComponent(session.serverSessionId)}`,
+        { method: "DELETE" },
+      );
+      return true;
+    } catch (error) {
+      if (isPaimApiError(error) && error.status === 404) {
+        return true;
+      }
+
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "채팅 세션을 서버에서 삭제할 수 없습니다"),
+        scope: "overview",
+      });
+      return false;
+    }
   }
 
   function handleSelectProject(projectId: string) {
@@ -2849,6 +3153,11 @@ export function App() {
         scope: "github",
       });
     } catch (error) {
+      if (isGithubSessionExpiredError(error)) {
+        handleGithubSessionExpired(projectId);
+        return;
+      }
+
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub 로그인 상태를 확인할 수 없습니다"),
@@ -2951,6 +3260,11 @@ export function App() {
         scope: "github",
       });
     } catch (error) {
+      if (isGithubSessionExpiredError(error)) {
+        handleGithubSessionExpired(projectId);
+        return;
+      }
+
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 목록을 불러올 수 없습니다"),
@@ -3000,6 +3314,11 @@ export function App() {
       });
       setGithubRepositoryQuery("");
     } catch (error) {
+      if (isGithubSessionExpiredError(error)) {
+        handleGithubSessionExpired(projectId);
+        return;
+      }
+
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo를 연결할 수 없습니다"),
@@ -3049,7 +3368,6 @@ export function App() {
           throw new Error("GitHub repository URL을 확인할 수 없습니다");
         }
 
-        // TODO: SESSION_EXPIRED 구분 (협의 R2)
         const connected = await fetchPaimJson<ApiRepositoryConnectResponse>(
           `/projects/${apiProject.apiProjectId}/repositories`,
           {
@@ -3093,6 +3411,11 @@ export function App() {
         scope: "github",
       });
     } catch (error) {
+      if (isGithubSessionExpiredError(error)) {
+        handleGithubSessionExpired(projectId);
+        return;
+      }
+
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 서버 동기화를 시작할 수 없습니다"),
@@ -3141,6 +3464,11 @@ export function App() {
           { method: "DELETE" },
         );
       } catch (error) {
+        if (isGithubSessionExpiredError(error)) {
+          handleGithubSessionExpired(projectId);
+          return;
+        }
+
         const detail = getErrorMessage(error, "GitHub repo 연결을 해제할 수 없습니다");
 
         if (!/repository not found/i.test(detail)) {
@@ -3247,6 +3575,7 @@ export function App() {
         ...session,
         title: nextValue,
       }));
+      void syncChatSessionTitle(renameDraft.projectId, renameDraft.sessionId, nextValue);
     }
 
     setRenameDraft(null);
@@ -3264,8 +3593,8 @@ export function App() {
     }
   }
 
-	  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
-	  function handleDeleteSession(
+  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
+  async function handleDeleteSession(
     projectId: string,
     sessionId: string,
     event: MouseEvent<HTMLButtonElement>,
@@ -3278,8 +3607,14 @@ export function App() {
       return;
     }
 
-	    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
-	    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
+    const targetSession = targetProject.sessions.find((session) => session.id === sessionId);
+
+    if (!targetSession || !(await deleteServerChatSession(targetProject, targetSession))) {
+      return;
+    }
+
+    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
+    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
     const shouldMoveSelection =
       selectedProjectId === projectId &&
       (sessionId === selectedSessionId ||
@@ -3557,6 +3892,10 @@ export function App() {
     const targetSessionId = selectedSession.id;
     const messageAttachments = attachments;
     const question = trimmedPrompt || "첨부 파일을 확인해줘";
+    const nextSessionTitle =
+      selectedSession.title === "New Chat"
+        ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
+        : selectedSession.title;
     const history = createQueryHistory(selectedSession.messages);
     const userMessage: Message = {
       id: createId("user"),
@@ -3568,6 +3907,7 @@ export function App() {
     setIsSending(true);
 
     let apiProjectId: number;
+    let serverSessionId: string;
 
     try {
       const apiProject = await ensureApiProject(selectedProject);
@@ -3577,22 +3917,30 @@ export function App() {
       }
 
       apiProjectId = apiProject.apiProjectId;
+      serverSessionId = await ensureServerChatSession(
+        targetProjectId,
+        selectedSession,
+        apiProjectId,
+        nextSessionTitle,
+      );
     } catch (error) {
       setIsSending(false);
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "서버 프로젝트를 준비할 수 없습니다"),
+        message: getErrorMessage(error, "서버 채팅 세션을 준비할 수 없습니다"),
         scope: "overview",
       });
       return;
     }
 
+    if (selectedSession.serverSessionId && nextSessionTitle !== selectedSession.title) {
+      void syncChatSessionTitle(targetProjectId, targetSessionId, nextSessionTitle);
+    }
+
     updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
       ...session,
-      title:
-        session.title === "New Chat"
-          ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
-          : session.title,
+      serverSessionId,
+      title: nextSessionTitle,
       messages: [...session.messages, userMessage],
     }));
     setPrompt("");
@@ -3902,7 +4250,7 @@ export function App() {
                   className="danger"
                   data-action="delete-session"
                   onClick={(event) =>
-                    handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
+                    void handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
                   }
                   role="menuitem"
                   type="button"
