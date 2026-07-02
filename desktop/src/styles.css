@@ -2052,6 +2052,82 @@ input.project-memory-check-circle:checked::after {
   gap: 0;
 }
 
+.project-memory-completed-group {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.project-memory-completed-toggle {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: none;
+  border-radius: var(--radius-s);
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.project-memory-completed-toggle svg {
+  transform: rotate(-90deg);
+  transition: transform 140ms ease;
+}
+
+.project-memory-completed-group[data-open="true"] .project-memory-completed-toggle svg {
+  transform: rotate(0deg);
+}
+
+.project-memory-completed-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.project-memory-completed-body {
+  display: grid;
+  gap: 0;
+}
+
+.project-memory-completed-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.project-memory-completed-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: 0 9px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.project-memory-completed-delete:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.project-memory-completed-delete[data-confirming="true"] {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.project-memory-completed-delete:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
 .project-memory-manage-item {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr) auto;
