@@ -1379,6 +1379,13 @@ export function App() {
     selectedProjectDescription.length > 0;
   const isProjectBriefingDisabled =
     !hasProjectHomeContext || selectedProjectHasDocumentInProgress || isSending;
+  const mainDemoStatus = demoStatus?.scope === "github" ? null : demoStatus;
+  const mainDemoStatusKind = mainDemoStatus?.ok ? "info" : "error";
+  const showNoticeStack =
+    serverStatus === "offline" ||
+    selectedProjectDelta !== null ||
+    Boolean(selectedProject?.serverMissing) ||
+    mainDemoStatus !== null;
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -1632,12 +1639,15 @@ export function App() {
 
   useEffect(() => {
     if (
-      serverStatus !== "online" ||
       !selectedProject ||
       selectedProject.serverMissing ||
       typeof selectedProject.apiProjectId !== "number"
     ) {
       setProjectDeltaBanner(null);
+      return;
+    }
+
+    if (serverStatus !== "online") {
       return;
     }
 
@@ -4466,14 +4476,6 @@ export function App() {
       style={appShellStyle}
     >
       {isWindows ? <WindowsTitlebar /> : null}
-      {serverStatus === "offline" ? (
-        <div className="server-offline-banner" role="status">
-          <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
-          <button onClick={() => void syncProjectsWithServer(true)} type="button">
-            다시 연결
-          </button>
-        </div>
-      ) : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
@@ -4728,12 +4730,24 @@ export function App() {
         className="chat"
         data-empty-chat={selectedSession?.messages.length === 0 ? "true" : undefined}
       >
-        {selectedSession ? (
-          <>
+        {showNoticeStack ? (
+          <div className="notice-stack" aria-live="polite">
+            {serverStatus === "offline" ? (
+              <div className="notice" data-kind="offline" role="status">
+                <i aria-hidden="true" />
+                <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
+                <span className="notice-spacer" />
+                <button onClick={() => void syncProjectsWithServer(true)} type="button">
+                  다시 연결
+                </button>
+              </div>
+            ) : null}
             {selectedProjectDelta ? (
-              <div className="project-delta-banner" role="status">
+              <div className="notice" data-kind="delta" role="status">
+                <i aria-hidden="true" />
                 <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
-                <div>
+                <span className="notice-spacer" />
+                <div className="notice-actions">
                   <button
                     onClick={() => void handleRequestProjectDeltaBriefing()}
                     type="button"
@@ -4747,6 +4761,27 @@ export function App() {
                 </div>
               </div>
             ) : null}
+            {selectedProject?.serverMissing ? (
+              <div className="notice" data-kind="error" role="status">
+                <i aria-hidden="true" />
+                <span>서버에서 찾을 수 없어 로컬 캐시를 표시 중</span>
+              </div>
+            ) : null}
+            {mainDemoStatus ? (
+              <div
+                className="notice runtime-status"
+                data-kind={mainDemoStatusKind}
+                key={statusRevision}
+                role="status"
+              >
+                <i aria-hidden="true" />
+                <span>{mainDemoStatus.message}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {selectedSession ? (
+          <>
             {selectedSession.messages.length === 0 ? (
               <div className="chat-empty">
                 <h1>
@@ -4863,25 +4898,8 @@ export function App() {
           </>
         ) : selectedProject ? (
           <>
-          {selectedProjectDelta ? (
-            <div className="project-delta-banner" role="status">
-              <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
-              <div>
-                <button
-                  onClick={() => void handleRequestProjectDeltaBriefing()}
-                  type="button"
-                  disabled={isSending}
-                >
-                  브리핑 받기
-                </button>
-                <button onClick={handleDismissProjectDelta} type="button">
-                  닫기
-                </button>
-              </div>
-            </div>
-          ) : null}
-          <section className="project-home" aria-label="프로젝트 시작 화면">
-            <div className="project-home-content">
+            <section className="project-home" aria-label="프로젝트 시작 화면">
+              <div className="project-home-content">
               <div className="project-home-name-row">
                 <input
                   aria-label="프로젝트 이름"
@@ -4900,20 +4918,20 @@ export function App() {
                       }));
                     }
                   }}
-	                  onChange={(event) => {
-	                    const nextName = event.currentTarget.value;
+                  onChange={(event) => {
+                    const nextName = event.currentTarget.value;
 
-	                    updateProject(selectedProject.id, (project) => ({
-	                      ...project,
-	                      name: nextName,
-	                    }));
-	                  }}
-	                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
-	                  placeholder="New Project 1"
-	                  value={selectedProject.name}
-	                />
-	                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
-	              </div>
+                    updateProject(selectedProject.id, (project) => ({
+                      ...project,
+                      name: nextName,
+                    }));
+                  }}
+                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
+                  placeholder="New Project 1"
+                  value={selectedProject.name}
+                />
+                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
+              </div>
               <textarea
                 aria-label="프로젝트 설명"
                 className="project-home-description"
@@ -4929,12 +4947,7 @@ export function App() {
                 rows={2}
                 value={selectedProject.description ?? ""}
               />
-              {selectedProject.serverMissing ? (
-                <p className="runtime-status project-home-status" data-ok="false" role="status">
-                  서버에서 찾을 수 없어 로컬 캐시를 표시 중
-                </p>
-              ) : null}
-	              <div className="project-home-divider" />
+              <div className="project-home-divider" />
 
               <div className="project-home-section-title">시작하기</div>
               <div className="project-home-upload-list">
@@ -5021,17 +5034,6 @@ export function App() {
 
               <div className="project-home-spacer" />
 
-              {demoStatus && demoStatus.scope !== "github" ? (
-                <p
-                  className="runtime-status project-home-status"
-                  data-ok={demoStatus.ok}
-                  key={statusRevision}
-                  role="status"
-                >
-                  {demoStatus.message}
-                </p>
-              ) : null}
-
               <p className="project-home-note">
                 분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
               </p>
@@ -5061,8 +5063,8 @@ export function App() {
                   <span>분석 없이 채팅 시작하기</span>
                 </button>
               </div>
-            </div>
-          </section>
+              </div>
+            </section>
           </>
         ) : (
           <div className="project-start" role="status">
@@ -5072,16 +5074,6 @@ export function App() {
                 src={paimWatermark}
                 alt="PaiM AI Project Manager"
               />
-              {demoStatus && demoStatus.scope !== "github" ? (
-                <p
-                  className="runtime-status project-start-status"
-                  data-ok={demoStatus.ok}
-                  key={statusRevision}
-                  role="status"
-                >
-                  {demoStatus.message}
-                </p>
-              ) : null}
               <button
                 className="project-start-button"
                 onClick={() => createProjectFromName(createNextProjectName(projects))}
