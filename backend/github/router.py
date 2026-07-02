@@ -16,6 +16,10 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/github/app", tags=["github"])
 
+
+class SessionExpiredException(Exception):
+    """GitHub App 세션 만료 — main.py exception_handler가 410 top-level JSON으로 변환."""
+
 GITHUB_API_BASE = "https://api.github.com"
 GITHUB_WEB_BASE = "https://github.com"
 GITHUB_API_VERSION = "2022-11-28"
@@ -31,6 +35,9 @@ class GithubAppSession:
 
 # ponytail: in-memory install sessions; move to DB/Redis when user auth or multi-worker API exists.
 _sessions: dict[str, GithubAppSession] = {}
+# 만료된 state를 5분간 기억 — prune 이후에도 410 반환 가능하게 보장
+_expired_states: dict[str, float] = {}
+_EXPIRED_GRACE_SECONDS = 5 * 60
 
 
 class GithubRepositoryPreviewRequest(BaseModel):
@@ -111,23 +118,31 @@ def _github_app_jwt() -> str:
 
 
 def _prune_sessions() -> None:
-    expires_before = time.time() - SESSION_TTL_SECONDS
-    expired_states = [
-        state for state, session in _sessions.items() if session.created_at < expires_before
-    ]
-
-    for state in expired_states:
+    now = time.time()
+    expires_before = now - SESSION_TTL_SECONDS
+    for state in [s for s, sess in _sessions.items() if sess.created_at < expires_before]:
+        _expired_states[state] = now
         del _sessions[state]
+    # 그레이스 기간 지난 tombstone 정리
+    stale_before = now - _EXPIRED_GRACE_SECONDS
+    for state in [s for s, t in _expired_states.items() if t < stale_before]:
+        del _expired_states[state]
 
 
 def _session_or_404(state: str) -> GithubAppSession:
-    _prune_sessions()
     session = _sessions.get(state)
 
-    if not session:
-        raise HTTPException(status_code=404, detail="GitHub App session not found")
+    if session is not None:
+        if session.created_at < time.time() - SESSION_TTL_SECONDS:
+            _expired_states[state] = time.time()
+            del _sessions[state]
+            raise SessionExpiredException()
+        return session
 
-    return session
+    _prune_sessions()
+    if state in _expired_states:
+        raise SessionExpiredException()
+    raise HTTPException(status_code=404, detail="GitHub App session not found")
 
 
 def _install_url(state: str) -> str:
