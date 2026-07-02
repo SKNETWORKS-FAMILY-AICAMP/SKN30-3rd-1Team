@@ -1,4 +1,4 @@
-import { Check, GripVertical, Pencil, Save, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Pencil, Save, Trash2, X } from "lucide-react";
 import {
   Fragment,
   type FormEvent,
@@ -24,6 +24,7 @@ type ProjectMemoryPanelProps = {
   canManage: boolean;
   isMaximized: boolean;
   project: ProjectWorkspace;
+  reloadRevision: number;
   suggestionMin: SuggestionMinConfidence;
 };
 
@@ -415,6 +416,7 @@ export function ProjectMemoryPanel({
   canManage,
   isMaximized,
   project,
+  reloadRevision,
   suggestionMin,
 }: ProjectMemoryPanelProps) {
   const [memoryItems, setMemoryItems] = useState<ProjectMemoryItem[]>([]);
@@ -436,6 +438,9 @@ export function ProjectMemoryPanel({
   const [dragOverPlacement, setDragOverPlacement] = useState<ActionDropPlacement | null>(null);
   const [dragPreview, setDragPreview] = useState<{ content: string; x: number; y: number } | null>(null);
   const [showAllDecisions, setShowAllDecisions] = useState(false);
+  const [showCompletedActions, setShowCompletedActions] = useState(false);
+  const [pendingCompletedActionDelete, setPendingCompletedActionDelete] = useState(false);
+  const [isDeletingCompletedActions, setIsDeletingCompletedActions] = useState(false);
   const apiProjectId = project.apiProjectId;
   const groupedItems = useMemo(() => groupMemoryItems(memoryItems), [memoryItems]);
   const memoryItemsById = useMemo(
@@ -444,6 +449,10 @@ export function ProjectMemoryPanel({
   );
   const actionItems = useMemo(() => getActionDisplayItems(groupedItems.action), [groupedItems]);
   const actionTodoItems = useMemo(() => getActionTodoItems(groupedItems.action), [groupedItems]);
+  const completedActionItems = useMemo(
+    () => actionItems.filter(isMemoryItemCompleted),
+    [actionItems],
+  );
   const visibleMemorySuggestions = useMemo(
     () =>
       suggestionMin === "high"
@@ -535,7 +544,7 @@ export function ProjectMemoryPanel({
 
   useEffect(() => {
     void loadProjectMemory();
-  }, [apiProjectId, canManage]);
+  }, [apiProjectId, canManage, reloadRevision]);
 
   useEffect(() => {
     setEditingItemId(null);
@@ -550,7 +559,16 @@ export function ProjectMemoryPanel({
     setDragOverPlacement(null);
     setDragPreview(null);
     setShowAllDecisions(false);
+    setShowCompletedActions(false);
+    setPendingCompletedActionDelete(false);
   }, [apiProjectId, isMaximized]);
+
+  useEffect(() => {
+    if (completedActionItems.length === 0) {
+      setShowCompletedActions(false);
+      setPendingCompletedActionDelete(false);
+    }
+  }, [completedActionItems.length]);
 
   useEffect(() => {
     if (draggingActionId === null) {
@@ -719,6 +737,51 @@ export function ProjectMemoryPanel({
       setOperationError(getErrorMessage(error, "메모리를 삭제할 수 없습니다"));
     } finally {
       setItemSaving(item.id, false);
+    }
+  }
+
+  async function handleDeleteCompletedActions() {
+    if (typeof apiProjectId !== "number" || completedActionItems.length === 0) {
+      return;
+    }
+
+    if (!pendingCompletedActionDelete) {
+      setPendingCompletedActionDelete(true);
+      setOperationError("");
+      return;
+    }
+
+    const itemsToDelete = completedActionItems;
+    const deletingIds = itemsToDelete.map((item) => item.id);
+    let nextItems = memoryItems;
+
+    setOperationError("");
+    setIsDeletingCompletedActions(true);
+    setSavingItemIds((current) => [...new Set([...current, ...deletingIds])]);
+
+    try {
+      for (const item of itemsToDelete) {
+        try {
+          await fetchPaimJson<void>(`/projects/${apiProjectId}/memory/${item.id}`, {
+            method: "DELETE",
+          });
+        } catch (error) {
+          if (!(isPaimApiError(error) && error.status === 404)) {
+            throw error;
+          }
+        }
+
+        nextItems = nextItems.filter((candidate) => candidate.id !== item.id);
+        setMemoryItems(nextItems);
+      }
+
+      setPendingCompletedActionDelete(false);
+      setShowCompletedActions(false);
+    } catch (error) {
+      setOperationError(getErrorMessage(error, "완료 항목 삭제가 중단되었습니다"));
+    } finally {
+      setSavingItemIds((current) => current.filter((itemId) => !deletingIds.includes(itemId)));
+      setIsDeletingCompletedActions(false);
     }
   }
 
@@ -1124,12 +1187,61 @@ export function ProjectMemoryPanel({
     );
   }
 
+  function renderCompletedActionGroup() {
+    if (completedActionItems.length === 0) {
+      return null;
+    }
+
+    const deleteLabel = pendingCompletedActionDelete
+      ? `완료된 액션 ${completedActionItems.length}개를 삭제합니다 — 되돌릴 수 없음`
+      : "완료 항목 모두 삭제";
+
+    return (
+      <div
+        className="project-memory-completed-group"
+        data-open={showCompletedActions ? "true" : undefined}
+      >
+        <button
+          aria-expanded={showCompletedActions}
+          className="project-memory-completed-toggle"
+          onClick={() => {
+            setShowCompletedActions((current) => !current);
+            setPendingCompletedActionDelete(false);
+          }}
+          type="button"
+        >
+          <ChevronDown size={13} />
+          완료됨 {completedActionItems.length}
+        </button>
+        {showCompletedActions ? (
+          <div className="project-memory-completed-body">
+            <div className="project-memory-completed-actions">
+              <button
+                className="project-memory-completed-delete"
+                data-confirming={pendingCompletedActionDelete ? "true" : undefined}
+                disabled={!showManageUi || isDeletingCompletedActions}
+                onClick={() => void handleDeleteCompletedActions()}
+                type="button"
+              >
+                <Trash2 size={13} />
+                {deleteLabel}
+              </button>
+            </div>
+            {completedActionItems.map((item) => renderMemoryItem(item, "action"))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderManageSection(category: ProjectMemoryCategory) {
     const { label, tone } = MEMORY_CATEGORY_META[category];
-    const allItems = category === "action" ? actionItems : groupedItems[category];
+    const allItems = category === "action" ? actionTodoItems : groupedItems[category];
     const shouldLimitDecision = category === "decision" && !showAllDecisions;
     const items = shouldLimitDecision ? allItems.slice(0, MANAGE_DECISION_LIMIT) : allItems;
     const hiddenDecisionCount = Math.max(allItems.length - items.length, 0);
+    const isActionSection = category === "action";
+    const hasSectionItems = isActionSection ? groupedItems.action.length > 0 : allItems.length > 0;
 
     return (
       <article className="project-memory-manage-section" data-tone={tone} key={category}>
@@ -1151,10 +1263,13 @@ export function ProjectMemoryPanel({
         </div>
         {addingCategory === category ? renderAddForm(category) : null}
         <div className="project-memory-manage-list">
-          {allItems.length === 0 ? (
+          {!hasSectionItems ? (
             <p className="project-memory-empty-row">{MEMORY_CATEGORY_META[category].empty}</p>
           ) : (
-            items.map((item) => renderMemoryItem(item, category))
+            <>
+              {items.map((item) => renderMemoryItem(item, category))}
+              {isActionSection ? renderCompletedActionGroup() : null}
+            </>
           )}
         </div>
         {category === "decision" && (hiddenDecisionCount > 0 || showAllDecisions) ? (

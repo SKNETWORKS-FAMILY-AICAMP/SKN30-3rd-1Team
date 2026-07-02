@@ -1,4 +1,5 @@
 import { Check, Copy, GitBranch, Link2, LogOut, MoreHorizontal, RefreshCcw, Search, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import githubMark from "../assets/github/github-mark.svg";
 import tablerAlertCircle from "./assets/tabler-icons/alert-circle.svg?raw";
@@ -175,6 +176,14 @@ function getGithubRepositorySyncLabel(repository: GitRepositoryInfo) {
   return "서버 연결됨";
 }
 
+function formatSyncElapsed(seconds: number) {
+  if (seconds < 60) {
+    return `${seconds}초`;
+  }
+
+  return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+}
+
 function getGithubRepositoryWarningLabel(repository: GitRepositoryInfo) {
   const warning = repository.syncWarnings?.[0];
 
@@ -217,8 +226,27 @@ export function GithubPanel({
   statusRevision,
 }: GithubPanelProps) {
   const eventCounts = getGithubEventCounts(events);
+  const isRepositorySyncing = repository?.syncStatus === "syncing";
+  const [syncElapsedSeconds, setSyncElapsedSeconds] = useState(0);
   const githubUser =
     session?.user ?? repositories.find((availableRepository) => availableRepository.owner)?.owner;
+
+  useEffect(() => {
+    if (!isRepositorySyncing) {
+      setSyncElapsedSeconds(0);
+      return;
+    }
+
+    const startedAt = repository?.syncStartedAt ?? Date.now();
+    const updateElapsed = () => {
+      setSyncElapsedSeconds(Math.floor(Math.max(0, Date.now() - startedAt) / 1000));
+    };
+
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isRepositorySyncing, repository?.syncStartedAt]);
 
   function handleCopyGithubCode() {
     if (!session?.userCode) {
@@ -523,9 +551,9 @@ export function GithubPanel({
               <button
                 aria-label="GitHub 동기화"
                 className="overview-github-sync-button"
-                disabled={isSyncing}
+                disabled={isSyncing || isRepositorySyncing}
                 onClick={onSyncRepository}
-                title="GitHub 동기화"
+                title={isRepositorySyncing ? "동기화 중" : "GitHub 동기화"}
                 type="button"
               >
                 <RefreshCcw size={15} />
@@ -536,6 +564,15 @@ export function GithubPanel({
               data-status={repository.syncStatus ?? "connected"}
             >
               <span>{getGithubRepositorySyncLabel(repository)}</span>
+              {repository.syncStatus === "syncing" ? (
+                <div className="overview-github-sync-progress" role="status">
+                  <RefreshCcw size={14} />
+                  <div>
+                    <p>커밋·이슈·PR 수집·분석 중</p>
+                    <small>{formatSyncElapsed(syncElapsedSeconds)} 경과</small>
+                  </div>
+                </div>
+              ) : null}
               {repository.syncStatus === "indexed" ? (
                 <small>
                   {repository.indexedFiles ?? 0} files
