@@ -150,3 +150,25 @@ def test_no_old_doc_skips_cleanup():
         assert resp.status_code == 201
         assert resp.json()["status"] == "processing"
         mock_del.assert_not_called()
+
+
+def test_upload_without_doc_type_uses_default_document():
+    """프론트가 doc_type을 보내지 않아도 기본값 document로 저장/ingest된다."""
+    conns = _conn_seq((), 99)
+    with patch("backend.api.upload.get_connection", side_effect=conns), \
+         patch("backend.api.upload.save_file", return_value="data/1/test.md"), \
+         patch("backend.api.upload.delete_file"), \
+         patch("backend.api.upload.extract", return_value=[]), \
+         patch("backend.api.upload.ingest") as mock_ingest, \
+         patch("backend.api.upload._set_doc_status"), \
+         patch("backend.api.upload._delete_document"):
+
+        resp = _client.post(_URL, files={"file": _FILE}, data={})
+
+        assert resp.status_code == 201
+        insert_cursor = conns[1].cursor.return_value.__enter__()
+        _, insert_params = insert_cursor.execute.call_args[0]
+        assert insert_params[2] == "document"
+        mock_ingest.assert_called_once()
+        assert mock_ingest.call_args.kwargs["doc_type"] == "document"
+        assert mock_ingest.call_args.kwargs["source_metadata"]["source_type"] == "document"

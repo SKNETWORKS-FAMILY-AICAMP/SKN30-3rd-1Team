@@ -72,6 +72,7 @@ def _extract_category(question: str) -> Optional[str]:
 
 
 _vectorstore = None
+_vectorstore_lock = __import__("threading").Lock()
 
 
 def _get_vectorstore() -> Chroma:
@@ -79,13 +80,15 @@ def _get_vectorstore() -> Chroma:
     적재측(db/chroma.py)과 동일한 OpenAI 임베딩(EMBED_MODEL)과 컬렉션명을 써야 벡터가 맞는다."""
     global _vectorstore
     if _vectorstore is None:
-        collection_name = os.getenv("CHROMA_COLLECTION_NAME", "paiM_openai_v1")
-        client = chromadb.PersistentClient(path=os.getenv("CHROMA_PERSIST_DIR", ".chroma"))
-        _vectorstore = Chroma(
-            client=client,
-            collection_name=collection_name,
-            embedding_function=OpenAIEmbeddings(model=os.getenv("EMBED_MODEL", "text-embedding-3-small")),
-        )
+        with _vectorstore_lock:
+            if _vectorstore is None:
+                collection_name = os.getenv("CHROMA_COLLECTION_NAME", "paiM_openai_v1")
+                client = chromadb.PersistentClient(path=os.getenv("CHROMA_PERSIST_DIR", ".chroma"))
+                _vectorstore = Chroma(
+                    client=client,
+                    collection_name=collection_name,
+                    embedding_function=OpenAIEmbeddings(model=os.getenv("EMBED_MODEL", "text-embedding-3-small")),
+                )
     return _vectorstore
 
 
@@ -107,47 +110,59 @@ def _get_chain():
     return _chain
 
 
-def _build_context(project_id: int, question: str) -> tuple[str, List[str], dict]:
-    """MySQL(구조화) + ChromaDB(원문 맥락)를 모두 조회해 컨텍스트로 조합.
+def _build_context(
+    project_id: int,
+    question: str,
+    search_mode: str = "both",
+) -> tuple[str, List[str], dict]:
+    """MySQL(구조화) + ChromaDB(원문 맥락)를 조회해 컨텍스트로 조합.
+
+    search_mode:
+        "both"   — MySQL + ChromaDB (기본, 프로덕션 동작)
+        "sql"    — MySQL 구조화 기록만
+        "vector" — ChromaDB 벡터 검색만
+
     반환: (컨텍스트 문자열, 출처 목록, 디버그 dict)
-    debug dict는 프론트엔드 디버그 expander에 표시됨.
     """
     sources: List[str] = []
-    debug: dict = {"mysql_rows": [], "chroma_chunks": []}
+    debug: dict = {"mysql_rows": [], "chroma_chunks": [], "search_mode": search_mode}
 
-    # 1) 구조화 기록 — MySQL memory 테이블 (질문에서 추출한 category로 좁혀 조회)
-    category = _extract_category(question)
-    debug["filters"] = {"category": category}
-    rows = mysql_search.search(project_id, category=category)
-    mysql_ctx = "\n".join(
-        f"[{r['category']}] {r['content']} (출처: {r['source']})"
-        for r in rows
-    )
-    for r in rows:
-        if r["source"] not in sources:
-            sources.append(r["source"])
-    debug["mysql_rows"] = [
-        {"category": r["category"], "content": r["content"], "source": r["source"]}
-        for r in rows
-    ]
+    mysql_ctx = ""
+    chroma_ctx = ""
 
-    # 2) 원문 맥락 — ChromaDB (LangChain 벡터스토어, project_id 필터)
-    #    거리 점수가 임계값 이내인 청크만 사용해 관련 낮은 노이즈를 버린다.
-    scored = _get_vectorstore().similarity_search_with_score(
-        question, k=CHROMA_K, filter={"project_id": project_id}
-    )
-    docs = [d for d, dist in scored if dist <= CHROMA_MAX_DISTANCE]
-    chroma_ctx = "\n".join(d.page_content for d in docs)
-    for d in docs:
-        src = d.metadata.get("source", "")
-        if src and src not in sources:
-            sources.append(src)
-    debug["chroma_chunks"] = [
-        # 디버그용: 청크 앞 200자만 표시
-        {"text": d.page_content[:200], "source": d.metadata.get("source", ""),
-         "date": d.metadata.get("date", "")}
-        for d in docs
-    ]
+    # 1) 구조화 기록 — MySQL
+    if search_mode in ("both", "sql"):
+        category = _extract_category(question)
+        debug["filters"] = {"category": category}
+        rows = mysql_search.search(project_id, category=category)
+        mysql_ctx = "\n".join(
+            f"[{r['category']}] {r['content']} (출처: {r['source']})"
+            for r in rows
+        )
+        for r in rows:
+            if r["source"] not in sources:
+                sources.append(r["source"])
+        debug["mysql_rows"] = [
+            {"category": r["category"], "content": r["content"], "source": r["source"]}
+            for r in rows
+        ]
+
+    # 2) 원문 맥락 — ChromaDB
+    if search_mode in ("both", "vector"):
+        scored = _get_vectorstore().similarity_search_with_score(
+            question, k=CHROMA_K, filter={"project_id": project_id}
+        )
+        docs = [d for d, dist in scored if dist <= CHROMA_MAX_DISTANCE]
+        chroma_ctx = "\n".join(d.page_content for d in docs)
+        for d in docs:
+            src = d.metadata.get("source", "")
+            if src and src not in sources:
+                sources.append(src)
+        debug["chroma_chunks"] = [
+            {"text": d.page_content[:200], "source": d.metadata.get("source", ""),
+             "date": d.metadata.get("date", "")}
+            for d in docs
+        ]
 
     parts = [p for p in [mysql_ctx, chroma_ctx] if p]
     return "\n\n".join(parts), sources, debug
@@ -158,14 +173,13 @@ def answer(
     question: str,
     history: List[Dict] = None,
     route: str = None,
+    search_mode: str = "both",
 ) -> Dict:
     """질문에 대한 답변을 생성하는 메인 함수 (LangChain RAG).
-    1. 항상 MySQL(구조화) + ChromaDB(원문 맥락) 두 소스를 교차 조회
-    2. _build_context로 컨텍스트 조합
-    3. 대화 히스토리 + 컨텍스트를 LangChain 체인에 전달해 답변 생성
+    search_mode: "both" | "sql" | "vector"
     route 인자는 호환성 위해 유지하나 항상 'both'로 동작한다.
     """
-    context, sources, debug = _build_context(project_id, question)
+    context, sources, debug = _build_context(project_id, question, search_mode=search_mode)
 
     # 대화 히스토리를 MAX_HISTORY 턴으로 잘라 LangChain 메시지로 변환
     hist_msgs = []

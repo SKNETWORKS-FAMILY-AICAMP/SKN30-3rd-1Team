@@ -159,7 +159,7 @@ async def upload_document(
     project_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    doc_type: str = Form(...),
+    doc_type: str = Form("document"),
     date: str = Form(""),
 ):
     require_project_access(project_id, min_role="member")
