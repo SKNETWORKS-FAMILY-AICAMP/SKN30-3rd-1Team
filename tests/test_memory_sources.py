@@ -2,7 +2,7 @@
 import base64
 from unittest.mock import patch, MagicMock, call
 
-from backend.api.repository import _collect_repo_sources, _sync_bg
+from backend.api.repository import _collect_merged_prs, _collect_repo_sources, _sync_bg
 from backend.pipeline.ingestor import ingest
 from backend.pipeline.models import MemoryItem
 from backend.retriever.mysql_search import search
@@ -122,6 +122,20 @@ def test_collect_repo_sources_commits_metadata():
     assert sources["commits.txt"]["metadata"]["source_ref"] == "def5678"
 
 
+def test_collect_merged_prs_filters_watermark_and_unmerged_closed_prs():
+    """_collect_merged_prs() — 워터마크 이후 merged PR만 Reconciler 입력으로 반환."""
+    pulls = [
+        {"number": 23, "title": "memory UI", "body": "메모리 관리 UI 구현", "html_url": "https://github.com/o/r/pull/23", "merged_at": "2026-07-01T10:00:00Z"},
+        {"number": 22, "title": "closed only", "body": "", "html_url": "https://github.com/o/r/pull/22", "merged_at": None},
+        {"number": 20, "title": "old", "body": "", "html_url": "https://github.com/o/r/pull/20", "merged_at": "2026-06-30T10:00:00Z"},
+    ]
+    with patch("backend.api.repository._gh_get", return_value=pulls):
+        result = _collect_merged_prs("owner/repo", last_reconciled_pr=20)
+
+    assert [pr["number"] for pr in result] == [23]
+    assert result[0]["body_summary"] == "메모리 관리 UI 구현"
+
+
 # ── _sync_bg source_metadata 전달 ────────────────────────────────
 
 def test_sync_bg_passes_source_metadata_to_ingest():
@@ -134,8 +148,11 @@ def test_sync_bg_passes_source_metadata_to_ingest():
         }
     }
     with patch("backend.api.repository._collect_repo_sources", return_value=(sources, "abc", [])), \
+         patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_merged_prs", return_value=[]), \
          patch("backend.api.repository._clear_repo_indexed_data"), \
          patch("backend.api.repository._set_repo_status"), \
+         patch("backend.api.repository.reconcile_repository_prs"), \
          patch("backend.pipeline.extractor.extract", return_value=[]), \
          patch("backend.pipeline.ingestor.ingest") as mock_ingest:
         _sync_bg(project_id=1, repo_id=10, full_name="owner/repo", branch="main", token=None)

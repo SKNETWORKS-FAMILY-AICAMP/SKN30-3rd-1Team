@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     indexed_files  INT          NOT NULL DEFAULT 0,
     last_error     TEXT         DEFAULT NULL,
     sync_warning   TEXT         DEFAULT NULL,
+    last_reconciled_pr INT      NULL,
     connected_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id)
 );
@@ -91,6 +92,23 @@ CREATE TABLE IF NOT EXISTS memory_sources (
     INDEX idx_memory_sources_memory_id (memory_id),
     INDEX idx_memory_sources_doc_id    (doc_id),
     INDEX idx_memory_sources_repo_id   (repo_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_suggestions (
+    id          INT PRIMARY KEY AUTO_INCREMENT,
+    project_id  INT NOT NULL,
+    memory_id   INT NOT NULL,
+    kind        VARCHAR(20) NOT NULL,
+    evidence    JSON NOT NULL,
+    rationale   TEXT NOT NULL,
+    confidence  VARCHAR(10) NOT NULL,
+    status      VARCHAR(10) NOT NULL DEFAULT 'pending',
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    resolved_at DATETIME NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (memory_id)  REFERENCES memory(id) ON DELETE CASCADE,
+    INDEX idx_memory_suggestions_project_status (project_id, status),
+    INDEX idx_memory_suggestions_memory_status  (memory_id, status)
 );
 
 CREATE TABLE IF NOT EXISTS chat_sessions (

@@ -13,8 +13,11 @@ def test_sync_bg_success_sets_indexed():
         }
     }
     with patch("backend.api.repository._collect_repo_sources", return_value=(sources, "abc1234", [])), \
+         patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_merged_prs", return_value=[]), \
          patch("backend.api.repository._clear_repo_indexed_data") as mock_clear, \
          patch("backend.api.repository._set_repo_status") as mock_status, \
+         patch("backend.api.repository.reconcile_repository_prs") as mock_reconcile, \
          patch("backend.pipeline.extractor.extract", return_value=[]), \
          patch("backend.pipeline.ingestor.ingest"):
 
@@ -25,11 +28,13 @@ def test_sync_bg_success_sets_indexed():
             10, "indexed", commit_sha="abc1234", indexed_files=1,
             last_error=None, sync_warning=None,
         )
+        mock_reconcile.assert_called_once_with(1, 10, [])
 
 
 def test_sync_bg_empty_sources_preserves_index():
     """sources 빈 결과 → 기존 index 삭제 없음, status='failed', last_error 기록."""
-    with patch("backend.api.repository._collect_repo_sources", return_value=({}, None, [])), \
+    with patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_repo_sources", return_value=({}, None, [])), \
          patch("backend.api.repository._clear_repo_indexed_data") as mock_clear, \
          patch("backend.api.repository._set_repo_status") as mock_status:
 
@@ -41,7 +46,8 @@ def test_sync_bg_empty_sources_preserves_index():
 
 def test_sync_bg_network_exception_sets_failed():
     """GitHub API 예외 → status='failed', last_error 기록."""
-    with patch("backend.api.repository._collect_repo_sources", side_effect=RuntimeError("timeout")), \
+    with patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_repo_sources", side_effect=RuntimeError("timeout")), \
          patch("backend.api.repository._set_repo_status") as mock_status:
 
         _sync_bg(project_id=1, repo_id=10, full_name="owner/repo", branch="main", token=None)
@@ -60,8 +66,11 @@ def test_sync_bg_partial_failure_sets_warning():
     }
     warnings = [{"source_type": "issues", "reason": "GitHub API 응답 오류"}]
     with patch("backend.api.repository._collect_repo_sources", return_value=(sources, "abc", warnings)), \
+         patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_merged_prs", return_value=[]), \
          patch("backend.api.repository._clear_repo_indexed_data"), \
          patch("backend.api.repository._set_repo_status") as mock_status, \
+         patch("backend.api.repository.reconcile_repository_prs"), \
          patch("backend.pipeline.extractor.extract", return_value=[]), \
          patch("backend.pipeline.ingestor.ingest"):
 
@@ -82,8 +91,11 @@ def test_sync_bg_all_success_no_warning():
         }
     }
     with patch("backend.api.repository._collect_repo_sources", return_value=(sources, None, [])), \
+         patch("backend.api.repository._get_last_reconciled_pr", return_value=None), \
+         patch("backend.api.repository._collect_merged_prs", return_value=[]), \
          patch("backend.api.repository._clear_repo_indexed_data"), \
          patch("backend.api.repository._set_repo_status") as mock_status, \
+         patch("backend.api.repository.reconcile_repository_prs"), \
          patch("backend.pipeline.extractor.extract", return_value=[]), \
          patch("backend.pipeline.ingestor.ingest"):
 

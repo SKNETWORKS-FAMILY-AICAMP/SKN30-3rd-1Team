@@ -13,6 +13,7 @@ services:
       - ./backend/db/migrate_v2.sql:/docker-entrypoint-initdb.d/02_migrate_v2.sql:ro
       - ./backend/db/migrate_v3.sql:/docker-entrypoint-initdb.d/03_migrate_v3.sql:ro
       - ./backend/db/migrate_v4.sql:/docker-entrypoint-initdb.d/04_migrate_v4.sql:ro
+      - ./backend/db/migrate_v5.sql:/docker-entrypoint-initdb.d/05_migrate_v5.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-paiM_dev}"]
       interval: 10s
