@@ -138,6 +138,7 @@ export type ProjectWorkspace = {
   id: string;
   apiProjectId?: number;
   serverMissing?: boolean;
+  lastSeenAt?: string;
   name: string;
   description?: string;
   files?: Attachment[];

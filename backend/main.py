@@ -9,6 +9,7 @@ from .api.upload import router as upload_router
 from .api.query import router as query_router
 from .api.repository import router as repository_router
 from .api.suggestion import router as suggestion_router
+from .api.delta import router as delta_router
 from .chat.router import router as chat_router
 from .github.router import router as github_router, SessionExpiredException
 
@@ -56,6 +57,7 @@ app.include_router(upload_router,     prefix="/api/v1")
 app.include_router(query_router,      prefix="/api/v1")
 app.include_router(repository_router, prefix="/api/v1")
 app.include_router(suggestion_router, prefix="/api/v1")
+app.include_router(delta_router,      prefix="/api/v1")
 app.include_router(chat_router,    prefix="/api/v1")
 # github_router는 자체 prefix(/github/app)를 사용하므로 /api/v1 붙이지 않음
 app.include_router(github_router)

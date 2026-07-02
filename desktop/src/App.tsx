@@ -206,6 +206,38 @@ type ApiRepositoryStatusResponse = {
   extracted?: Record<string, number>;
 };
 
+type ApiProjectDeltaAction = {
+  id: number;
+  content: string;
+  owner?: string | null;
+  due_date?: string | null;
+};
+
+type ApiProjectDeltaResponse = {
+  since: string;
+  new_memory: {
+    decision: number;
+    action: number;
+    issue: number;
+    risk: number;
+  };
+  pending_suggestions: number;
+  completed_actions: number;
+  due_soon: ApiProjectDeltaAction[];
+  overdue: ApiProjectDeltaAction[];
+};
+
+type ApiDeltaBriefingResponse = {
+  answer: string;
+  sources: string[];
+};
+
+type ProjectDeltaBannerState = {
+  projectId: string;
+  since: string;
+  delta: ApiProjectDeltaResponse;
+};
+
 type ServerStatus = "online" | "offline";
 
 type ActionMenuState =
@@ -226,10 +258,11 @@ const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v7";
+const PROJECT_STORAGE_KEY = "paim.projects.v8";
 const PROJECT_BRIEFING_QUESTION =
   "이 프로젝트의 목적, 현재 상태(완료된 것과 진행 중인 것), 그리고 다음에 해야 할 액션을 프로젝트 기록을 근거로 간결하게 브리핑해줘. 담당자와 마감일이 있는 액션은 함께 표기해줘.";
 const LEGACY_PROJECT_STORAGE_KEYS = [
+  "paim.projects.v7",
   "paim.projects.v6",
   "paim.projects.v5",
   "paim.projects.v4",
@@ -1058,6 +1091,37 @@ function createStoredProjectState(
   };
 }
 
+function getProjectDeltaNewMemoryCount(delta: ApiProjectDeltaResponse) {
+  return Object.values(delta.new_memory).reduce((sum, count) => sum + count, 0);
+}
+
+function shouldShowProjectDelta(delta: ApiProjectDeltaResponse) {
+  return (
+    getProjectDeltaNewMemoryCount(delta) +
+    delta.pending_suggestions +
+    delta.completed_actions
+  ) > 0;
+}
+
+function formatProjectDeltaSummary(delta: ApiProjectDeltaResponse) {
+  const parts = [`메모리 +${getProjectDeltaNewMemoryCount(delta)}`];
+
+  if (delta.pending_suggestions > 0) {
+    parts.push(`제안 ${delta.pending_suggestions}건`);
+  }
+  if (delta.completed_actions > 0) {
+    parts.push(`완료 ${delta.completed_actions}건`);
+  }
+  if (delta.due_soon.length > 0) {
+    parts.push(`마감 임박 ${delta.due_soon.length}건`);
+  }
+  if (delta.overdue.length > 0) {
+    parts.push(`기한 초과 ${delta.overdue.length}건`);
+  }
+
+  return parts.join(" · ");
+}
+
 type AttachmentListProps = {
   attachments: Attachment[];
   label: string;
@@ -1149,6 +1213,7 @@ export function App() {
   const [statusRevision, setStatusRevision] = useState(0);
   const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
   const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
+  const [projectDeltaBanner, setProjectDeltaBanner] = useState<ProjectDeltaBannerState | null>(null);
   const [isProjectPanelMaximized, setIsProjectPanelMaximized] = useState(false);
   const [projectFileTreeWidth, setProjectFileTreeWidth] = useState(
     DEFAULT_PROJECT_FILE_TREE_WIDTH,
@@ -1185,6 +1250,7 @@ export function App() {
   const documentPollTimeoutsRef = useRef(new Map<string, number>());
   const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
   const demoStatusTimeoutRef = useRef<number | null>(null);
+  const ignoredProjectDeltaRef = useRef<Record<string, string>>({});
   const projectsRef = useRef(initialProjectState.projects);
   const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
   const selectedSessionIdRef = useRef(initialProjectState.selectedSessionId);
@@ -1297,6 +1363,10 @@ export function App() {
       : selectedProjectGithubSession?.status === "pending"
         ? "authing"
         : "signedout";
+  const selectedProjectDelta =
+    selectedProject && projectDeltaBanner?.projectId === selectedProject.id
+      ? projectDeltaBanner
+      : null;
   const selectedProjectDescription = selectedProject?.description?.trim() ?? "";
   const isSelectedProjectDefaultName = /^New Project(?: \d+)?$/.test(selectedProject?.name ?? "");
   const canOpenProjectMemory =
@@ -1556,6 +1626,63 @@ export function App() {
   }, [
     selectedProject?.apiProjectId,
     selectedProject?.id,
+    selectedProject?.serverMissing,
+    serverStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      serverStatus !== "online" ||
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    if (!selectedProject.lastSeenAt) {
+      markProjectSeen(selectedProject.id);
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    let isDisposed = false;
+    const projectId = selectedProject.id;
+    const apiProjectId = selectedProject.apiProjectId;
+    const since = selectedProject.lastSeenAt;
+
+    if (ignoredProjectDeltaRef.current[projectId] === since) {
+      setProjectDeltaBanner(null);
+      return;
+    }
+
+    void fetchProjectDelta(apiProjectId, since)
+      .then((delta) => {
+        if (
+          isDisposed ||
+          selectedProjectIdRef.current !== projectId ||
+          ignoredProjectDeltaRef.current[projectId] === since
+        ) {
+          return;
+        }
+        setProjectDeltaBanner(
+          shouldShowProjectDelta(delta) ? { projectId, since, delta } : null,
+        );
+      })
+      .catch(() => {
+        if (!isDisposed) {
+          setProjectDeltaBanner(null);
+        }
+      });
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.lastSeenAt,
     selectedProject?.serverMissing,
     serverStatus,
   ]);
@@ -1944,6 +2071,15 @@ export function App() {
     );
   }
 
+  function markProjectSeen(projectId: string) {
+    const seenAt = new Date().toISOString();
+    updateProject(projectId, (project) => ({
+      ...project,
+      lastSeenAt: seenAt,
+    }));
+    return seenAt;
+  }
+
   function updateProjectAttachment(
     projectId: string,
     attachmentId: string,
@@ -2286,6 +2422,30 @@ export function App() {
         signal: controller.signal,
         body: JSON.stringify({ question, history }),
       });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  async function fetchProjectDelta(apiProjectId: number, since: string) {
+    return fetchPaimJson<ApiProjectDeltaResponse>(
+      `/projects/${apiProjectId}/delta?since=${encodeURIComponent(since)}`,
+    );
+  }
+
+  async function fetchProjectDeltaBriefing(apiProjectId: number, since: string) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+
+    try {
+      return await fetchPaimJson<ApiDeltaBriefingResponse>(
+        `/projects/${apiProjectId}/briefing/delta`,
+        {
+          method: "POST",
+          signal: controller.signal,
+          body: JSON.stringify({ since }),
+        },
+      );
     } finally {
       window.clearTimeout(timeoutId);
     }
@@ -3883,6 +4043,91 @@ export function App() {
     }
   }
 
+  function handleDismissProjectDelta() {
+    if (!selectedProjectDelta) {
+      return;
+    }
+
+    ignoredProjectDeltaRef.current[selectedProjectDelta.projectId] = selectedProjectDelta.since;
+    markProjectSeen(selectedProjectDelta.projectId);
+    setProjectDeltaBanner(null);
+  }
+
+  async function handleRequestProjectDeltaBriefing() {
+    if (
+      !selectedProject ||
+      !selectedProjectDelta ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number" ||
+      isSending
+    ) {
+      return;
+    }
+
+    if (shouldSkipServerAction("overview")) {
+      return;
+    }
+
+    const targetProjectId = selectedProject.id;
+    let targetSessionId = selectedSession?.id ?? null;
+
+    if (!targetSessionId) {
+      const nextSession = createEmptySession();
+      targetSessionId = nextSession.id;
+      updateProject(targetProjectId, (project) => ({
+        ...project,
+        sessions: [nextSession, ...project.sessions],
+      }));
+      setSelectedSessionId(nextSession.id);
+    }
+
+    const requestStartedAt = Date.now();
+    setIsSending(true);
+    setThinkingStartedAt(requestStartedAt);
+    clearDraft();
+
+    try {
+      const response = await fetchProjectDeltaBriefing(
+        selectedProject.apiProjectId,
+        selectedProjectDelta.since,
+      );
+      const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
+
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("assistant"),
+            role: "assistant",
+            content: response.answer,
+            sources: response.sources?.filter(Boolean),
+            thinkingSeconds,
+          },
+        ],
+      }));
+      ignoredProjectDeltaRef.current[targetProjectId] = selectedProjectDelta.since;
+      markProjectSeen(targetProjectId);
+      setProjectDeltaBanner(null);
+    } catch (error) {
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("error"),
+            role: "error",
+            content: getQueryErrorMessage(error),
+          },
+        ],
+      }));
+    } finally {
+      setIsSending(false);
+      setThinkingStartedAt(null);
+      focusPrompt();
+    }
+  }
+
   // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
   async function handleDeleteProject(projectId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
@@ -4485,6 +4730,23 @@ export function App() {
       >
         {selectedSession ? (
           <>
+            {selectedProjectDelta ? (
+              <div className="project-delta-banner" role="status">
+                <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
+                <div>
+                  <button
+                    onClick={() => void handleRequestProjectDeltaBriefing()}
+                    type="button"
+                    disabled={isSending}
+                  >
+                    브리핑 받기
+                  </button>
+                  <button onClick={handleDismissProjectDelta} type="button">
+                    닫기
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {selectedSession.messages.length === 0 ? (
               <div className="chat-empty">
                 <h1>
@@ -4600,6 +4862,24 @@ export function App() {
             </form>
           </>
         ) : selectedProject ? (
+          <>
+          {selectedProjectDelta ? (
+            <div className="project-delta-banner" role="status">
+              <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
+              <div>
+                <button
+                  onClick={() => void handleRequestProjectDeltaBriefing()}
+                  type="button"
+                  disabled={isSending}
+                >
+                  브리핑 받기
+                </button>
+                <button onClick={handleDismissProjectDelta} type="button">
+                  닫기
+                </button>
+              </div>
+            </div>
+          ) : null}
           <section className="project-home" aria-label="프로젝트 시작 화면">
             <div className="project-home-content">
               <div className="project-home-name-row">
@@ -4783,6 +5063,7 @@ export function App() {
               </div>
             </div>
           </section>
+          </>
         ) : (
           <div className="project-start" role="status">
             <div className="project-start-content">

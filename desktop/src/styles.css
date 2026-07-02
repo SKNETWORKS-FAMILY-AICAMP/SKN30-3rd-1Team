@@ -430,6 +430,71 @@ button {
   background: var(--surface-hover);
 }
 
+.project-delta-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(720px, calc(100% - 32px));
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--accent-green) 24%, var(--border));
+  border-radius: 8px;
+  padding: 7px 8px 7px 12px;
+  background: color-mix(in srgb, var(--accent-green) 8%, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  box-shadow: var(--shadow);
+}
+
+.project-delta-banner > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-delta-banner > div {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-delta-banner button {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.project-delta-banner button:first-child {
+  background: var(--accent-green);
+  color: #07110d;
+}
+
+.project-delta-banner button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.project-delta-banner button:first-child:hover {
+  background: color-mix(in srgb, var(--accent-green) 84%, white);
+}
+
+.project-delta-banner button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
 .projects {
   display: flex;
   flex: 1 1 auto;
