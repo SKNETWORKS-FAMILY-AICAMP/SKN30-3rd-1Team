@@ -161,6 +161,11 @@ type ApiQueryHistoryMessage = {
   content: string;
 };
 
+type ApiQueryAttachment = {
+  filename: string;
+  content_base64: string;
+};
+
 type ApiQueryResponse = {
   answer: string;
   sources?: string[];
@@ -732,6 +737,11 @@ function getFileExtension(name: string) {
 
 function isSupportedProjectDocument(name: string) {
   return ["md", "txt", "pdf"].includes(getFileExtension(name));
+}
+
+function getBase64ByteLength(encoded: string) {
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
 }
 
 function getUploadMimeType(name: string) {
@@ -2551,15 +2561,20 @@ export function App() {
     apiProjectId: number,
     question: string,
     history: ApiQueryHistoryMessage[],
+    queryAttachments: ApiQueryAttachment[] = [],
   ) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    const body =
+      queryAttachments.length > 0
+        ? { question, history, attachments: queryAttachments }
+        : { question, history };
 
     try {
       return await fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
         method: "POST",
         signal: controller.signal,
-        body: JSON.stringify({ question, history }),
+        body: JSON.stringify(body),
       });
     } finally {
       window.clearTimeout(timeoutId);
@@ -2604,6 +2619,14 @@ export function App() {
     const bytes = base64ToBytes(encoded);
 
     return new File([bytes], entry.name, { type: getUploadMimeType(entry.name) });
+  }
+
+  async function readQueryAttachment(entry: Attachment): Promise<ApiQueryAttachment> {
+    const encoded = await invoke<string>("read_file_base64", { path: entry.path });
+    if (getBase64ByteLength(encoded) > 10 * 1024 * 1024) {
+      throw new Error(`${entry.name}은 10 MB를 초과해 첨부할 수 없습니다`);
+    }
+    return { filename: entry.name, content_base64: encoded };
   }
 
   async function uploadProjectDocument(
@@ -4376,7 +4399,19 @@ export function App() {
       return;
     }
 
-    const nextAttachments = await Promise.all(paths.map(createAttachment));
+    const supportedPaths = paths.filter((path) => isSupportedProjectDocument(getFileName(path)));
+    if (supportedPaths.length !== paths.length) {
+      setDemoStatus({
+        ok: true,
+        message: "채팅 첨부는 md/txt/pdf만 이번 질문 참고용으로 사용할 수 있습니다",
+        scope: "overview",
+      });
+    }
+    if (supportedPaths.length === 0) {
+      return;
+    }
+
+    const nextAttachments = await Promise.all(supportedPaths.map(createAttachment));
 
     setAttachments((currentAttachments) => [...currentAttachments, ...nextAttachments]);
   }
@@ -4495,6 +4530,29 @@ export function App() {
         ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
         : selectedSession.title;
     const history = createQueryHistory(selectedSession.messages);
+    let queryAttachments: ApiQueryAttachment[] = [];
+    if (messageAttachments.length > 0) {
+      if (canUseTauriDialog()) {
+        try {
+          queryAttachments = await Promise.all(messageAttachments.map(readQueryAttachment));
+        } catch (error) {
+          setIsSending(false);
+          setThinkingStartedAt(null);
+          setDemoStatus({
+            ok: false,
+            message: getErrorMessage(error, "첨부 파일을 읽을 수 없습니다"),
+            scope: "overview",
+          });
+          return;
+        }
+      } else {
+        setDemoStatus({
+          ok: true,
+          message: "브라우저 모드에서는 채팅 첨부를 LLM에 전달하지 않습니다",
+          scope: "overview",
+        });
+      }
+    }
     const userMessage: Message = {
       id: createId("user"),
       role: "user",
@@ -4548,7 +4606,7 @@ export function App() {
     setAttachments([]);
 
     try {
-      const response = await fetchProjectQuery(apiProjectId, question, history);
+      const response = await fetchProjectQuery(apiProjectId, question, history, queryAttachments);
       const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
       updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
@@ -5123,7 +5181,12 @@ export function App() {
                           </>
                         )}
                         {message.attachments && message.attachments.length > 0 ? (
-                          <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                          <>
+                            <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                            {message.role === "user" ? (
+                              <span className="attachment-scope-note">이번 질문 참고용</span>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (

@@ -223,6 +223,8 @@ class QAState(TypedDict, total=False):
     project_id: int
     question: str
     history: list
+    attachment_context: str
+    attachment_sources: list
     # 노드가 채우는 값
     section: Optional[str]
     answer: str
@@ -248,9 +250,22 @@ def qa_node(state: QAState) -> dict:
     pid, q = state["project_id"], state["question"]
     context, sources, debug = qa_engine._build_context(pid, q)
 
+    parts = []
+    if state.get("attachment_context"):
+        parts.append(state["attachment_context"])
+
     mem = get_project_memory(pid)
     if mem:
-        context = f"[프로젝트 메모리]\n{mem}\n\n{context}"
+        parts.append(f"[프로젝트 메모리]\n{mem}")
+    if context:
+        parts.append(context)
+    context = "\n\n".join(parts)
+
+    for source in state.get("attachment_sources") or []:
+        if source not in sources:
+            sources.insert(0, source)
+    if state.get("attachment_sources"):
+        debug["attachments"] = state["attachment_sources"]
 
     # 대화 히스토리를 LangChain 메시지로 변환 (qa_engine.answer와 동일 규칙)
     hist_msgs = []
@@ -270,7 +285,11 @@ def verify_answer_node(state: QAState) -> dict:
     """검증(휴리스틱): 컨텍스트가 있었고 답변이 '확인 안 됨'류가 아니면 통과.
     ponytail: 휴리스틱. 정확도 필요 시 LLM 판정으로 교체(같은 위치)."""
     debug = state.get("debug", {})
-    has_ctx = bool(debug.get("mysql_rows")) or bool(debug.get("chroma_chunks"))
+    has_ctx = (
+        bool(debug.get("attachments"))
+        or bool(debug.get("mysql_rows"))
+        or bool(debug.get("chroma_chunks"))
+    )
     ans = state.get("answer", "")
     refused = ("확인되지 않" in ans) or ("확인할 수 없" in ans)
     return {"answer_ok": has_ctx and not refused}
@@ -376,7 +395,13 @@ _qa_app = None
 _ingest_app = None
 
 
-def run_qa(project_id: int, question: str, history: Optional[list] = None) -> dict:
+def run_qa(
+    project_id: int,
+    question: str,
+    history: Optional[list] = None,
+    attachment_context: str = "",
+    attachment_sources: Optional[list] = None,
+) -> dict:
     """출력 그래프 실행 → {answer, plan, sources, debug}."""
     global _qa_app
     if _qa_app is None:
@@ -384,6 +409,8 @@ def run_qa(project_id: int, question: str, history: Optional[list] = None) -> di
     out = _qa_app.invoke({
         "project_id": project_id, "question": question,
         "history": history or [], "qa_retries": 0, "plan_retries": 0,
+        "attachment_context": attachment_context,
+        "attachment_sources": attachment_sources or [],
     })
     return out["result"]
 

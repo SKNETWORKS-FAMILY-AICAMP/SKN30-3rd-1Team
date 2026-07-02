@@ -3810,6 +3810,14 @@ input.project-memory-check-circle:checked::after {
   background: var(--surface-strong);
 }
 
+.attachment-scope-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+}
+
 .thinking {
   display: flex;
   align-items: center;
