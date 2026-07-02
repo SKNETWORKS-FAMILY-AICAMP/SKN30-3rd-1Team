@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS memory (
     topic            VARCHAR(100),
     owner            VARCHAR(100),
     date             DATE,
+    due_date         DATE         NULL,
     source           VARCHAR(255),
     created_by       VARCHAR(10)  NOT NULL DEFAULT 'llm',
     updated_by       VARCHAR(10)  NULL,

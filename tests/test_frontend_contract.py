@@ -134,12 +134,12 @@ def test_upload_oversized_file_returns_413():
 # ── project memory todo fields ───────────────────────────────────
 
 def test_memory_get_includes_todo_fields_and_sort_order():
-    """GET /memory — completed_at/sort_order 포함, sort_order 우선 정렬 SQL 사용."""
+    """GET /memory — completed_at/sort_order/due_date 포함, sort_order 우선 정렬 SQL 사용."""
     rows = [
         {
             "id": 10, "project_id": 1, "doc_id": None, "repo_id": None,
             "category": "action", "content": "first", "source": None,
-            "completed_at": None, "sort_order": 1,
+            "completed_at": None, "sort_order": 1, "due_date": "2026-07-10",
             "created_at": "2026-07-02 10:00:00",
             "source_kind": None, "ms_doc_id": None, "ms_repo_id": None,
             "source_type": None, "source_path": None,
@@ -148,7 +148,7 @@ def test_memory_get_includes_todo_fields_and_sort_order():
         {
             "id": 11, "project_id": 1, "doc_id": None, "repo_id": None,
             "category": "action", "content": "second", "source": None,
-            "completed_at": "2026-07-02 11:00:00", "sort_order": None,
+            "completed_at": "2026-07-02 11:00:00", "sort_order": None, "due_date": None,
             "created_at": "2026-07-02 11:00:00",
             "source_kind": None, "ms_doc_id": None, "ms_repo_id": None,
             "source_type": None, "source_path": None,
@@ -164,7 +164,9 @@ def test_memory_get_includes_todo_fields_and_sort_order():
     body = resp.json()
     assert body[0]["completed_at"] is None
     assert body[0]["sort_order"] == 1
+    assert body[0]["due_date"] == "2026-07-10"
     assert body[1]["completed_at"] == "2026-07-02 11:00:00"
+    assert body[1]["due_date"] is None
     sql = cur.execute.call_args.args[0]
     assert "ORDER BY (m.sort_order IS NULL), m.sort_order ASC, m.created_at DESC" in sql
 
@@ -238,6 +240,44 @@ def test_memory_patch_sort_order_allows_int_and_null_without_verifying():
     assert "sort_order = %s" in update_call.args[0]
     assert update_call.args[1][0] is None
     assert "is_user_verified" not in update_call.args[0]
+
+
+def test_memory_patch_due_date_sets_value_and_marks_verified():
+    """PATCH due_date=YYYY-MM-DD — 마감일 저장 + 사용자 검증 마킹."""
+    row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "due_date": "2026-07-10", "is_user_verified": 1,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"due_date": "2026-07-10"})
+
+    assert resp.status_code == 200
+    assert resp.json()["due_date"] == "2026-07-10"
+    update_call = cur.execute.call_args_list[0]
+    assert "due_date = %s" in update_call.args[0]
+    assert "is_user_verified = %s" in update_call.args[0]
+    assert update_call.args[1][0] == "2026-07-10"
+
+
+def test_memory_patch_due_date_null_clears_without_verifying():
+    """PATCH due_date=null — 마감일 해제, date 필드의 null 처리처럼 검증 마킹 없음."""
+    row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "due_date": None, "is_user_verified": 0,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"due_date": None})
+
+    assert resp.status_code == 200
+    assert resp.json()["due_date"] is None
+    update_call = cur.execute.call_args_list[0]
+    assert "due_date = %s" in update_call.args[0]
+    assert "is_user_verified" not in update_call.args[0]
+    assert update_call.args[1][0] is None
 
 
 # ── doc_type 추론 ────────────────────────────────────────────────
