@@ -9,7 +9,6 @@ import {
   FolderPlus,
   GitBranch,
   Ellipsis,
-  Lightbulb,
   Maximize2,
   MessageSquare,
   Minimize2,
@@ -38,6 +37,8 @@ import {
   useRef,
   useState,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import paimWatermark from "./assets/paim-watermark.png";
 import { GithubPanel } from "./GithubPanel";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
@@ -226,8 +227,9 @@ const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v6";
+const PROJECT_STORAGE_KEY = "paim.projects.v7";
 const LEGACY_PROJECT_STORAGE_KEYS = [
+  "paim.projects.v6",
   "paim.projects.v5",
   "paim.projects.v4",
   "paim.projects.v3",
@@ -1156,6 +1158,8 @@ export function App() {
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
+  const [thinkingElapsedSeconds, setThinkingElapsedSeconds] = useState(0);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(loadSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -1748,6 +1752,28 @@ export function App() {
       document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isProjectFileTreeResizing]);
+
+  useEffect(() => {
+    if (thinkingStartedAt === null) {
+      setThinkingElapsedSeconds(0);
+      return;
+    }
+
+    const startedAt = thinkingStartedAt;
+
+    function updateThinkingElapsedSeconds() {
+      setThinkingElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+      );
+    }
+
+    updateThinkingElapsedSeconds();
+    const intervalId = window.setInterval(updateThinkingElapsedSeconds, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [thinkingStartedAt]);
 
 
   useEffect(() => {
@@ -3977,8 +4003,10 @@ export function App() {
       content: question,
       attachments: messageAttachments,
     };
+    const requestStartedAt = Date.now();
 
     setIsSending(true);
+    setThinkingStartedAt(requestStartedAt);
 
     let apiProjectId: number;
     let serverSessionId: string;
@@ -3999,6 +4027,7 @@ export function App() {
       );
     } catch (error) {
       setIsSending(false);
+      setThinkingStartedAt(null);
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "서버 채팅 세션을 준비할 수 없습니다"),
@@ -4022,6 +4051,7 @@ export function App() {
 
     try {
       const response = await fetchProjectQuery(apiProjectId, question, history);
+      const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
       updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
         ...session,
@@ -4032,6 +4062,7 @@ export function App() {
             role: "assistant",
             content: response.answer,
             sources: response.sources?.filter(Boolean),
+            thinkingSeconds,
           },
         ],
       }));
@@ -4049,6 +4080,7 @@ export function App() {
       }));
     } finally {
       setIsSending(false);
+      setThinkingStartedAt(null);
       focusPrompt();
     }
   }
@@ -4353,25 +4385,39 @@ export function App() {
             ) : (
               <div className="chat-scroll" ref={chatScrollRef}>
                 <div className="conversation">
-                  {selectedSession.messages.map((message, index) => (
+                  {selectedSession.messages.map((message) => (
                     <article className="message" data-role={message.role} key={message.id}>
-                      {message.role === "assistant" && index > 1 ? (
-                        <div className="thinking">
-                          <Lightbulb size={16} />
-                          <span>Thought for a moment</span>
-                        </div>
-                      ) : null}
                       <div className="message-content">
-                        {message.content.split("\n").map((line, lineIndex) => (
-                          <p key={`${message.id}-${lineIndex}`}>{line}</p>
-                        ))}
+                        {message.role === "assistant" ? (
+                          <div className="assistant">
+                            {typeof message.thinkingSeconds === "number" ? (
+                              <div className="thought-for">
+                                {message.thinkingSeconds}초 동안 생각함
+                              </div>
+                            ) : null}
+                            <div className="md">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                            </div>
+                            {message.sources && message.sources.length > 0 ? (
+                              <div className="sources" aria-label="출처">
+                                <span className="label">출처</span>
+                                {message.sources.map((source, sourceIndex) => (
+                                  <span className="chip" key={`${message.id}-${sourceIndex}`}>
+                                    {source}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <>
+                            {message.content.split("\n").map((line, lineIndex) => (
+                              <p key={`${message.id}-${lineIndex}`}>{line}</p>
+                            ))}
+                          </>
+                        )}
                         {message.attachments && message.attachments.length > 0 ? (
                           <AttachmentList attachments={message.attachments} label="첨부 파일" />
-                        ) : null}
-                        {message.sources && message.sources.length > 0 ? (
-                          <p className="message-sources">
-                            출처: {message.sources.join(", ")}
-                          </p>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
@@ -4391,9 +4437,11 @@ export function App() {
 
                   {isSending ? (
                     <article className="message" data-role="assistant">
-                      <div className="thinking">
-                        <Lightbulb size={16} />
-                        <span>Thought for a moment</span>
+                      <div className="thinking" aria-live="polite">
+                        <span className="spinner" aria-hidden="true" />
+                        <span>
+                          <span className="dots">생각 중</span> · {thinkingElapsedSeconds}초
+                        </span>
                       </div>
                     </article>
                   ) : null}
