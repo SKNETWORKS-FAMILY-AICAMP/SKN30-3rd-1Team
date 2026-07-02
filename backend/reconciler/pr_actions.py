@@ -98,7 +98,7 @@ def _coerce_result(value) -> ReconcileResult:
     )
 
 
-def _invoke_reconciler(prs: list[MergedPullRequest], actions: list[OpenAction]) -> ReconcileResult:
+def _invoke_reconciler_once(prs: list[MergedPullRequest], actions: list[OpenAction]) -> ReconcileResult:
     """LLM을 1회 호출해 전체 PR/action 매칭을 구조화 출력으로 받는다.
     with_structured_output을 우선 사용하고, 지원 실패 시 PydanticOutputParser로 1회 재시도한다.
     """
@@ -141,6 +141,19 @@ def _invoke_reconciler(prs: list[MergedPullRequest], actions: list[OpenAction]) 
         except Exception as exc:
             error_text = str(exc)
     raise ValueError(f"Reconciler 구조화 출력 파싱 실패: {error_text}")
+
+
+def _invoke_reconciler(prs: list[MergedPullRequest], actions: list[OpenAction]) -> ReconcileResult:
+    """매칭 0건이면 같은 입력으로 1회만 재호출한다."""
+    result = _invoke_reconciler_once(prs, actions)
+    if not result.matches and prs and actions:
+        logger.info(
+            "reconciler empty result; retrying once prs=%s actions=%s",
+            len(prs),
+            len(actions),
+        )
+        return _invoke_reconciler_once(prs, actions)
+    return result
 
 
 def match_node(state: ReconcilerState) -> dict:

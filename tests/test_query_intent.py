@@ -28,12 +28,32 @@ def _make_conn(rows=None):
 def test_rule_router_classifies_filter_lookup_and_overview():
     """명백한 조회형/조망형 질문은 LLM 없이 규칙으로 분기한다."""
     lookup = query_intent.classify_question("박제섭이 담당인 미완료 액션은?")
+    completed_count = query_intent.classify_question("완료된 액션 몇 개야?")
+    overdue = query_intent.classify_question("마감 지난 거 있어?")
     overview = query_intent.classify_question("프로젝트 전체 상황 정리해줘")
 
     assert lookup.route == "filter_lookup"
     assert lookup.router_stage == "rule"
+    assert completed_count.route == "filter_lookup"
+    assert completed_count.router_stage == "rule"
+    assert overdue.route == "filter_lookup"
+    assert overdue.router_stage == "rule"
     assert overview.route == "overview"
     assert overview.router_stage == "rule"
+
+
+def test_specific_work_completion_question_uses_llm_semantic(monkeypatch):
+    """특정 작업의 완료 여부 질문은 filter_lookup 규칙으로 확정하지 않는다."""
+    monkeypatch.setattr(
+        query_intent,
+        "get_chat_model",
+        lambda **kwargs: _FakeStructuredLLM({"label": "semantic"}),
+    )
+
+    result = query_intent.classify_question("데스크탑 앱 FastAPI 연동 작업 상태는 실제로 완료됐어?")
+
+    assert result.route == "semantic"
+    assert result.router_stage == "llm"
 
 
 def test_llm_router_classifies_semantic_when_rule_is_unclear(monkeypatch):

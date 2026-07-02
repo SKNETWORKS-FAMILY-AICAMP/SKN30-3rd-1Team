@@ -27,6 +27,15 @@ ROUTER_CLASSIFICATION_PROMPT = """당신은 PaiM Q&A 질문 라우터입니다.
 - filter_lookup: 담당자, 완료/미완료, 개수, 목록, 마감, 기한처럼 memory 테이블의 구조화 필터로 직접 답할 수 있는 질문
 - overview: 프로젝트 전체 상황, 현황, 요약, 정리, 브리핑처럼 전체 조망을 요청하는 질문
 - semantic: 이유, 배경, 근거, 의미 탐색, 일반 대화처럼 검색 컨텍스트와 생성 답변이 필요한 질문
+- 특정 작업·기능을 지목하며 그 상태/완료 여부를 묻는 질문은 semantic입니다.
+  filter_lookup은 조건 나열형 질의 전용입니다.
+
+예시:
+- "박제섭이 담당인 미완료 액션은?" => filter_lookup
+- "완료된 액션 몇 개야?" => filter_lookup
+- "마감 지난 거 있어?" => filter_lookup
+- "프로젝트 전체 상황 정리해줘" => overview
+- "데스크탑 앱 FastAPI 연동 작업은 실제로 끝났어?" => semantic
 
 후속 질문이면 최근 사용자 질문의 필터 맥락을 참고합니다.
 애매하거나 프로젝트 기록 의도가 약하면 semantic을 선택합니다.
@@ -50,10 +59,8 @@ OVERVIEW_SYSTEM_PROMPT = qa_engine.SYSTEM_QA + """
 프로젝트 전체 상황을 결정/액션/이슈/리스크와 열린 액션 중심으로 간결하게 정리하세요.
 """
 
-_FILTER_RE = re.compile(
-    r"(담당|누가|몇\s*개|몇개|목록|리스트|완료된|완료|미완료|남은|열린|마감|기한|지난|액션|할\s*일|할일|태스크)"
-)
-_OVERVIEW_RE = re.compile(r"(전체|요약|현황|정리|브리핑|상황|상태)")
+_FILTER_RULE_RE = re.compile(r"(담당|누가|몇\s*개|몇개|목록|리스트|마감|기한|지난)")
+_OVERVIEW_RE = re.compile(r"(전체|요약|현황|정리|브리핑|상황|프로젝트\s*상태)")
 
 
 class QueryRoute(BaseModel):
@@ -103,7 +110,7 @@ def _routing_input(question: str, history: List[Dict] | None) -> str:
 
 def classify_question(question: str, history: List[Dict] | None = None) -> QueryRoute:
     """규칙으로 먼저 분기하고, 애매하면 LLM 구조화 분류로 라우팅한다."""
-    has_filter = bool(_FILTER_RE.search(question))
+    has_filter = bool(_FILTER_RULE_RE.search(question))
     has_overview = bool(_OVERVIEW_RE.search(question))
     if has_filter and not has_overview:
         return QueryRoute(route="filter_lookup", router_stage="rule")

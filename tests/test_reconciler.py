@@ -1,4 +1,5 @@
 """PR→action Reconciler 단위 테스트."""
+import logging
 import pathlib
 
 from backend.reconciler import pr_actions
@@ -27,6 +28,29 @@ class _StructuredLLM:
         }
 
 
+class _RetryStructuredLLM:
+    def __init__(self):
+        self.calls = 0
+
+    def with_structured_output(self, schema):
+        return self
+
+    def invoke(self, messages):
+        self.calls += 1
+        if self.calls == 1:
+            return {"matches": []}
+        return {
+            "matches": [
+                {
+                    "memory_id": 10,
+                    "pr_number": 20,
+                    "rationale": "두 번째 호출에서 PR과 액션의 강한 대응을 확인했습니다.",
+                    "confidence": "medium",
+                }
+            ]
+        }
+
+
 def test_reconciler_uses_structured_output(monkeypatch):
     """run_reconciler() — Pydantic structured output으로 매칭 결과를 받는다."""
     llm = _StructuredLLM()
@@ -50,6 +74,24 @@ def test_reconciler_uses_structured_output(monkeypatch):
     assert llm.schema is pr_actions.ReconcileResult
     assert result.matches[0].memory_id == 10
     assert "매칭이 없으면 빈 배열" in llm.messages[0].content
+
+
+def test_reconciler_retries_once_when_empty_with_inputs(monkeypatch, caplog):
+    """PR/action 입력이 있는데 1차 매칭이 빈 배열이면 1회 재시도한다."""
+    llm = _RetryStructuredLLM()
+    pr_actions._app = None
+    caplog.set_level(logging.INFO, logger=pr_actions.__name__)
+    monkeypatch.setattr(pr_actions, "get_chat_model", lambda: llm)
+
+    result = pr_actions.run_reconciler(
+        1,
+        [{"number": 20, "title": "데스크탑 앱 FastAPI 연동", "body_summary": ""}],
+        [{"id": 10, "content": "데스크탑 앱을 FastAPI 백엔드와 연동한다"}],
+    )
+
+    assert llm.calls == 2
+    assert result.matches[0].memory_id == 10
+    assert "retrying once" in caplog.text
 
 
 def test_migrate_v5_declares_suggestions_and_watermark():
