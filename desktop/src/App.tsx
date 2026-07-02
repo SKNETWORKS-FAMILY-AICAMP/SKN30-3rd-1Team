@@ -216,7 +216,6 @@ type RenameDraft =
   | { type: "project"; projectId: string; value: string }
   | { type: "session"; projectId: string; sessionId: string; value: string };
 
-const DEMO_REPLY_DELAY_MS = 360;
 const SERVER_SYNC_TIMEOUT_MS = 3000;
 const DOCUMENT_STATUS_POLL_INTERVAL_MS = 3000;
 const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 180000;
@@ -228,6 +227,8 @@ const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
 const PROJECT_STORAGE_KEY = "paim.projects.v7";
+const PROJECT_BRIEFING_QUESTION =
+  "이 프로젝트의 목적, 현재 상태(완료된 것과 진행 중인 것), 그리고 다음에 해야 할 액션을 프로젝트 기록을 근거로 간결하게 브리핑해줘. 담당자와 마감일이 있는 액션은 함께 표기해줘.";
 const LEGACY_PROJECT_STORAGE_KEYS = [
   "paim.projects.v6",
   "paim.projects.v5",
@@ -1115,32 +1116,6 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
       })}
     </div>
   );
-}
-
-// 업로드된 프로젝트 자료를 읽은 뒤 처음 보여줄 짧은 브리핑 응답을 만든다.
-function createProjectBriefingReply(project: ProjectWorkspace, projectFiles: Attachment[]) {
-  const description = project.description?.trim();
-  const fileNames = projectFiles.map((file) => file.name).join(", ");
-  const githubName = project.githubRepository?.remoteRepo ?? project.githubRepository?.name;
-
-  return [
-    `${project.name || "New Project"} 프로젝트 맥락을 받았습니다.`,
-    "",
-    description ? `프로젝트 설명: ${description}` : null,
-    projectFiles.length > 0 ? `확인한 자료: ${fileNames}` : null,
-    githubName ? `GitHub 저장소: ${githubName}` : null,
-    "",
-    "지금부터 이 정보를 기준으로 프로젝트 목적, 현재 상태, 다음 액션을 함께 정리할 수 있습니다.",
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
-}
-
-// 데모 응답이 바로 튀어나오지 않도록 짧은 생각 시간을 둔다.
-function wait(ms: number) {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
 }
 
 // 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
@@ -3739,7 +3714,6 @@ export function App() {
   async function handleStartProjectBriefing(project: ProjectWorkspace, projectFiles: Attachment[]) {
     const description = project.description?.trim();
     const githubName = project.githubRepository?.remoteRepo ?? project.githubRepository?.name;
-    let briefingProject = project;
 
     if (projectFiles.length === 0 && !description && !githubName) {
       setDemoStatus({
@@ -3750,14 +3724,36 @@ export function App() {
       return;
     }
 
+    if (project.serverMissing) {
+      setDemoStatus({
+        ok: false,
+        message: "서버에서 찾을 수 없는 프로젝트에는 브리핑을 만들 수 없습니다",
+        scope: "overview",
+      });
+      return;
+    }
+
+    if (shouldSkipServerAction("overview")) {
+      return;
+    }
+
+    let apiProjectId: number;
+
     try {
-      briefingProject = await ensureApiProject(project);
+      const apiProject = await ensureApiProject(project);
+
+      if (typeof apiProject.apiProjectId !== "number") {
+        throw new Error("서버 프로젝트를 준비할 수 없습니다");
+      }
+
+      apiProjectId = apiProject.apiProjectId;
     } catch (error) {
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "FastAPI 프로젝트를 만들 수 없어 서버 메모리는 비활성화됩니다"),
+        message: getErrorMessage(error, "서버 브리핑을 준비할 수 없습니다"),
         scope: "overview",
       });
+      return;
     }
 
     const nextSession: ChatSession = {
@@ -3765,6 +3761,7 @@ export function App() {
       title: "Project Briefing",
       messages: [],
     };
+    const requestStartedAt = Date.now();
 
     updateProject(project.id, (currentProject) => ({
       ...currentProject,
@@ -3773,24 +3770,43 @@ export function App() {
     setSelectedProjectId(project.id);
     setSelectedSessionId(nextSession.id);
     setIsSending(true);
+    setThinkingStartedAt(requestStartedAt);
     clearDraft();
 
-    // TODO: 서버 query 기반 브리핑으로 전환 검토
-    await wait(DEMO_REPLY_DELAY_MS * 2);
+    try {
+      const response = await fetchProjectQuery(apiProjectId, PROJECT_BRIEFING_QUESTION, []);
+      const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
-    updateSessionInProject(project.id, nextSession.id, (session) => ({
-      ...session,
-      messages: [
-        ...session.messages,
-        {
-          id: createId("assistant"),
-          role: "assistant",
-          content: createProjectBriefingReply(briefingProject, projectFiles),
-        },
-      ],
-    }));
-    setIsSending(false);
-    focusPrompt();
+      updateSessionInProject(project.id, nextSession.id, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("assistant"),
+            role: "assistant",
+            content: response.answer,
+            sources: response.sources?.filter(Boolean),
+            thinkingSeconds,
+          },
+        ],
+      }));
+    } catch (error) {
+      updateSessionInProject(project.id, nextSession.id, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("error"),
+            role: "error",
+            content: getQueryErrorMessage(error),
+          },
+        ],
+      }));
+    } finally {
+      setIsSending(false);
+      setThinkingStartedAt(null);
+      focusPrompt();
+    }
   }
 
   // 프로젝트 삭제 후에는 남은 프로젝트로 선택을 옮기고, 마지막이면 빈 상태로 둔다.
