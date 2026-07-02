@@ -4826,6 +4826,7 @@ export function App() {
 
           {projectPanelView === "memory" ? (
             <ProjectMemoryPanel
+              canManage={canOpenProjectMemory}
               isMaximized={isProjectPanelMaximized}
               project={selectedProject}
             />

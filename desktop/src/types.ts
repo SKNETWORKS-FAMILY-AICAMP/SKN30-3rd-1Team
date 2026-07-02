@@ -104,6 +104,11 @@ export type ProjectMemoryItem = {
   owner?: string | null;
   date?: string | null;
   source?: string | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  is_user_verified?: boolean | number | null;
+  completed_at?: string | null;
+  sort_order?: number | null;
   created_at?: string | null;
 };
 
