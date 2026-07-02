@@ -7,3 +7,6 @@ AGENTS.md
 *.log
 .env
 .env.*
+
+# 공개 빌드 설정은 커밋 대상 (비밀 값 아님)
+!.env.production
