@@ -170,9 +170,11 @@ def delete_project(project_id: int):
             document_rows = cursor.fetchall()
             cursor.execute("SELECT id FROM repositories WHERE project_id = %s", (project_id,))
             repository_rows = cursor.fetchall()
+            cursor.execute("SELECT id FROM memory WHERE project_id = %s LIMIT 1", (project_id,))
+            memory_rows = cursor.fetchall()
 
         try:
-            _delete_project_chroma(project_id, bool(document_rows or repository_rows))
+            _delete_project_chroma(project_id, bool(document_rows or repository_rows or memory_rows))
             _delete_project_files(document_rows)
             with conn.cursor() as cursor:
                 _delete_project_rows(cursor, project_id)

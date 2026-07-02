@@ -5,6 +5,7 @@ from typing import List, Optional
 from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
+from ..retriever.memory_vector import upsert_memory_vectors
 
 # ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
 _NO_ID = -1
@@ -136,9 +137,11 @@ def ingest(
     chunks = _split_text(raw_text)
 
     conn = get_connection()
+    memory_rows = []
     try:
         with conn.cursor() as cursor:
             for item in items:
+                item_date = _normalize_date(item.date)
                 cursor.execute(
                     """
                     INSERT INTO memory
@@ -150,17 +153,35 @@ def ingest(
                         project_id, doc_id, repo_id,
                         item.category, item.content,
                         item.reason, item.topic,
-                        item.owner, _normalize_date(item.date),
+                        item.owner, item_date,
                         source,
                     ),
                 )
-                _insert_memory_source(cursor, cursor.lastrowid, doc_id, repo_id, source_metadata)
+                memory_id = cursor.lastrowid
+                _insert_memory_source(cursor, memory_id, doc_id, repo_id, source_metadata)
+                memory_rows.append({
+                    "id": memory_id,
+                    "project_id": project_id,
+                    "doc_id": doc_id,
+                    "repo_id": repo_id,
+                    "category": item.category,
+                    "content": item.content,
+                    "reason": item.reason,
+                    "topic": item.topic,
+                    "owner": item.owner,
+                    "date": item_date,
+                    "due_date": None,
+                    "completed_at": None,
+                    "source": source,
+                })
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+    upsert_memory_vectors(memory_rows)
 
     if not chunks:
         return
@@ -186,6 +207,7 @@ def ingest(
             "doc_id":      doc_id if doc_id is not None else _NO_ID,
             "repo_id":     repo_id if repo_id is not None else _NO_ID,
             "source":      source,
+            "item_type":   "document",
             "date":        date or "",
             "doc_type":    doc_type,
             "source_kind": sm.get("source_kind", ""),

@@ -27,6 +27,7 @@ def test_ingest_inserts_memory_source_row():
                       reason="", topic="", owner="", date="")
     conn, cursor = _make_conn(lastrowid=10)
     with patch("backend.pipeline.ingestor.get_connection", return_value=conn), \
+         patch("backend.pipeline.ingestor.upsert_memory_vectors"), \
          patch("backend.pipeline.ingestor.get_collection") as mock_coll:
         mock_coll.return_value.add = MagicMock()
         ingest(
@@ -44,6 +45,7 @@ def test_ingest_no_items_no_source_rows():
     """items 비어있으면 memory/memory_sources INSERT 없음."""
     conn, cursor = _make_conn()
     with patch("backend.pipeline.ingestor.get_connection", return_value=conn), \
+         patch("backend.pipeline.ingestor.upsert_memory_vectors"), \
          patch("backend.pipeline.ingestor.get_collection") as mock_coll:
         mock_coll.return_value.add = MagicMock()
         ingest(
@@ -62,6 +64,7 @@ def test_ingest_source_metadata_in_chroma():
     conn, cursor = _make_conn(lastrowid=1)
     mock_collection = MagicMock()
     with patch("backend.pipeline.ingestor.get_connection", return_value=conn), \
+         patch("backend.pipeline.ingestor.upsert_memory_vectors"), \
          patch("backend.pipeline.ingestor.get_collection", return_value=mock_collection):
         ingest(
             project_id=1, doc_id=None, repo_id=3,

@@ -17,9 +17,15 @@ from .github.router import router as github_router, SessionExpiredException
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    import logging
     from .startup import recover_stale_tasks, backfill_dev_user_membership, stale_watchdog
+    from .retriever.memory_vector import backfill_memory_vectors
     recover_stale_tasks()
     backfill_dev_user_membership()
+    try:
+        backfill_memory_vectors()
+    except Exception:
+        logging.getLogger(__name__).warning("memory vector backfill failed", exc_info=True)
     watchdog_task = asyncio.create_task(stale_watchdog())
     yield
     watchdog_task.cancel()

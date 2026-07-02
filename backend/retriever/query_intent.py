@@ -18,6 +18,7 @@ from ..llm.chat_model_factory import get_chat_model
 
 RouteLabel = Literal["filter_lookup", "overview", "semantic"]
 MemoryCategory = Literal["decision", "action", "issue", "risk"]
+FAST_MODEL_TIER = "fast"
 
 
 ROUTER_CLASSIFICATION_PROMPT = """당신은 PaiM Q&A 질문 라우터입니다.
@@ -114,7 +115,7 @@ def classify_question(question: str, history: List[Dict] | None = None) -> Query
         ("human", "{question_context}"),
     ])
     try:
-        decision = (prompt | get_chat_model().with_structured_output(RouteDecision)).invoke({
+        decision = (prompt | get_chat_model(tier=FAST_MODEL_TIER).with_structured_output(RouteDecision)).invoke({
             "question_context": _routing_input(question, history),
         })
     except Exception:
@@ -129,7 +130,7 @@ def extract_filters(question: str, history: List[Dict] | None = None) -> QueryFi
         ("human", "{question_context}"),
     ])
     try:
-        return (prompt | get_chat_model().with_structured_output(QueryFilters)).invoke({
+        return (prompt | get_chat_model(tier=FAST_MODEL_TIER).with_structured_output(QueryFilters)).invoke({
             "question_context": _routing_input(question, history),
         })
     except Exception as exc:
@@ -207,6 +208,7 @@ def answer_filter_lookup(project_id: int, question: str, history: List[Dict] | N
         "debug": {
             "route": "filter_lookup",
             "router_stage": router_stage,
+            "filter_model_tier": FAST_MODEL_TIER,
             "filters": filters.model_dump(),
             "rows": len(rows),
         },
@@ -265,7 +267,7 @@ def answer_overview(project_id: int, question: str, router_stage: str) -> Dict:
         "question": question,
     })
     sources = []
-    for row in context["open_actions"] + context["recent_completed_actions"]:
+    for row in list(context["open_actions"]) + list(context["recent_completed_actions"]):
         source = row.get("source")
         if source and source not in sources:
             sources.append(source)
@@ -277,6 +279,7 @@ def answer_overview(project_id: int, question: str, router_stage: str) -> Dict:
         "debug": {
             "route": "overview",
             "router_stage": router_stage,
+            "router_model_tier": FAST_MODEL_TIER if router_stage == "llm" else None,
             "overview": {
                 "category_stats": context["category_stats"],
                 "open_actions": len(context["open_actions"]),

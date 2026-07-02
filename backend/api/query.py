@@ -56,6 +56,7 @@ def query(project_id: int, body: QueryRequest):
         debug = result.get("debug") or {}
         debug["route"] = "semantic"
         debug["router_stage"] = decision.router_stage
+        debug["router_model_tier"] = "fast" if decision.router_stage == "llm" else None
         result["debug"] = debug
         return result
     except Exception as e:

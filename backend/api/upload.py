@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
+from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
 from ..storage import save_file, delete_file
 from ..graph import update_project_memory
 from .auth import require_project_access
@@ -92,6 +93,22 @@ def _delete_doc_memory(doc_id: int):
         logger.warning("memory cleanup failed doc_id=%s", doc_id, exc_info=True)
     finally:
         conn.close()
+
+
+def _upsert_memory_vector_best_effort(row: dict):
+    """수동 memory 변경 후 ChromaDB 보조 인덱스를 갱신한다."""
+    try:
+        upsert_memory_vector(row)
+    except Exception:
+        logger.warning("memory vector upsert failed memory_id=%s", row.get("id"), exc_info=True)
+
+
+def _delete_memory_vector_best_effort(memory_id: int):
+    """수동 memory 삭제 후 ChromaDB 보조 인덱스를 삭제한다."""
+    try:
+        delete_memory_vector(memory_id)
+    except Exception:
+        logger.warning("memory vector delete failed memory_id=%s", memory_id, exc_info=True)
 
 
 def _set_doc_status(doc_id: int, status: str, last_error: Optional[str] = None):
@@ -333,7 +350,9 @@ def create_memory(project_id: int, body: MemoryCreate):
         conn.commit()
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
-            return cursor.fetchone()
+            row = cursor.fetchone()
+        _upsert_memory_vector_best_effort(row)
+        return row
     finally:
         conn.close()
 
@@ -401,7 +420,9 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
         conn.commit()
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
-            return cursor.fetchone()
+            row = cursor.fetchone()
+        _upsert_memory_vector_best_effort(row)
+        return row
     finally:
         conn.close()
 
@@ -419,5 +440,6 @@ def delete_memory(project_id: int, memory_id: int):
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Memory item not found")
         conn.commit()
+        _delete_memory_vector_best_effort(memory_id)
     finally:
         conn.close()

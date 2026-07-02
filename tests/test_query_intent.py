@@ -41,7 +41,7 @@ def test_llm_router_classifies_semantic_when_rule_is_unclear(monkeypatch):
     monkeypatch.setattr(
         query_intent,
         "get_chat_model",
-        lambda: _FakeStructuredLLM({"label": "semantic"}),
+        lambda **kwargs: _FakeStructuredLLM({"label": "semantic"}),
     )
 
     result = query_intent.classify_question("왜 PR AUC를 평가 지표로 선택했어?")

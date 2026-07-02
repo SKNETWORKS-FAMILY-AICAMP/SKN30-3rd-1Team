@@ -118,6 +118,7 @@ def test_delete_project_cleans_children_and_external_assets():
         fetchall=[
             [{"id": 3, "file_path": "data/uploads/1/spec.md"}],
             [{"id": 4}],
+            [{"id": 5}],
         ],
     )
     collection = MagicMock()
