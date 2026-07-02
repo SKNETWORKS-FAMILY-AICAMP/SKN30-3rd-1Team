@@ -6,9 +6,9 @@ _client = None
 _collection = None
 
 # 기존 chromadb 기본 임베딩(384-dim)과 분리하기 위해 별도 컬렉션명 사용.
-# CHROMA_COLLECTION_NAME 미설정 시 "paiM_openai_v1" 사용.
-# 기존 "paiM" 컬렉션 데이터를 재사용하려면 벡터를 전체 재인덱싱해야 한다.
-_DEFAULT_COLLECTION = "paiM_openai_v1"
+# CHROMA_COLLECTION_NAME 미설정 시 "paiM_openai_v2"(cosine space) 사용.
+# v1(L2 space)과 거리지표가 달라 컬렉션명을 분리 — 전환 시 전체 재인덱싱 필요.
+_DEFAULT_COLLECTION = "paiM_openai_v2"
 
 
 def get_collection():
@@ -29,5 +29,9 @@ def get_collection():
             api_key=api_key,
             model_name=os.getenv("EMBED_MODEL", "text-embedding-3-small"),
         )
-        _collection = _client.get_or_create_collection(collection_name, embedding_function=openai_ef)
+        # cosine space 명시 — 검색측(qa_engine)의 유사도 임계값·거리지표를 맞춘다.
+        _collection = _client.get_or_create_collection(
+            collection_name, embedding_function=openai_ef,
+            metadata={"hnsw:space": "cosine"},
+        )
     return _collection
