@@ -52,7 +52,9 @@ import {
   fetchGithubRepositories,
   fetchGithubRepository,
   fetchGithubUserProfile,
+  fetchPaimFormData,
   fetchPaimJson,
+  fetchPaimRootJson,
   getErrorMessage,
   getGithubOAuthErrorMessage,
   getGithubPanelStateLabel,
@@ -81,6 +83,7 @@ import type {
   GithubLoginSessionState,
   GithubPanelState,
   Message,
+  ProjectDocumentStatus,
   ProjectFilePreview,
   ProjectSourcesMode,
   ProjectState,
@@ -106,6 +109,38 @@ type ApiProjectCreateResponse = {
   name: string;
 };
 
+type ApiProjectResponse = ApiProjectCreateResponse & {
+  created_at?: string;
+};
+
+type ApiHealthResponse = {
+  status?: string;
+};
+
+type ApiDocumentStatus = "uploaded" | "processing" | "indexed" | "failed";
+
+type ApiDocumentUploadResponse = {
+  doc_id: number;
+  status: ApiDocumentStatus;
+};
+
+type ApiDocumentListItem = {
+  id: number;
+  filename: string;
+  doc_type?: string | null;
+  status: ApiDocumentStatus;
+  uploaded_at?: string | null;
+};
+
+type ApiDocumentStatusResponse = {
+  doc_id: number;
+  status: ApiDocumentStatus;
+  last_error?: string | null;
+  extracted?: Record<string, number>;
+};
+
+type ServerStatus = "online" | "offline";
+
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
   | { type: "session"; projectId: string; sessionId: string; top: number; left: number };
@@ -115,10 +150,14 @@ type RenameDraft =
   | { type: "session"; projectId: string; sessionId: string; value: string };
 
 const DEMO_REPLY_DELAY_MS = 360;
+const SERVER_SYNC_TIMEOUT_MS = 3000;
+const DOCUMENT_STATUS_POLL_INTERVAL_MS = 3000;
+const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 180000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v1";
+const PROJECT_STORAGE_KEY = "paim.projects.v3";
+const LEGACY_PROJECT_STORAGE_KEYS = ["paim.projects.v2", "paim.projects.v1"];
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
@@ -213,6 +252,19 @@ function createProject(name: string, sessions: ChatSession[], files: Attachment[
     files,
     createdAt: Date.now(),
     sessions,
+  };
+}
+
+function createProjectFromApi(serverProject: ApiProjectResponse): ProjectWorkspace {
+  const createdAt = Date.parse(serverProject.created_at ?? "");
+
+  return {
+    id: createId("project"),
+    apiProjectId: serverProject.id,
+    name: serverProject.name,
+    files: [],
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    sessions: [],
   };
 }
 
@@ -322,8 +374,55 @@ function createProjectState(
   };
 }
 
+// 서버 목록을 정본으로 삼되, 로컬 전용 작업 상태는 보존한다.
+function mergeServerProjects(
+  localProjects: ProjectWorkspace[],
+  serverProjects: ApiProjectResponse[],
+) {
+  const serverProjectIds = new Set(serverProjects.map((project) => project.id));
+  const usedLocalProjectIds = new Set<string>();
+  const localProjectsByApiId = new Map<number, ProjectWorkspace>();
+
+  for (const project of localProjects) {
+    if (typeof project.apiProjectId === "number" && !localProjectsByApiId.has(project.apiProjectId)) {
+      localProjectsByApiId.set(project.apiProjectId, project);
+    }
+  }
+
+  const syncedProjects = serverProjects.map((serverProject) => {
+    const localProject = localProjectsByApiId.get(serverProject.id);
+
+    if (!localProject) {
+      return createProjectFromApi(serverProject);
+    }
+
+    usedLocalProjectIds.add(localProject.id);
+
+    return {
+      ...localProject,
+      apiProjectId: serverProject.id,
+      name: serverProject.name,
+      serverMissing: undefined,
+    };
+  });
+
+  const cachedOnlyProjects = localProjects
+    .filter((project) => !usedLocalProjectIds.has(project.id))
+    .map((project) =>
+      typeof project.apiProjectId === "number" && !serverProjectIds.has(project.apiProjectId)
+        ? { ...project, serverMissing: true }
+        : { ...project, serverMissing: undefined },
+    );
+
+  return [...syncedProjects, ...cachedOnlyProjects];
+}
+
 function loadProjectState() {
-  const savedValue = window.localStorage.getItem(PROJECT_STORAGE_KEY);
+  const savedValue =
+    window.localStorage.getItem(PROJECT_STORAGE_KEY) ??
+    LEGACY_PROJECT_STORAGE_KEYS
+      .map((storageKey) => window.localStorage.getItem(storageKey))
+      .find((value): value is string => Boolean(value));
 
   if (!savedValue) {
     return createProjectState([]);
@@ -442,6 +541,114 @@ function normalizeDialogPaths(selectedPaths: string | string[] | null) {
   return (Array.isArray(selectedPaths) ? selectedPaths : [selectedPaths]).filter(Boolean);
 }
 
+function getFileExtension(name: string) {
+  return name.includes(".") ? name.split(".").pop()?.toLowerCase() ?? "" : "";
+}
+
+function isSupportedProjectDocument(name: string) {
+  return ["md", "txt", "pdf"].includes(getFileExtension(name));
+}
+
+function getUploadMimeType(name: string) {
+  const extension = getFileExtension(name);
+
+  if (extension === "pdf") {
+    return "application/pdf";
+  }
+
+  return "text/plain";
+}
+
+function base64ToBytes(encoded: string) {
+  const binary = window.atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function toProjectDocumentStatus(status: ApiDocumentStatus): ProjectDocumentStatus {
+  return status;
+}
+
+function isProjectDocumentTerminal(status?: ProjectDocumentStatus) {
+  return status === "indexed" || status === "failed" || status === "delayed";
+}
+
+function createServerDocumentAttachment(document: ApiDocumentListItem): Attachment {
+  const uploadedAt = Date.parse(document.uploaded_at ?? "");
+
+  return {
+    id: `project-document-${document.id}`,
+    name: document.filename,
+    path: `server-document://${document.id}/${document.filename}`,
+    kind: "file",
+    docId: document.id,
+    documentStatus: toProjectDocumentStatus(document.status),
+    serverOnly: true,
+    uploadedAt: Number.isFinite(uploadedAt) ? uploadedAt : Date.now(),
+  };
+}
+
+function mapAttachments(
+  attachments: Attachment[],
+  updater: (attachment: Attachment) => Attachment,
+): Attachment[] {
+  return attachments.map((attachment) => ({
+    ...updater(attachment),
+    children: attachment.children ? mapAttachments(attachment.children, updater) : undefined,
+  }));
+}
+
+function collectFileAttachments(attachments: Attachment[]): Attachment[] {
+  return attachments.flatMap((attachment) =>
+    attachment.kind === "directory"
+      ? collectFileAttachments(attachment.children ?? [])
+      : [attachment],
+  );
+}
+
+function getAttachmentDocIds(attachments: Attachment[]) {
+  return new Set(
+    collectFileAttachments(attachments)
+      .map((attachment) => attachment.docId)
+      .filter((docId): docId is number => typeof docId === "number"),
+  );
+}
+
+function mergeServerDocumentsIntoAttachments(
+  attachments: Attachment[],
+  documents: ApiDocumentListItem[],
+) {
+  const documentsById = new Map(documents.map((document) => [document.id, document]));
+  const updatedAttachments = mapAttachments(attachments, (attachment) => {
+    if (typeof attachment.docId !== "number") {
+      return attachment;
+    }
+
+    const document = documentsById.get(attachment.docId);
+
+    if (!document) {
+      return attachment;
+    }
+
+    return {
+      ...attachment,
+      name: document.filename,
+      documentStatus: toProjectDocumentStatus(document.status),
+    };
+  });
+  const existingDocIds = getAttachmentDocIds(updatedAttachments);
+  const serverOnlyAttachments = documents
+    .filter((document) => !existingDocIds.has(document.id))
+    .map(createServerDocumentAttachment);
+
+  return [...serverOnlyAttachments, ...updatedAttachments];
+}
+
 function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -543,7 +750,11 @@ function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
 	    kind: attachment.kind,
 	    children: attachment.children ? createStoredAttachments(attachment.children) : undefined,
 	    childrenLoaded: attachment.childrenLoaded,
+	    docId: attachment.docId,
+	    documentStatus: attachment.documentStatus,
 	    isExpanded: attachment.isExpanded,
+	    lastError: attachment.lastError,
+	    serverOnly: attachment.serverOnly,
 	    uploadedAt: attachment.uploadedAt,
 	  }));
 	}
@@ -722,6 +933,7 @@ export function App() {
   const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
     startX: 0,
@@ -734,7 +946,12 @@ export function App() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const didHydrateAttachmentPreviewsRef = useRef(false);
+  const didSyncProjectsRef = useRef(false);
+  const documentPollTimeoutsRef = useRef(new Map<string, number>());
   const demoStatusTimeoutRef = useRef<number | null>(null);
+  const projectsRef = useRef(initialProjectState.projects);
+  const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
+  const selectedSessionIdRef = useRef(initialProjectState.selectedSessionId);
   const zoomScaleRef = useRef(loadZoomScale());
 
   const selectedProject = useMemo(
@@ -822,7 +1039,10 @@ export function App() {
         : "signedout";
   const selectedProjectDescription = selectedProject?.description?.trim() ?? "";
   const isSelectedProjectDefaultName = /^New Project(?: \d+)?$/.test(selectedProject?.name ?? "");
-  const canOpenProjectMemory = typeof selectedProject?.apiProjectId === "number";
+  const canOpenProjectMemory =
+    serverStatus === "online" &&
+    typeof selectedProject?.apiProjectId === "number" &&
+    !selectedProject.serverMissing;
   const hasProjectHomeContext =
     selectedProjectFileCount > 0 ||
     selectedProjectGithubPanelState === "connected" ||
@@ -850,6 +1070,85 @@ export function App() {
     if (nextStatus) {
       queueDemoStatusClear();
     }
+  }
+
+  function applyProjectState(nextState: ProjectState) {
+    projectsRef.current = nextState.projects;
+    selectedProjectIdRef.current = nextState.selectedProjectId;
+    selectedSessionIdRef.current = nextState.selectedSessionId;
+    setProjects(nextState.projects);
+    setSelectedProjectId(nextState.selectedProjectId);
+    setSelectedSessionId(nextState.selectedSessionId);
+  }
+
+  async function fetchServerProjects() {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), SERVER_SYNC_TIMEOUT_MS);
+
+    try {
+      const health = await fetchPaimRootJson<ApiHealthResponse>("/health", {
+        signal: controller.signal,
+      });
+
+      if (health.status !== "ok") {
+        throw new Error("PaiM 서버 상태를 확인할 수 없습니다");
+      }
+
+      return fetchPaimJson<ApiProjectResponse[]>("/projects", {
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  async function syncProjectsWithServer(showResult = false) {
+    try {
+      const serverProjects = await fetchServerProjects();
+      const nextState = createProjectState(
+        mergeServerProjects(projectsRef.current, serverProjects),
+        selectedProjectIdRef.current,
+        selectedSessionIdRef.current,
+      );
+
+      applyProjectState(nextState);
+      setServerStatus("online");
+
+      if (showResult) {
+        setDemoStatus({
+          ok: true,
+          message: "PaiM 서버와 다시 연결했습니다",
+          scope: "overview",
+        });
+      }
+    } catch {
+      setServerStatus("offline");
+
+      if (showResult) {
+        setDemoStatus({
+          ok: false,
+          message: "PaiM 서버에 연결할 수 없습니다",
+          scope: "overview",
+        });
+      }
+    }
+  }
+
+  function showServerOfflineMessage(scope: DemoStatus["scope"] = "overview") {
+    setDemoStatus({
+      ok: false,
+      message: "PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중",
+      scope,
+    });
+  }
+
+  function shouldSkipServerAction(scope: DemoStatus["scope"] = "overview") {
+    if (serverStatus === "online") {
+      return false;
+    }
+
+    showServerOfflineMessage(scope);
+    return true;
   }
 
   const filteredSelectedProjectGithubRepositories = useMemo(() => {
@@ -886,6 +1185,45 @@ export function App() {
       isProjectFileTreeCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectFileTreeWidth
     }px`,
   } as CSSProperties;
+
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  useEffect(() => {
+    selectedProjectIdRef.current = selectedProjectId;
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (didSyncProjectsRef.current) {
+      return;
+    }
+
+    didSyncProjectsRef.current = true;
+    void syncProjectsWithServer();
+  }, []);
+
+  useEffect(() => {
+    if (
+      serverStatus !== "online" ||
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      return;
+    }
+
+    void syncProjectDocuments(selectedProject.id, selectedProject.apiProjectId);
+  }, [
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.serverMissing,
+    serverStatus,
+  ]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -1071,6 +1409,16 @@ export function App() {
 
   useEffect(() => () => clearDemoStatusTimeout(), []);
 
+  useEffect(
+    () => () => {
+      for (const timeoutId of documentPollTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      documentPollTimeoutsRef.current.clear();
+    },
+    [],
+  );
+
   useEffect(() => {
     if (didHydrateAttachmentPreviewsRef.current) {
       return;
@@ -1231,10 +1579,223 @@ export function App() {
     );
   }
 
+  function updateProjectAttachment(
+    projectId: string,
+    attachmentId: string,
+    updater: (attachment: Attachment) => Attachment,
+  ) {
+    updateProject(projectId, (project) => ({
+      ...project,
+      files: updateProjectFileEntry(project.files ?? [], attachmentId, updater),
+    }));
+  }
+
+  function clearDocumentPoll(projectId: string, docId: number) {
+    const pollKey = `${projectId}:${docId}`;
+    const timeoutId = documentPollTimeoutsRef.current.get(pollKey);
+
+    if (typeof timeoutId === "number") {
+      window.clearTimeout(timeoutId);
+    }
+
+    documentPollTimeoutsRef.current.delete(pollKey);
+  }
+
+  function scheduleDocumentStatusPoll(
+    projectId: string,
+    apiProjectId: number,
+    attachmentId: string,
+    docId: number,
+    startedAt = Date.now(),
+  ) {
+    clearDocumentPoll(projectId, docId);
+
+    const pollKey = `${projectId}:${docId}`;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const status = await fetchPaimJson<ApiDocumentStatusResponse>(
+          `/projects/${apiProjectId}/documents/${docId}/status`,
+        );
+        const documentStatus = toProjectDocumentStatus(status.status);
+
+        updateProjectAttachment(projectId, attachmentId, (attachment) => ({
+          ...attachment,
+          docId: status.doc_id,
+          documentStatus,
+          lastError: status.last_error ?? null,
+        }));
+
+        if (isProjectDocumentTerminal(documentStatus)) {
+          documentPollTimeoutsRef.current.delete(pollKey);
+          return;
+        }
+
+        if (Date.now() - startedAt >= DOCUMENT_STATUS_POLL_TIMEOUT_MS) {
+          updateProjectAttachment(projectId, attachmentId, (attachment) => ({
+            ...attachment,
+            documentStatus: "delayed",
+            lastError: "처리 지연 — 나중에 다시 확인",
+          }));
+          documentPollTimeoutsRef.current.delete(pollKey);
+          return;
+        }
+
+        scheduleDocumentStatusPoll(projectId, apiProjectId, attachmentId, docId, startedAt);
+      } catch (error) {
+        updateProjectAttachment(projectId, attachmentId, (attachment) => ({
+          ...attachment,
+          documentStatus: "failed",
+          lastError: getErrorMessage(error, "문서 처리 상태를 확인할 수 없습니다"),
+        }));
+        documentPollTimeoutsRef.current.delete(pollKey);
+      }
+    }, DOCUMENT_STATUS_POLL_INTERVAL_MS);
+
+    documentPollTimeoutsRef.current.set(pollKey, timeoutId);
+  }
+
+  async function syncProjectDocuments(projectId: string, apiProjectId: number) {
+    if (serverStatus === "offline") {
+      return;
+    }
+
+    try {
+      const documents = await fetchPaimJson<ApiDocumentListItem[]>(
+        `/projects/${apiProjectId}/documents`,
+      );
+
+      updateProject(projectId, (project) => ({
+        ...project,
+        files: mergeServerDocumentsIntoAttachments(project.files ?? [], documents),
+      }));
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "서버 문서 목록을 불러올 수 없습니다"),
+        scope: "overview",
+      });
+    }
+  }
+
+  // 서버 업로드는 로컬 파일을 base64로 읽어 브라우저 FormData 파일로 감싼다.
+  async function readUploadFile(entry: Attachment) {
+    const encoded = await invoke<string>("read_file_base64", { path: entry.path });
+    const bytes = base64ToBytes(encoded);
+
+    return new File([bytes], entry.name, { type: getUploadMimeType(entry.name) });
+  }
+
+  async function uploadProjectDocument(
+    projectId: string,
+    apiProjectId: number,
+    entry: Attachment,
+  ) {
+    updateProjectAttachment(projectId, entry.id, (attachment) => ({
+      ...attachment,
+      documentStatus: "uploading",
+      lastError: null,
+    }));
+
+    try {
+      const file = await readUploadFile(entry);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetchPaimFormData<ApiDocumentUploadResponse>(
+        `/projects/${apiProjectId}/documents`,
+        formData,
+      );
+      const documentStatus = toProjectDocumentStatus(response.status);
+
+      updateProjectAttachment(projectId, entry.id, (attachment) => ({
+        ...attachment,
+        docId: response.doc_id,
+        documentStatus,
+        lastError: null,
+      }));
+
+      if (!isProjectDocumentTerminal(documentStatus)) {
+        scheduleDocumentStatusPoll(projectId, apiProjectId, entry.id, response.doc_id);
+      }
+    } catch (error) {
+      updateProjectAttachment(projectId, entry.id, (attachment) => ({
+        ...attachment,
+        documentStatus: "failed",
+        lastError: getErrorMessage(error, "문서를 업로드할 수 없습니다"),
+      }));
+    }
+  }
+
+  // 지원 문서만 서버로 보내고, 그 외 파일은 기존처럼 로컬 참조로 남긴다.
+  async function uploadProjectDocuments(
+    projectId: string,
+    project: ProjectWorkspace,
+    entries: Attachment[],
+  ) {
+    const supportedFiles = collectFileAttachments(entries).filter(
+      (entry) =>
+        !entry.serverOnly &&
+        typeof entry.docId !== "number" &&
+        isSupportedProjectDocument(entry.name),
+    );
+
+    if (supportedFiles.length === 0) {
+      return;
+    }
+
+    if (project.serverMissing) {
+      setDemoStatus({
+        ok: false,
+        message: "서버에서 찾을 수 없는 프로젝트에는 문서를 업로드할 수 없습니다",
+        scope: "overview",
+      });
+      return;
+    }
+
+    if (shouldSkipServerAction("overview")) {
+      return;
+    }
+
+    try {
+      const apiProject = await ensureApiProject(project);
+
+      if (typeof apiProject.apiProjectId !== "number") {
+        throw new Error("서버 프로젝트를 준비할 수 없습니다");
+      }
+
+      setDemoStatus({
+        ok: true,
+        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 중...`,
+        scope: "overview",
+      });
+
+      for (const entry of supportedFiles) {
+        await uploadProjectDocument(projectId, apiProject.apiProjectId, entry);
+      }
+
+      setDemoStatus({
+        ok: true,
+        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 요청 완료`,
+        scope: "overview",
+      });
+      void syncProjectDocuments(projectId, apiProject.apiProjectId);
+    } catch (error) {
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "문서를 서버로 업로드할 수 없습니다"),
+        scope: "overview",
+      });
+    }
+  }
+
   // FastAPI의 정수 project_id가 있어야 서버 메모리 API를 조회할 수 있다.
   async function ensureApiProject(project: ProjectWorkspace) {
     if (typeof project.apiProjectId === "number") {
       return project;
+    }
+
+    if (serverStatus === "offline") {
+      throw new Error("PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중");
     }
 
     const createdProject = await fetchPaimJson<ApiProjectCreateResponse>("/projects", {
@@ -1374,6 +1935,10 @@ export function App() {
 
 	  // 같은 도구도 새 탭으로 추가한다. 자료 탭은 탭별로 검색/선택/프리뷰 상태를 따로 가진다.
 	  function openProjectPanelTool(view: ProjectPanelToolView) {
+	    if (view === "memory" && shouldSkipServerAction("overview")) {
+	      return;
+	    }
+
 	    if (view === "memory" && !canOpenProjectMemory) {
 	      return;
 	    }
@@ -1406,133 +1971,142 @@ export function App() {
 	      : getProjectPanelTitle(tab.view);
 	  }
 
-		  async function readDirectoryChildren(path: string) {
-	    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
+  async function readDirectoryChildren(path: string) {
+    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
 
-	    return children.map(createProjectFileEntry);
-	  }
+    return children.map(createProjectFileEntry);
+  }
 
-		  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
-		    const children = await readDirectoryChildren(path);
+  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
+    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
+    const nextChildren = await Promise.all(
+      children.map((entry) =>
+        entry.kind === "directory"
+          ? createProjectDirectoryEntry(entry.path, uploadedAt)
+          : { ...createProjectFileEntry(entry), uploadedAt },
+      ),
+    );
 
-		    return {
-	      id: createId("project-file"),
-	      name: getFileName(path),
-	      path,
-	      kind: "directory",
-		      children,
-		      childrenLoaded: true,
-		      isExpanded: true,
-		      uploadedAt,
-		    };
-		  }
+    return {
+      id: createId("project-file"),
+      name: getFileName(path),
+      path,
+      kind: "directory",
+      children: nextChildren,
+      childrenLoaded: true,
+      isExpanded: true,
+      uploadedAt,
+    };
+  }
 
-		  // 프로젝트 자료함에 단일 파일을 트리의 루트 항목으로 추가한다.
-		  function createProjectFileRootEntry(path: string, uploadedAt: number): Attachment {
-		    return {
-		      id: createId("project-file"),
-		      name: getFileName(path),
-		      path,
-		      kind: "file",
-		      uploadedAt,
-		    };
-		  }
+  // 프로젝트 자료함에 단일 파일을 트리의 루트 항목으로 추가한다.
+  function createProjectFileRootEntry(path: string, uploadedAt: number): Attachment {
+    return {
+      id: createId("project-file"),
+      name: getFileName(path),
+      path,
+      kind: "file",
+      uploadedAt,
+    };
+  }
 
-	  // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
-	  async function handleOpenProjectFiles(projectId: string) {
-	    const targetProject = projects.find((project) => project.id === projectId);
+  // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
+  async function handleOpenProjectFiles(projectId: string) {
+    const targetProject = projects.find((project) => project.id === projectId);
 
-	    if (!targetProject) {
-	      return;
-	    }
+    if (!targetProject) {
+      return;
+    }
 
-	    if (!canUseTauriDialog()) {
-	      setDemoStatus({
-	        ok: false,
-	        message: "데스크톱 앱에서 파일을 업로드할 수 있습니다",
-	        scope: "overview",
-	      });
-	      return;
-	    }
+    if (!canUseTauriDialog()) {
+      setDemoStatus({
+        ok: false,
+        message: "데스크톱 앱에서 파일을 업로드할 수 있습니다",
+        scope: "overview",
+      });
+      return;
+    }
 
-	    try {
-	      const selectedPaths = await open({
-	        directory: false,
-	        multiple: true,
-	        title: "프로젝트 파일 업로드",
-	      });
-	      const paths = normalizeDialogPaths(selectedPaths);
+    try {
+      const selectedPaths = await open({
+        directory: false,
+        multiple: true,
+        title: "프로젝트 파일 업로드",
+      });
+      const paths = normalizeDialogPaths(selectedPaths);
 
-	      if (paths.length === 0) {
-	        return;
-	      }
+      if (paths.length === 0) {
+        return;
+      }
 
-		      const uploadedAt = Date.now();
-		      const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
+      const uploadedAt = Date.now();
+      const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
 
-	      updateProject(projectId, (project) => ({
-	        ...project,
-	        files: [...nextEntries, ...(project.files ?? [])],
-	      }));
-	      setSelectedProjectId(projectId);
-	      setProjectSourcesMode("library");
-	    } catch {
-	      setDemoStatus({
-	        ok: false,
-	        message: "프로젝트 파일을 업로드할 수 없습니다",
-	        scope: "overview",
-	      });
-	    }
-	  }
+      updateProject(projectId, (project) => ({
+        ...project,
+        files: [...nextEntries, ...(project.files ?? [])],
+      }));
+      setSelectedProjectId(projectId);
+      setProjectSourcesMode("library");
+      void uploadProjectDocuments(projectId, targetProject, nextEntries);
+    } catch {
+      setDemoStatus({
+        ok: false,
+        message: "프로젝트 파일을 업로드할 수 없습니다",
+        scope: "overview",
+      });
+    }
+  }
 
-	  // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
-	  async function handleOpenProjectDirectory(projectId: string) {
-	    const targetProject = projects.find((project) => project.id === projectId);
+  // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
+  async function handleOpenProjectDirectory(projectId: string) {
+    const targetProject = projects.find((project) => project.id === projectId);
 
-	    if (!targetProject) {
-	      return;
-	    }
+    if (!targetProject) {
+      return;
+    }
 
-	    if (!canUseTauriDialog()) {
-	      setDemoStatus({
-	        ok: false,
-	        message: "데스크톱 앱에서 폴더를 업로드할 수 있습니다",
-	        scope: "overview",
-	      });
-	      return;
-	    }
+    if (!canUseTauriDialog()) {
+      setDemoStatus({
+        ok: false,
+        message: "데스크톱 앱에서 폴더를 업로드할 수 있습니다",
+        scope: "overview",
+      });
+      return;
+    }
 
-	    try {
-	      const selectedPaths = await open({
-	        directory: true,
-	        multiple: true,
-	        title: "프로젝트 폴더 업로드",
-	      });
-	      const paths = normalizeDialogPaths(selectedPaths);
+    try {
+      const selectedPaths = await open({
+        directory: true,
+        multiple: true,
+        title: "프로젝트 폴더 업로드",
+      });
+      const paths = normalizeDialogPaths(selectedPaths);
 
-	      if (paths.length === 0) {
-	        return;
-	      }
+      if (paths.length === 0) {
+        return;
+      }
 
-		      const uploadedAt = Date.now();
-		      const nextEntries = await Promise.all(
-		        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
-		      );
+      const uploadedAt = Date.now();
+      const nextEntries = await Promise.all(
+        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
+      );
 
-	      updateProject(projectId, (project) => ({
-	        ...project,
-	        files: [...nextEntries, ...(project.files ?? [])],
-	      }));
-	      setSelectedProjectId(projectId);
-	      setProjectSourcesMode("library");
-	    } catch {
-	      setDemoStatus({
-	        ok: false,
-	        message: "프로젝트 폴더를 업로드할 수 없습니다",
-	        scope: "overview",
-	      });
-	    }
-	  }
+      updateProject(projectId, (project) => ({
+        ...project,
+        files: [...nextEntries, ...(project.files ?? [])],
+      }));
+      setSelectedProjectId(projectId);
+      setProjectSourcesMode("library");
+      void uploadProjectDocuments(projectId, targetProject, nextEntries);
+    } catch {
+      setDemoStatus({
+        ok: false,
+        message: "프로젝트 폴더를 업로드할 수 없습니다",
+        scope: "overview",
+      });
+    }
+  }
 
   async function handleToggleProjectFileEntry(projectId: string, entry: Attachment) {
     if (entry.kind !== "directory") {
@@ -1592,6 +2166,15 @@ export function App() {
 
     setProjectFilePreviewForTab(targetTabId, nextPreview);
 
+    if (entry.serverOnly) {
+      setProjectFilePreviewForTab(targetTabId, {
+        ...nextPreview,
+        isLoading: false,
+        error: "서버 문서는 로컬 경로가 없어 미리볼 수 없습니다",
+      });
+      return;
+    }
+
     try {
       const content = await invoke<string>("read_text_file", { path: entry.path });
 
@@ -1614,40 +2197,84 @@ export function App() {
   }
 
   // 파일 패널에서 선택한 항목을 트리에서 제거한다.
-	  function handleDeleteProjectFile(projectId: string, attachmentId: string) {
-	    setProjectPanelTabs((currentTabs) =>
-	      currentTabs.map((tab) => {
-	        if (tab.view !== "files") {
-	          return tab;
-	        }
+  async function handleDeleteProjectFile(projectId: string, attachment: Attachment) {
+    const targetProject = projects.find((project) => project.id === projectId);
+    const linkedDocIds = Array.from(getAttachmentDocIds([attachment]));
 
-	        const isSelectedSource = tab.selectedProjectSourceId === attachmentId;
+    if (!targetProject) {
+      return;
+    }
 
-	        return {
-	          ...tab,
-	          filePreview: tab.filePreview?.id === attachmentId ? null : tab.filePreview,
-	          pendingDeleteProjectFileId: null,
-	          projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
-	          selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
-	        };
-	      }),
-	    );
+    if (linkedDocIds.length > 0) {
+      if (shouldSkipServerAction("overview")) {
+        return;
+      }
+
+      if (targetProject.serverMissing || typeof targetProject.apiProjectId !== "number") {
+        setDemoStatus({
+          ok: false,
+          message: "서버 문서 삭제에 필요한 프로젝트 정보를 찾을 수 없습니다",
+          scope: "overview",
+        });
+        return;
+      }
+
+      for (const docId of linkedDocIds) {
+        try {
+          await fetchPaimJson<void>(
+            `/projects/${targetProject.apiProjectId}/documents/${docId}`,
+            { method: "DELETE" },
+          );
+        } catch (error) {
+          const message = getErrorMessage(error, "서버 문서를 삭제할 수 없습니다");
+
+          if (!/document not found/i.test(message)) {
+            setDemoStatus({
+              ok: false,
+              message,
+              scope: "overview",
+            });
+            return;
+          }
+        }
+
+        clearDocumentPoll(projectId, docId);
+      }
+    }
+
+    setProjectPanelTabs((currentTabs) =>
+      currentTabs.map((tab) => {
+        if (tab.view !== "files") {
+          return tab;
+        }
+
+        const isSelectedSource = tab.selectedProjectSourceId === attachment.id;
+
+        return {
+          ...tab,
+          filePreview: tab.filePreview?.id === attachment.id ? null : tab.filePreview,
+          pendingDeleteProjectFileId: null,
+          projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
+          selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
+        };
+      }),
+    );
 
     updateProject(projectId, (project) => ({
       ...project,
-      files: deleteProjectFileEntry(project.files ?? [], attachmentId),
+      files: deleteProjectFileEntry(project.files ?? [], attachment.id),
     }));
   }
 
-	  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
-	  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
-	    if (pendingDeleteProjectFileId !== attachment.id) {
-	      setPendingDeleteProjectFileId(attachment.id);
-	      return;
-	    }
+  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
+  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
+    if (pendingDeleteProjectFileId !== attachment.id) {
+      setPendingDeleteProjectFileId(attachment.id);
+      return;
+    }
 
-	    handleDeleteProjectFile(projectId, attachment.id);
-	  }
+    void handleDeleteProjectFile(projectId, attachment);
+  }
 
 	  // 자료 카드 선택은 해당 자료 하나만 트리 루트로 보여주고, 파일이면 바로 미리보기를 연다.
 	  function handleOpenProjectSource(source: Attachment) {
@@ -1730,6 +2357,10 @@ export function App() {
       return;
     }
 
+    if (shouldSkipServerAction("github")) {
+      return;
+    }
+
     setSelectedProjectId(projectId);
     setGithubRepositoryQuery("");
     setIsGithubAuthStarting(true);
@@ -1778,6 +2409,10 @@ export function App() {
     const session = githubLoginSessions[projectId];
 
     if (!session || isGithubAuthChecking) {
+      return;
+    }
+
+    if (session.state && shouldSkipServerAction("github")) {
       return;
     }
 
@@ -1923,6 +2558,10 @@ export function App() {
       return;
     }
 
+    if (session.state && shouldSkipServerAction("github")) {
+      return;
+    }
+
     setIsGithubRepoLoading(true);
 
     try {
@@ -1985,6 +2624,10 @@ export function App() {
       return;
     }
 
+    if (session?.state && shouldSkipServerAction("github")) {
+      return;
+    }
+
     setSelectedProjectId(projectId);
     setIsGithubConnecting(true);
     setDemoStatus({
@@ -2028,6 +2671,10 @@ export function App() {
       return;
     }
 
+    if (shouldSkipServerAction("github")) {
+      return;
+    }
+
     setIsGithubSyncing(true);
     setDemoStatus({
       ok: true,
@@ -2036,7 +2683,8 @@ export function App() {
     });
 
     try {
-      await fetchPaimJson("/github/sync", {
+      // TODO: POST /api/v1/projects/{id}/repositories 흐름으로 재작성 예정 (API 협의 쟁점 4)
+      await fetchPaimRootJson("/github/sync", {
         method: "POST",
         body: JSON.stringify({
           projectId: project.id,
@@ -2509,6 +3157,14 @@ export function App() {
       style={appShellStyle}
     >
       {isWindows ? <WindowsTitlebar /> : null}
+      {serverStatus === "offline" ? (
+        <div className="server-offline-banner" role="status">
+          <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
+          <button onClick={() => void syncProjectsWithServer(true)} type="button">
+            다시 연결
+          </button>
+        </div>
+      ) : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
@@ -2908,6 +3564,11 @@ export function App() {
                 rows={2}
                 value={selectedProject.description ?? ""}
               />
+              {selectedProject.serverMissing ? (
+                <p className="runtime-status project-home-status" data-ok="false" role="status">
+                  서버에서 찾을 수 없어 로컬 캐시를 표시 중
+                </p>
+              ) : null}
 	              <div className="project-home-divider" />
 
               <div className="project-home-section-title">시작하기</div>

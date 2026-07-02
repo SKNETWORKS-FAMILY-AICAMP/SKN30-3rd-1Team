@@ -5,10 +5,22 @@ export type Attachment = {
   kind?: "file" | "directory";
   children?: Attachment[];
   childrenLoaded?: boolean;
+  docId?: number;
+  documentStatus?: ProjectDocumentStatus;
   isExpanded?: boolean;
+  lastError?: string | null;
+  serverOnly?: boolean;
   uploadedAt?: number;
   previewUrl?: string;
 };
+
+export type ProjectDocumentStatus =
+  | "uploading"
+  | "uploaded"
+  | "processing"
+  | "indexed"
+  | "failed"
+  | "delayed";
 
 export type DirectoryChildEntry = {
   name: string;
@@ -82,6 +94,7 @@ export type ProjectMemoryItem = {
 export type ProjectWorkspace = {
   id: string;
   apiProjectId?: number;
+  serverMissing?: boolean;
   name: string;
   description?: string;
   files?: Attachment[];
