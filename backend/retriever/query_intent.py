@@ -57,6 +57,7 @@ OVERVIEW_SYSTEM_PROMPT = qa_engine.SYSTEM_QA + """
 이번 질문은 조망형 질문입니다.
 검색은 하지 않았고, 아래 직접 컨텍스트만 사용합니다.
 프로젝트 전체 상황을 결정/액션/이슈/리스크와 열린 액션 중심으로 간결하게 정리하세요.
+진행 상황, 새로 확인된 내용, 주의할 일을 구분해 Markdown으로 읽기 쉽게 답하세요.
 """
 
 _FILTER_RULE_RE = re.compile(r"(담당|누가|몇\s*개|몇개|목록|리스트|마감|기한|지난)")
@@ -164,22 +165,22 @@ def _filters_text(filters: QueryFilters) -> str:
         labels.append("기한 초과")
     if filters.due_within_days is not None:
         labels.append(f"{filters.due_within_days}일 이내 마감")
-    return ", ".join(labels) if labels else "필터 없음"
+    return " · ".join(labels) if labels else "필터 없음"
 
 
 def _format_lookup_row(row: Dict) -> str:
     """조회 결과 한 행을 담당/마감/완료 메타데이터와 함께 한 줄로 만든다."""
     meta = []
     if row.get("owner"):
-        meta.append(f"담당: {row['owner']}")
+        meta.append(f"담당: **{row['owner']}**")
     if _short_date(row.get("due_date")):
-        meta.append(f"마감: {_short_date(row.get('due_date'))}")
+        meta.append(f"마감: *{_short_date(row.get('due_date'))}*")
     if _short_date(row.get("completed_at")):
-        meta.append(f"완료: {_short_date(row.get('completed_at'))}")
+        meta.append(f"완료: *{_short_date(row.get('completed_at'))}*")
     elif row.get("category") == "action":
-        meta.append("미완료")
-    suffix = f" ({', '.join(meta)})" if meta else ""
-    return f"- [{row.get('category')}] {row.get('content')}{suffix}"
+        meta.append("**미완료**")
+    suffix = f" — {' · '.join(meta)}" if meta else ""
+    return f"- **[{row.get('category')}]** {row.get('content')}{suffix}"
 
 
 def answer_filter_lookup(project_id: int, question: str, history: List[Dict] | None, router_stage: str) -> Dict:
@@ -201,9 +202,9 @@ def answer_filter_lookup(project_id: int, question: str, history: List[Dict] | N
 
     filter_text = _filters_text(filters)
     if not rows:
-        answer = f"조건에 맞는 기록 없음. 조회 필터: {filter_text}"
+        answer = f"**조건에 맞는 기록이 없습니다.** _({filter_text})_"
     else:
-        answer = f"조건에 맞는 기록 {len(rows)}건입니다. 조회 필터: {filter_text}\n" + "\n".join(
+        answer = f"**조건에 맞는 기록 {len(rows)}건입니다.** _({filter_text})_\n\n" + "\n".join(
             _format_lookup_row(row) for row in rows
         )
 
