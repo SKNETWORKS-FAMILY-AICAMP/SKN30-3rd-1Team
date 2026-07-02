@@ -344,20 +344,46 @@ class MemoryUpdate(BaseModel):
     date: Optional[str] = None
     topic: Optional[str] = None
     reason: Optional[str] = None
+    completed: Optional[bool] = None
+    sort_order: Optional[int] = None
 
 
 @router.patch("/projects/{project_id}/memory/{memory_id}")
 def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     require_project_access(project_id, min_role="member")
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    if not fields:
+    raw_fields = body.model_dump(exclude_unset=True)
+    fields = {
+        k: v
+        for k, v in raw_fields.items()
+        if k in {"category", "content", "owner", "date", "topic", "reason"} and v is not None
+    }
+    has_completed_update = "completed" in raw_fields
+    if "sort_order" in raw_fields:
+        fields["sort_order"] = raw_fields["sort_order"]
+    if has_completed_update and raw_fields["completed"] is None:
+        raise HTTPException(status_code=400, detail="completed는 true 또는 false여야 합니다.")
+    if not fields and not has_completed_update:
         raise HTTPException(status_code=400, detail="수정할 필드가 없습니다.")
 
     fields["updated_by"] = "user"
-    fields["is_user_verified"] = 1
+    if any(
+        k in raw_fields and raw_fields[k] is not None
+        for k in {"category", "content", "owner", "date", "topic", "reason"}
+    ):
+        fields["is_user_verified"] = 1
 
-    set_clause = ", ".join(f"{k} = %s" for k in fields)
-    values = list(fields.values()) + [memory_id, project_id]
+    set_parts = []
+    values = []
+    if has_completed_update:
+        if raw_fields["completed"]:
+            set_parts.append("completed_at = NOW()")
+        else:
+            set_parts.append("completed_at = %s")
+            values.append(None)
+    set_parts.extend(f"{k} = %s" for k in fields)
+    values.extend(fields.values())
+    values.extend([memory_id, project_id])
+    set_clause = ", ".join(set_parts)
 
     conn = get_connection()
     try:

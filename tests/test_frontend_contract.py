@@ -103,6 +103,21 @@ def _conn_seq_upload(*fetchone_values):
     return iter(conns)
 
 
+def _conn_for_memory_rows(rows):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = [row.copy() for row in rows]
+    return conn, cur
+
+
+def _conn_for_memory_patch(row):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.rowcount = 1
+    cur.fetchone.return_value = row
+    return conn, cur
+
+
 def test_upload_oversized_file_returns_413():
     """10 MB 초과 파일 업로드는 413을 반환한다."""
     big_data = b"x" * (10 * 1024 * 1024 + 1)
@@ -114,6 +129,115 @@ def test_upload_oversized_file_returns_413():
             files={"file": ("big.md", big_data, "text/plain")},
         )
     assert resp.status_code == 413
+
+
+# ── project memory todo fields ───────────────────────────────────
+
+def test_memory_get_includes_todo_fields_and_sort_order():
+    """GET /memory — completed_at/sort_order 포함, sort_order 우선 정렬 SQL 사용."""
+    rows = [
+        {
+            "id": 10, "project_id": 1, "doc_id": None, "repo_id": None,
+            "category": "action", "content": "first", "source": None,
+            "completed_at": None, "sort_order": 1,
+            "created_at": "2026-07-02 10:00:00",
+            "source_kind": None, "ms_doc_id": None, "ms_repo_id": None,
+            "source_type": None, "source_path": None,
+            "source_ref": None, "source_url": None,
+        },
+        {
+            "id": 11, "project_id": 1, "doc_id": None, "repo_id": None,
+            "category": "action", "content": "second", "source": None,
+            "completed_at": "2026-07-02 11:00:00", "sort_order": None,
+            "created_at": "2026-07-02 11:00:00",
+            "source_kind": None, "ms_doc_id": None, "ms_repo_id": None,
+            "source_type": None, "source_path": None,
+            "source_ref": None, "source_url": None,
+        },
+    ]
+    conn, cur = _conn_for_memory_rows(rows)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.retriever.mysql_search.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/1/memory")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["completed_at"] is None
+    assert body[0]["sort_order"] == 1
+    assert body[1]["completed_at"] == "2026-07-02 11:00:00"
+    sql = cur.execute.call_args.args[0]
+    assert "ORDER BY (m.sort_order IS NULL), m.sort_order ASC, m.created_at DESC" in sql
+
+
+def test_memory_patch_completed_true_sets_completed_at_without_verifying():
+    """PATCH completed=true — 서버 NOW()로 completed_at 설정, 검증 마킹은 하지 않음."""
+    row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": "2026-07-02 12:00:00", "sort_order": None,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"completed": True})
+
+    assert resp.status_code == 200
+    assert resp.json()["completed_at"] == "2026-07-02 12:00:00"
+    update_sql = cur.execute.call_args_list[0].args[0]
+    assert "completed_at = NOW()" in update_sql
+    assert "is_user_verified" not in update_sql
+
+
+def test_memory_patch_completed_false_clears_completed_at():
+    """PATCH completed=false — completed_at을 NULL로 되돌림."""
+    row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": None, "sort_order": None,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"completed": False})
+
+    assert resp.status_code == 200
+    assert resp.json()["completed_at"] is None
+    update_call = cur.execute.call_args_list[0]
+    assert "completed_at = %s" in update_call.args[0]
+    assert update_call.args[1][0] is None
+
+
+def test_memory_patch_sort_order_allows_int_and_null_without_verifying():
+    """PATCH sort_order — 정수와 null을 허용하고 검증 마킹은 하지 않음."""
+    int_row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": None, "sort_order": 3,
+    }
+    int_conn, int_cur = _conn_for_memory_patch(int_row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=int_conn):
+        int_resp = _client.patch("/api/v1/projects/1/memory/10", json={"sort_order": 3})
+
+    assert int_resp.status_code == 200
+    assert int_resp.json()["sort_order"] == 3
+    int_update_call = int_cur.execute.call_args_list[0]
+    assert "sort_order = %s" in int_update_call.args[0]
+    assert int_update_call.args[1][0] == 3
+    assert "is_user_verified" not in int_update_call.args[0]
+
+    null_row = {
+        "id": 10, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": None, "sort_order": None,
+    }
+    null_conn, null_cur = _conn_for_memory_patch(null_row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=null_conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"sort_order": None})
+
+    assert resp.status_code == 200
+    assert resp.json()["sort_order"] is None
+    update_call = null_cur.execute.call_args_list[0]
+    assert "sort_order = %s" in update_call.args[0]
+    assert update_call.args[1][0] is None
+    assert "is_user_verified" not in update_call.args[0]
 
 
 # ── doc_type 추론 ────────────────────────────────────────────────
