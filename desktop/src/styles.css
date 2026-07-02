@@ -1445,7 +1445,7 @@ button {
   margin-top: 1px;
 }
 
-.project-memory-summary-action span {
+.project-memory-summary-action > .project-memory-summary-content {
   min-width: 0;
   display: -webkit-box;
   overflow: hidden;
@@ -1467,7 +1467,11 @@ button {
   white-space: nowrap;
 }
 
-.project-memory-summary-action[data-completed="true"] span,
+.project-memory-summary-action .project-memory-action-tags {
+  grid-column: 2;
+}
+
+.project-memory-summary-action[data-completed="true"] .project-memory-summary-content,
 .project-memory[data-mode="summary"] .project-memory-summary-item[data-completed="true"] .project-memory-content {
   color: var(--faint);
   text-decoration: line-through;
@@ -1686,6 +1690,23 @@ button {
   grid-template-columns: 20px minmax(0, 1fr) auto;
 }
 
+.project-memory-manage-item[data-editing="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.project-memory-manage-item[draggable="true"] {
+  cursor: grab;
+}
+
+.project-memory-manage-item[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.project-memory-manage-item[data-drag-over="true"] {
+  border-top-color: var(--action-fg);
+  box-shadow: inset 0 2px 0 var(--action-fg);
+}
+
 .project-memory-manage-item > input[type="checkbox"] {
   width: 15px;
   height: 15px;
@@ -1743,11 +1764,44 @@ button {
   color: var(--decision-fg);
 }
 
+.project-memory-action-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.project-memory-action-tags span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  background: var(--surface-hover);
+  color: var(--muted);
+}
+
+.project-memory-action-tags span[data-overdue="true"] {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+}
+
 .project-memory-item-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 5px;
+}
+
+.project-memory-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 28px;
+  color: var(--faint);
 }
 
 .project-memory-item-actions button {
@@ -1800,7 +1854,7 @@ button {
 
 .project-memory-form-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 7px;
 }
 
