@@ -2608,6 +2608,18 @@ button {
   align-items: flex-end;
 }
 
+.message[data-role="error"] .message-content {
+  width: fit-content;
+  max-width: min(100%, 560px);
+  border: 1px solid color-mix(in srgb, var(--danger) 44%, var(--border));
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .message-content {
   min-width: 0;
   max-width: var(--content-width);
@@ -2636,6 +2648,13 @@ button {
 
 .message-content p:last-child {
   margin-bottom: 0;
+}
+
+.message-content .message-sources {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .attachment-list {

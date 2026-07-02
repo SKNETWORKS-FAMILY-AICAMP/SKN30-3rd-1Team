@@ -139,6 +139,18 @@ type ApiDocumentStatusResponse = {
   extracted?: Record<string, number>;
 };
 
+type ApiQueryHistoryMessage = {
+  role: "assistant" | "user";
+  content: string;
+};
+
+type ApiQueryResponse = {
+  answer: string;
+  sources?: string[];
+  route?: string;
+  debug?: unknown;
+};
+
 type ServerStatus = "online" | "offline";
 
 type ActionMenuState =
@@ -153,11 +165,13 @@ const DEMO_REPLY_DELAY_MS = 360;
 const SERVER_SYNC_TIMEOUT_MS = 3000;
 const DOCUMENT_STATUS_POLL_INTERVAL_MS = 3000;
 const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 180000;
+const QUERY_HISTORY_LIMIT = 20;
+const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v3";
-const LEGACY_PROJECT_STORAGE_KEYS = ["paim.projects.v2", "paim.projects.v1"];
+const PROJECT_STORAGE_KEY = "paim.projects.v4";
+const LEGACY_PROJECT_STORAGE_KEYS = ["paim.projects.v3", "paim.projects.v2", "paim.projects.v1"];
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
@@ -844,21 +858,6 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
       })}
     </div>
   );
-}
-
-// 프론트 데모에서 런타임 없이도 자연스러운 응답 흐름을 만든다.
-function createDemoAssistantReply(message: Message) {
-  const fileNames = message.attachments?.map((attachment) => attachment.name) ?? [];
-  const fileSummary =
-    fileNames.length > 0 ? `\n\n첨부된 파일: ${fileNames.join(", ")}` : "";
-
-  return [
-    "좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.",
-    "",
-    `요청: ${message.content}`,
-    "",
-    "다음 단계는 핵심 요청, 담당자, 마감일, 리스크를 분리해서 확인하는 것입니다.",
-  ].join("\n") + fileSummary;
 }
 
 // 업로드된 프로젝트 자료를 읽은 뒤 처음 보여줄 짧은 브리핑 응답을 만든다.
@@ -1675,6 +1674,45 @@ export function App() {
         scope: "overview",
       });
     }
+  }
+
+  function createQueryHistory(messages: Message[]): ApiQueryHistoryMessage[] {
+    return messages
+      .filter((message): message is Message & ApiQueryHistoryMessage =>
+        message.role === "assistant" || message.role === "user",
+      )
+      .slice(-QUERY_HISTORY_LIMIT)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+  }
+
+  async function fetchProjectQuery(
+    apiProjectId: number,
+    question: string,
+    history: ApiQueryHistoryMessage[],
+  ) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+
+    try {
+      return await fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
+        method: "POST",
+        signal: controller.signal,
+        body: JSON.stringify({ question, history }),
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  function getQueryErrorMessage(error: unknown) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return "Q&A 응답 시간이 초과되었습니다. 다시 시도해 주세요";
+    }
+
+    return getErrorMessage(error, "Q&A 응답을 가져올 수 없습니다");
   }
 
   // 서버 업로드는 로컬 파일을 base64로 읽어 브라우저 FormData 파일로 감싼다.
@@ -2893,6 +2931,7 @@ export function App() {
     setIsSending(true);
     clearDraft();
 
+    // TODO: 서버 query 기반 브리핑으로 전환 검토
     await wait(DEMO_REPLY_DELAY_MS * 2);
 
     updateSessionInProject(project.id, nextSession.id, (session) => ({
@@ -3092,15 +3131,52 @@ export function App() {
       return;
     }
 
+    if (selectedProject.serverMissing) {
+      setDemoStatus({
+        ok: false,
+        message: "서버에서 찾을 수 없는 프로젝트에는 질문을 보낼 수 없습니다",
+        scope: "overview",
+      });
+      return;
+    }
+
+    if (shouldSkipServerAction("overview")) {
+      return;
+    }
+
     const targetProjectId = selectedProject.id;
     const targetSessionId = selectedSession.id;
     const messageAttachments = attachments;
+    const question = trimmedPrompt || "첨부 파일을 확인해줘";
+    const history = createQueryHistory(selectedSession.messages);
     const userMessage: Message = {
       id: createId("user"),
       role: "user",
-      content: trimmedPrompt || "첨부 파일을 확인해줘",
+      content: question,
       attachments: messageAttachments,
     };
+
+    setIsSending(true);
+
+    let apiProjectId: number;
+
+    try {
+      const apiProject = await ensureApiProject(selectedProject);
+
+      if (typeof apiProject.apiProjectId !== "number") {
+        throw new Error("서버 프로젝트를 준비할 수 없습니다");
+      }
+
+      apiProjectId = apiProject.apiProjectId;
+    } catch (error) {
+      setIsSending(false);
+      setDemoStatus({
+        ok: false,
+        message: getErrorMessage(error, "서버 프로젝트를 준비할 수 없습니다"),
+        scope: "overview",
+      });
+      return;
+    }
 
     updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
       ...session,
@@ -3112,23 +3188,38 @@ export function App() {
     }));
     setPrompt("");
     setAttachments([]);
-    setIsSending(true);
 
-    await wait(DEMO_REPLY_DELAY_MS);
+    try {
+      const response = await fetchProjectQuery(apiProjectId, question, history);
 
-    updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-      ...session,
-      messages: [
-        ...session.messages,
-        {
-          id: createId("assistant"),
-          role: "assistant",
-          content: createDemoAssistantReply(userMessage),
-        },
-      ],
-    }));
-    setIsSending(false);
-    focusPrompt();
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("assistant"),
+            role: "assistant",
+            content: response.answer,
+            sources: response.sources?.filter(Boolean),
+          },
+        ],
+      }));
+    } catch (error) {
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        messages: [
+          ...session.messages,
+          {
+            id: createId("error"),
+            role: "error",
+            content: getQueryErrorMessage(error),
+          },
+        ],
+      }));
+    } finally {
+      setIsSending(false);
+      focusPrompt();
+    }
   }
 
   // 채팅 앱의 기본 키보드 동작으로 Enter 전송, Shift+Enter 줄바꿈을 처리한다.
@@ -3445,6 +3536,11 @@ export function App() {
                         ))}
                         {message.attachments && message.attachments.length > 0 ? (
                           <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                        ) : null}
+                        {message.sources && message.sources.length > 0 ? (
+                          <p className="message-sources">
+                            출처: {message.sources.join(", ")}
+                          </p>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (

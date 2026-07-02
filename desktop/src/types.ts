@@ -39,9 +39,10 @@ export type ProjectFilePreview = {
 
 export type Message = {
   id: string;
-  role: "assistant" | "user";
+  role: "assistant" | "error" | "user";
   content: string;
   attachments?: Attachment[];
+  sources?: string[];
 };
 
 export type ChatSession = {
