@@ -5,22 +5,10 @@ export type Attachment = {
   kind?: "file" | "directory";
   children?: Attachment[];
   childrenLoaded?: boolean;
-  docId?: number;
-  documentStatus?: ProjectDocumentStatus;
   isExpanded?: boolean;
-  lastError?: string | null;
-  serverOnly?: boolean;
   uploadedAt?: number;
   previewUrl?: string;
 };
-
-export type ProjectDocumentStatus =
-  | "uploading"
-  | "uploaded"
-  | "processing"
-  | "indexed"
-  | "failed"
-  | "delayed";
 
 export type DirectoryChildEntry = {
   name: string;
@@ -39,15 +27,13 @@ export type ProjectFilePreview = {
 
 export type Message = {
   id: string;
-  role: "assistant" | "error" | "user";
+  role: "assistant" | "user";
   content: string;
   attachments?: Attachment[];
-  sources?: string[];
 };
 
 export type ChatSession = {
   id: string;
-  serverSessionId?: string;
   title: string;
   messages: Message[];
   createdAt: number;
@@ -75,20 +61,6 @@ export type GitRepositoryInfo = {
   issuePrStatus: string;
   visibility?: "public" | "private";
   authProvider?: "public" | "github_oauth" | "github_app";
-  repoId?: number;
-  syncStatus?: GitRepositorySyncStatus;
-  connectedAt?: string;
-  commitSha?: string | null;
-  indexedFiles?: number | null;
-  lastError?: string | null;
-  syncWarnings?: GitRepositorySyncWarning[];
-};
-
-export type GitRepositorySyncStatus = "connected" | "syncing" | "indexed" | "failed" | "delayed";
-
-export type GitRepositorySyncWarning = {
-  source_type?: string;
-  reason?: string;
 };
 
 export type ProjectMemoryCategory = "decision" | "action" | "issue" | "risk";
@@ -110,7 +82,6 @@ export type ProjectMemoryItem = {
 export type ProjectWorkspace = {
   id: string;
   apiProjectId?: number;
-  serverMissing?: boolean;
   name: string;
   description?: string;
   files?: Attachment[];

@@ -52,13 +52,10 @@ import {
   fetchGithubRepositories,
   fetchGithubRepository,
   fetchGithubUserProfile,
-  fetchPaimFormData,
   fetchPaimJson,
-  fetchPaimRootJson,
   getErrorMessage,
   getGithubOAuthErrorMessage,
   getGithubPanelStateLabel,
-  isPaimApiError,
 } from "./github";
 import {
   clampProjectFileTreeWidth,
@@ -83,10 +80,7 @@ import type {
   GithubAvailableRepository,
   GithubLoginSessionState,
   GithubPanelState,
-  GitRepositoryInfo,
-  GitRepositorySyncWarning,
   Message,
-  ProjectDocumentStatus,
   ProjectFilePreview,
   ProjectSourcesMode,
   ProjectState,
@@ -112,101 +106,6 @@ type ApiProjectCreateResponse = {
   name: string;
 };
 
-type ApiProjectResponse = ApiProjectCreateResponse & {
-  created_at?: string;
-};
-
-type ApiHealthResponse = {
-  status?: string;
-};
-
-type ApiDocumentStatus = "uploaded" | "processing" | "indexed" | "failed";
-
-type ApiDocumentUploadResponse = {
-  doc_id: number;
-  status: ApiDocumentStatus;
-};
-
-type ApiDocumentListItem = {
-  id: number;
-  filename: string;
-  doc_type?: string | null;
-  status: ApiDocumentStatus;
-  uploaded_at?: string | null;
-};
-
-type ApiDocumentStatusResponse = {
-  doc_id: number;
-  status: ApiDocumentStatus;
-  last_error?: string | null;
-  extracted?: Record<string, number>;
-};
-
-type ApiQueryHistoryMessage = {
-  role: "assistant" | "user";
-  content: string;
-};
-
-type ApiQueryResponse = {
-  answer: string;
-  sources?: string[];
-  route?: string;
-  debug?: unknown;
-};
-
-type ApiChatSessionResponse = {
-  id: string;
-  project_id: number;
-  title: string;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type ApiChatMessageResponse = {
-  id: number;
-  role: string;
-  text: string;
-  token_count?: number;
-  created_at?: string;
-};
-
-type ApiChatSessionWithMessages = {
-  session: ApiChatSessionResponse;
-  messages: Message[];
-};
-
-type ApiRepositoryStatus = "connected" | "syncing" | "indexed" | "failed";
-
-type ApiRepositoryConnectResponse = {
-  repo_id: number;
-  status: ApiRepositoryStatus;
-  branch?: string;
-};
-
-type ApiRepositoryListItem = {
-  id: number;
-  provider: string;
-  repository_url: string;
-  branch: string;
-  status: ApiRepositoryStatus;
-  connected_at?: string | null;
-};
-
-type ApiRepositoryStatusResponse = {
-  repo_id: number;
-  status: ApiRepositoryStatus;
-  provider: string;
-  repository_url: string;
-  branch: string;
-  commit_sha?: string | null;
-  indexed_files?: number | null;
-  last_error?: string | null;
-  sync_warning?: string | null;
-  extracted?: Record<string, number>;
-};
-
-type ServerStatus = "online" | "offline";
-
 type ActionMenuState =
   | { type: "project"; projectId: string; top: number; left: number }
   | { type: "session"; projectId: string; sessionId: string; top: number; left: number };
@@ -216,24 +115,10 @@ type RenameDraft =
   | { type: "session"; projectId: string; sessionId: string; value: string };
 
 const DEMO_REPLY_DELAY_MS = 360;
-const SERVER_SYNC_TIMEOUT_MS = 3000;
-const DOCUMENT_STATUS_POLL_INTERVAL_MS = 3000;
-const DOCUMENT_STATUS_POLL_TIMEOUT_MS = 180000;
-const GITHUB_REPOSITORY_SYNC_POLL_INTERVAL_MS = 3000;
-const GITHUB_REPOSITORY_SYNC_TIMEOUT_MS = 600000;
-const QUERY_HISTORY_LIMIT = 20;
-const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
 const ACTION_MENU_GAP = 6;
-const PROJECT_STORAGE_KEY = "paim.projects.v6";
-const LEGACY_PROJECT_STORAGE_KEYS = [
-  "paim.projects.v5",
-  "paim.projects.v4",
-  "paim.projects.v3",
-  "paim.projects.v2",
-  "paim.projects.v1",
-];
+const PROJECT_STORAGE_KEY = "paim.projects.v1";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
 const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
@@ -331,19 +216,6 @@ function createProject(name: string, sessions: ChatSession[], files: Attachment[
   };
 }
 
-function createProjectFromApi(serverProject: ApiProjectResponse): ProjectWorkspace {
-  const createdAt = Date.parse(serverProject.created_at ?? "");
-
-  return {
-    id: createId("project"),
-    apiProjectId: serverProject.id,
-    name: serverProject.name,
-    files: [],
-    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-    sessions: [],
-  };
-}
-
 function createEmptySession(): ChatSession {
   return {
     id: createId("session"),
@@ -351,61 +223,6 @@ function createEmptySession(): ChatSession {
     createdAt: Date.now(),
     messages: [],
   };
-}
-
-// 서버 세션 row를 로컬 ChatSession 형태로 변환한다.
-function createSessionFromApi(apiSession: ApiChatSessionResponse, messages: Message[]): ChatSession {
-  const createdAt = Date.parse(apiSession.created_at ?? "");
-
-  return {
-    id: createId("session"),
-    serverSessionId: apiSession.id,
-    title: apiSession.title || "New Chat",
-    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
-    messages,
-  };
-}
-
-// 서버 메시지의 text 필드를 기존 content 필드로 매핑한다.
-function createMessageFromApi(apiMessage: ApiChatMessageResponse): Message | null {
-  if (apiMessage.role !== "assistant" && apiMessage.role !== "user") {
-    return null;
-  }
-
-  return {
-    id: `server-message-${apiMessage.id}`,
-    role: apiMessage.role,
-    content: apiMessage.text,
-  };
-}
-
-// 서버 세션 목록은 정렬 기준으로 삼고, 로컬 전용 세션은 아직 서버에 없으므로 뒤에 보존한다.
-function mergeServerChatSessions(
-  localSessions: ChatSession[],
-  serverSessions: ApiChatSessionWithMessages[],
-) {
-  const localSessionsByServerId = new Map(
-    localSessions
-      .filter((session) => session.serverSessionId)
-      .map((session) => [session.serverSessionId as string, session]),
-  );
-  const syncedSessions = serverSessions.map(({ session, messages }) => {
-    const localSession = localSessionsByServerId.get(session.id);
-
-    if (!localSession) {
-      return createSessionFromApi(session, messages);
-    }
-
-    return {
-      ...localSession,
-      serverSessionId: session.id,
-      title: session.title || localSession.title,
-      messages: messages.length > 0 ? messages : localSession.messages,
-    };
-  });
-  const localOnlySessions = localSessions.filter((session) => !session.serverSessionId);
-
-  return [...syncedSessions, ...localOnlySessions];
 }
 
 // 이전 버전이 자동으로 넣던 첫 assistant 인사는 새 empty state와 중복되므로 로딩 때만 걷어낸다.
@@ -505,55 +322,8 @@ function createProjectState(
   };
 }
 
-// 서버 목록을 정본으로 삼되, 로컬 전용 작업 상태는 보존한다.
-function mergeServerProjects(
-  localProjects: ProjectWorkspace[],
-  serverProjects: ApiProjectResponse[],
-) {
-  const serverProjectIds = new Set(serverProjects.map((project) => project.id));
-  const usedLocalProjectIds = new Set<string>();
-  const localProjectsByApiId = new Map<number, ProjectWorkspace>();
-
-  for (const project of localProjects) {
-    if (typeof project.apiProjectId === "number" && !localProjectsByApiId.has(project.apiProjectId)) {
-      localProjectsByApiId.set(project.apiProjectId, project);
-    }
-  }
-
-  const syncedProjects = serverProjects.map((serverProject) => {
-    const localProject = localProjectsByApiId.get(serverProject.id);
-
-    if (!localProject) {
-      return createProjectFromApi(serverProject);
-    }
-
-    usedLocalProjectIds.add(localProject.id);
-
-    return {
-      ...localProject,
-      apiProjectId: serverProject.id,
-      name: serverProject.name,
-      serverMissing: undefined,
-    };
-  });
-
-  const cachedOnlyProjects = localProjects
-    .filter((project) => !usedLocalProjectIds.has(project.id))
-    .map((project) =>
-      typeof project.apiProjectId === "number" && !serverProjectIds.has(project.apiProjectId)
-        ? { ...project, serverMissing: true }
-        : { ...project, serverMissing: undefined },
-    );
-
-  return [...syncedProjects, ...cachedOnlyProjects];
-}
-
 function loadProjectState() {
-  const savedValue =
-    window.localStorage.getItem(PROJECT_STORAGE_KEY) ??
-    LEGACY_PROJECT_STORAGE_KEYS
-      .map((storageKey) => window.localStorage.getItem(storageKey))
-      .find((value): value is string => Boolean(value));
+  const savedValue = window.localStorage.getItem(PROJECT_STORAGE_KEY);
 
   if (!savedValue) {
     return createProjectState([]);
@@ -672,252 +442,6 @@ function normalizeDialogPaths(selectedPaths: string | string[] | null) {
   return (Array.isArray(selectedPaths) ? selectedPaths : [selectedPaths]).filter(Boolean);
 }
 
-function getFileExtension(name: string) {
-  return name.includes(".") ? name.split(".").pop()?.toLowerCase() ?? "" : "";
-}
-
-function isSupportedProjectDocument(name: string) {
-  return ["md", "txt", "pdf"].includes(getFileExtension(name));
-}
-
-function getUploadMimeType(name: string) {
-  const extension = getFileExtension(name);
-
-  if (extension === "pdf") {
-    return "application/pdf";
-  }
-
-  return "text/plain";
-}
-
-function base64ToBytes(encoded: string) {
-  const binary = window.atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return bytes;
-}
-
-function toProjectDocumentStatus(status: ApiDocumentStatus): ProjectDocumentStatus {
-  return status;
-}
-
-function isProjectDocumentTerminal(status?: ProjectDocumentStatus) {
-  return status === "indexed" || status === "failed" || status === "delayed";
-}
-
-// 랜딩 화면은 서버 연동 문서 상태를 저장하지 않고 현재 첨부 목록에서만 집계한다.
-function getProjectDocumentStatusSummary(attachments: Attachment[]) {
-  const serverDocuments = collectFileAttachments(attachments).filter(
-    (attachment) =>
-      typeof attachment.docId === "number" || typeof attachment.documentStatus === "string",
-  );
-  const terminalCount = serverDocuments.filter((attachment) =>
-    isProjectDocumentTerminal(attachment.documentStatus),
-  ).length;
-  const incompleteCount = serverDocuments.filter(
-    (attachment) => attachment.documentStatus !== "indexed",
-  ).length;
-
-  return {
-    incompleteCount,
-    inProgressCount: serverDocuments.length - terminalCount,
-    terminalCount,
-    totalCount: serverDocuments.length,
-  };
-}
-
-function getProjectDocumentCardLabel(
-  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
-  fallbackReady: boolean,
-  fallbackLabel: string,
-) {
-  if (summary.totalCount === 0) {
-    return fallbackReady ? "완료" : fallbackLabel;
-  }
-
-  if (summary.inProgressCount > 0) {
-    return `처리중 ${summary.terminalCount}/${summary.totalCount}`;
-  }
-
-  return summary.incompleteCount > 0 ? "일부 실패" : "완료";
-}
-
-function getProjectDocumentCardReady(
-  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
-  fallbackReady: boolean,
-) {
-  if (summary.totalCount === 0) {
-    return fallbackReady;
-  }
-
-  return summary.inProgressCount === 0 && summary.incompleteCount === 0;
-}
-
-function createServerDocumentAttachment(document: ApiDocumentListItem): Attachment {
-  const uploadedAt = Date.parse(document.uploaded_at ?? "");
-
-  return {
-    id: `project-document-${document.id}`,
-    name: document.filename,
-    path: `server-document://${document.id}/${document.filename}`,
-    kind: "file",
-    docId: document.id,
-    documentStatus: toProjectDocumentStatus(document.status),
-    serverOnly: true,
-    uploadedAt: Number.isFinite(uploadedAt) ? uploadedAt : Date.now(),
-  };
-}
-
-function mapAttachments(
-  attachments: Attachment[],
-  updater: (attachment: Attachment) => Attachment,
-): Attachment[] {
-  return attachments.map((attachment) => ({
-    ...updater(attachment),
-    children: attachment.children ? mapAttachments(attachment.children, updater) : undefined,
-  }));
-}
-
-function collectFileAttachments(attachments: Attachment[]): Attachment[] {
-  return attachments.flatMap((attachment) =>
-    attachment.kind === "directory"
-      ? collectFileAttachments(attachment.children ?? [])
-      : [attachment],
-  );
-}
-
-function getAttachmentDocIds(attachments: Attachment[]) {
-  return new Set(
-    collectFileAttachments(attachments)
-      .map((attachment) => attachment.docId)
-      .filter((docId): docId is number => typeof docId === "number"),
-  );
-}
-
-function mergeServerDocumentsIntoAttachments(
-  attachments: Attachment[],
-  documents: ApiDocumentListItem[],
-) {
-  const documentsById = new Map(documents.map((document) => [document.id, document]));
-  const updatedAttachments = mapAttachments(attachments, (attachment) => {
-    if (typeof attachment.docId !== "number") {
-      return attachment;
-    }
-
-    const document = documentsById.get(attachment.docId);
-
-    if (!document) {
-      return attachment;
-    }
-
-    return {
-      ...attachment,
-      name: document.filename,
-      documentStatus: toProjectDocumentStatus(document.status),
-    };
-  });
-  const existingDocIds = getAttachmentDocIds(updatedAttachments);
-  const serverOnlyAttachments = documents
-    .filter((document) => !existingDocIds.has(document.id))
-    .map(createServerDocumentAttachment);
-
-  return [...serverOnlyAttachments, ...updatedAttachments];
-}
-
-function getGithubRepositoryUrl(repository: GitRepositoryInfo) {
-  return repository.path || (repository.remoteRepo ? `https://github.com/${repository.remoteRepo}` : "");
-}
-
-function getGithubRemoteRepo(repositoryUrl: string) {
-  try {
-    const parsed = new URL(repositoryUrl);
-    const [owner, repo] = parsed.pathname.replace(/\.git$/, "").split("/").filter(Boolean);
-
-    return owner && repo ? `${owner}/${repo}` : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function getGithubRepositoryName(repositoryUrl: string) {
-  const remoteRepo = getGithubRemoteRepo(repositoryUrl);
-
-  if (remoteRepo) {
-    return remoteRepo.split("/").pop() ?? remoteRepo;
-  }
-
-  return repositoryUrl.replace(/\/+$/, "").split("/").pop()?.replace(/\.git$/, "") || "GitHub repo";
-}
-
-function parseGithubSyncWarnings(rawWarning?: string | null): GitRepositorySyncWarning[] | undefined {
-  if (!rawWarning) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(rawWarning) as unknown;
-
-    if (!Array.isArray(parsed)) {
-      return [{ reason: "일부 소스 수집 실패" }];
-    }
-
-    return parsed
-      .filter((warning): warning is Record<string, unknown> => warning !== null && typeof warning === "object")
-      .map((warning) => ({
-        source_type: typeof warning.source_type === "string" ? warning.source_type : undefined,
-        reason: typeof warning.reason === "string" ? warning.reason : undefined,
-      }));
-  } catch {
-    return [{ reason: "일부 소스 수집 실패" }];
-  }
-}
-
-function mergeGithubRepositoryInfo(
-  currentRepository: GitRepositoryInfo | undefined,
-  repository: ApiRepositoryListItem,
-): GitRepositoryInfo {
-  return {
-    path: repository.repository_url,
-    name: currentRepository?.name ?? getGithubRepositoryName(repository.repository_url),
-    branch: repository.branch,
-    isDirty: false,
-    remoteRepo: currentRepository?.remoteRepo ?? getGithubRemoteRepo(repository.repository_url),
-    issuePrStatus: currentRepository?.issuePrStatus ?? "서버 연결됨",
-    visibility: currentRepository?.visibility ?? "public",
-    authProvider: currentRepository?.authProvider ?? "public",
-    repoId: repository.id,
-    syncStatus: repository.status,
-    connectedAt: repository.connected_at ?? undefined,
-    commitSha: currentRepository?.commitSha,
-    indexedFiles: currentRepository?.indexedFiles,
-    lastError: currentRepository?.lastError,
-    syncWarnings: currentRepository?.syncWarnings,
-  };
-}
-
-function applyGithubRepositoryStatus(
-  repository: GitRepositoryInfo,
-  status: ApiRepositoryStatusResponse,
-): GitRepositoryInfo {
-  return {
-    ...repository,
-    path: status.repository_url,
-    name: repository.name || getGithubRepositoryName(status.repository_url),
-    branch: status.branch,
-    remoteRepo: repository.remoteRepo ?? getGithubRemoteRepo(status.repository_url),
-    repoId: status.repo_id,
-    syncStatus: status.status,
-    commitSha: status.commit_sha ?? null,
-    indexedFiles: status.indexed_files ?? null,
-    lastError: status.last_error ?? null,
-    syncWarnings: parseGithubSyncWarnings(status.sync_warning),
-  };
-}
-
 function canUseTauriDialog() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -1019,11 +543,7 @@ function createStoredAttachments(attachments: Attachment[] = []): Attachment[] {
 	    kind: attachment.kind,
 	    children: attachment.children ? createStoredAttachments(attachment.children) : undefined,
 	    childrenLoaded: attachment.childrenLoaded,
-	    docId: attachment.docId,
-	    documentStatus: attachment.documentStatus,
 	    isExpanded: attachment.isExpanded,
-	    lastError: attachment.lastError,
-	    serverOnly: attachment.serverOnly,
 	    uploadedAt: attachment.uploadedAt,
 	  }));
 	}
@@ -1115,6 +635,21 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
   );
 }
 
+// 프론트 데모에서 런타임 없이도 자연스러운 응답 흐름을 만든다.
+function createDemoAssistantReply(message: Message) {
+  const fileNames = message.attachments?.map((attachment) => attachment.name) ?? [];
+  const fileSummary =
+    fileNames.length > 0 ? `\n\n첨부된 파일: ${fileNames.join(", ")}` : "";
+
+  return [
+    "좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.",
+    "",
+    `요청: ${message.content}`,
+    "",
+    "다음 단계는 핵심 요청, 담당자, 마감일, 리스크를 분리해서 확인하는 것입니다.",
+  ].join("\n") + fileSummary;
+}
+
 // 업로드된 프로젝트 자료를 읽은 뒤 처음 보여줄 짧은 브리핑 응답을 만든다.
 function createProjectBriefingReply(project: ProjectWorkspace, projectFiles: Attachment[]) {
   const description = project.description?.trim();
@@ -1187,8 +722,6 @@ export function App() {
   const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
   const [isGithubConnecting, setIsGithubConnecting] = useState(false);
   const [isGithubSyncing, setIsGithubSyncing] = useState(false);
-  const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
-  const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
   const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
   const projectPanelResizeRef = useRef({
     startX: 0,
@@ -1201,13 +734,7 @@ export function App() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const didHydrateAttachmentPreviewsRef = useRef(false);
-  const didSyncProjectsRef = useRef(false);
-  const documentPollTimeoutsRef = useRef(new Map<string, number>());
-  const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
   const demoStatusTimeoutRef = useRef<number | null>(null);
-  const projectsRef = useRef(initialProjectState.projects);
-  const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
-  const selectedSessionIdRef = useRef(initialProjectState.selectedSessionId);
   const zoomScaleRef = useRef(loadZoomScale());
 
   const selectedProject = useMemo(
@@ -1250,30 +777,6 @@ export function App() {
   const selectedProjectFolderCount = useMemo(
     () => selectedProjectAttachments.filter((attachment) => attachment.kind === "directory").length,
     [selectedProjectAttachments],
-  );
-  const selectedProjectDocumentStatusSummary = useMemo(
-    () => getProjectDocumentStatusSummary(selectedProjectAttachments),
-    [selectedProjectAttachments],
-  );
-  const selectedProjectHasDocumentInProgress =
-    selectedProjectDocumentStatusSummary.inProgressCount > 0;
-  const selectedProjectFileCardLabel = getProjectDocumentCardLabel(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectRootFileCount > 0,
-    "파일",
-  );
-  const selectedProjectFolderCardLabel = getProjectDocumentCardLabel(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectFolderCount > 0,
-    "폴더",
-  );
-  const selectedProjectFileCardReady = getProjectDocumentCardReady(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectRootFileCount > 0,
-  );
-  const selectedProjectFolderCardReady = getProjectDocumentCardReady(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectFolderCount > 0,
   );
 	  const filteredSelectedProjectFiles = useMemo(
 	    () => filterProjectFileEntries(sortedSelectedProjectAttachments, projectFileQuery),
@@ -1319,16 +822,11 @@ export function App() {
         : "signedout";
   const selectedProjectDescription = selectedProject?.description?.trim() ?? "";
   const isSelectedProjectDefaultName = /^New Project(?: \d+)?$/.test(selectedProject?.name ?? "");
-  const canOpenProjectMemory =
-    serverStatus === "online" &&
-    typeof selectedProject?.apiProjectId === "number" &&
-    !selectedProject.serverMissing;
+  const canOpenProjectMemory = typeof selectedProject?.apiProjectId === "number";
   const hasProjectHomeContext =
     selectedProjectFileCount > 0 ||
     selectedProjectGithubPanelState === "connected" ||
     selectedProjectDescription.length > 0;
-  const isProjectBriefingDisabled =
-    !hasProjectHomeContext || selectedProjectHasDocumentInProgress || isSending;
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -1352,122 +850,6 @@ export function App() {
     if (nextStatus) {
       queueDemoStatusClear();
     }
-  }
-
-  function applyProjectState(nextState: ProjectState) {
-    projectsRef.current = nextState.projects;
-    selectedProjectIdRef.current = nextState.selectedProjectId;
-    selectedSessionIdRef.current = nextState.selectedSessionId;
-    setProjects(nextState.projects);
-    setSelectedProjectId(nextState.selectedProjectId);
-    setSelectedSessionId(nextState.selectedSessionId);
-  }
-
-  async function fetchServerProjects() {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), SERVER_SYNC_TIMEOUT_MS);
-
-    try {
-      const health = await fetchPaimRootJson<ApiHealthResponse>("/health", {
-        signal: controller.signal,
-      });
-
-      if (health.status !== "ok") {
-        throw new Error("PaiM 서버 상태를 확인할 수 없습니다");
-      }
-
-      return fetchPaimJson<ApiProjectResponse[]>("/projects", {
-        signal: controller.signal,
-      });
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-
-  async function syncProjectsWithServer(showResult = false) {
-    try {
-      const serverProjects = await fetchServerProjects();
-      const nextState = createProjectState(
-        mergeServerProjects(projectsRef.current, serverProjects),
-        selectedProjectIdRef.current,
-        selectedSessionIdRef.current,
-      );
-
-      applyProjectState(nextState);
-      setServerStatus("online");
-
-      if (showResult) {
-        setDemoStatus({
-          ok: true,
-          message: "PaiM 서버와 다시 연결했습니다",
-          scope: "overview",
-        });
-      }
-    } catch {
-      setServerStatus("offline");
-
-      if (showResult) {
-        setDemoStatus({
-          ok: false,
-          message: "PaiM 서버에 연결할 수 없습니다",
-          scope: "overview",
-        });
-      }
-    }
-  }
-
-  function showServerOfflineMessage(scope: DemoStatus["scope"] = "overview") {
-    setDemoStatus({
-      ok: false,
-      message: "PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중",
-      scope,
-    });
-  }
-
-  function shouldSkipServerAction(scope: DemoStatus["scope"] = "overview") {
-    if (serverStatus === "online") {
-      return false;
-    }
-
-    showServerOfflineMessage(scope);
-    return true;
-  }
-
-  function isGithubSessionExpiredError(error: unknown) {
-    return isPaimApiError(error) && (error.code === "SESSION_EXPIRED" || error.status === 410);
-  }
-
-  // GitHub App state가 만료되면 repo 선택부터 다시 시작할 수 있게 인증 상태를 비운다.
-  function handleGithubSessionExpired(projectId: string) {
-    setGithubLoginSessions((currentSessions) => {
-      const nextSessions = { ...currentSessions };
-      delete nextSessions[projectId];
-      return nextSessions;
-    });
-    setGithubRepositories((currentRepositories) => {
-      const nextRepositories = { ...currentRepositories };
-      delete nextRepositories[projectId];
-      return nextRepositories;
-    });
-    updateProject(projectId, (project) =>
-      project.githubRepository?.authProvider === "github_app"
-        ? {
-            ...project,
-            githubConnected: false,
-            githubEvents: undefined,
-            githubRepository: undefined,
-          }
-        : project,
-    );
-    setPendingGithubDisconnectProjectId((currentProjectId) =>
-      currentProjectId === projectId ? null : currentProjectId,
-    );
-    setGithubRepositoryQuery("");
-    setDemoStatus({
-      ok: false,
-      message: "GitHub 연결이 만료되었습니다. 다시 연결해 주세요",
-      scope: "github",
-    });
   }
 
   const filteredSelectedProjectGithubRepositories = useMemo(() => {
@@ -1504,81 +886,6 @@ export function App() {
       isProjectFileTreeCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectFileTreeWidth
     }px`,
   } as CSSProperties;
-
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
-
-  useEffect(() => {
-    selectedProjectIdRef.current = selectedProjectId;
-  }, [selectedProjectId]);
-
-  useEffect(() => {
-    selectedSessionIdRef.current = selectedSessionId;
-  }, [selectedSessionId]);
-
-  useEffect(() => {
-    if (didSyncProjectsRef.current) {
-      return;
-    }
-
-    didSyncProjectsRef.current = true;
-    void syncProjectsWithServer();
-  }, []);
-
-  useEffect(() => {
-    if (
-      serverStatus !== "online" ||
-      !selectedProject ||
-      selectedProject.serverMissing ||
-      typeof selectedProject.apiProjectId !== "number"
-    ) {
-      return;
-    }
-
-    void syncProjectDocuments(selectedProject.id, selectedProject.apiProjectId);
-  }, [
-    selectedProject?.apiProjectId,
-    selectedProject?.id,
-    selectedProject?.serverMissing,
-    serverStatus,
-  ]);
-
-  useEffect(() => {
-    if (
-      serverStatus !== "online" ||
-      !selectedProject ||
-      selectedProject.serverMissing ||
-      typeof selectedProject.apiProjectId !== "number"
-    ) {
-      return;
-    }
-
-    void syncProjectRepositories(selectedProject.id, selectedProject.apiProjectId);
-  }, [
-    selectedProject?.apiProjectId,
-    selectedProject?.id,
-    selectedProject?.serverMissing,
-    serverStatus,
-  ]);
-
-  useEffect(() => {
-    if (
-      serverStatus !== "online" ||
-      !selectedProject ||
-      selectedProject.serverMissing ||
-      typeof selectedProject.apiProjectId !== "number"
-    ) {
-      return;
-    }
-
-    void syncProjectChatSessions(selectedProject.id, selectedProject.apiProjectId);
-  }, [
-    selectedProject?.apiProjectId,
-    selectedProject?.id,
-    selectedProject?.serverMissing,
-    serverStatus,
-  ]);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -1764,24 +1071,6 @@ export function App() {
 
   useEffect(() => () => clearDemoStatusTimeout(), []);
 
-  useEffect(
-    () => () => {
-      for (const timeoutId of documentPollTimeoutsRef.current.values()) {
-        window.clearTimeout(timeoutId);
-      }
-      documentPollTimeoutsRef.current.clear();
-      for (const timeoutId of githubRepositoryPollTimeoutsRef.current.values()) {
-        window.clearTimeout(timeoutId);
-      }
-      githubRepositoryPollTimeoutsRef.current.clear();
-    },
-    [],
-  );
-
-  useEffect(() => {
-    setPendingGithubDisconnectProjectId(null);
-  }, [selectedProjectId]);
-
   useEffect(() => {
     if (didHydrateAttachmentPreviewsRef.current) {
       return;
@@ -1942,480 +1231,10 @@ export function App() {
     );
   }
 
-  function updateProjectAttachment(
-    projectId: string,
-    attachmentId: string,
-    updater: (attachment: Attachment) => Attachment,
-  ) {
-    updateProject(projectId, (project) => ({
-      ...project,
-      files: updateProjectFileEntry(project.files ?? [], attachmentId, updater),
-    }));
-  }
-
-  function clearDocumentPoll(projectId: string, docId: number) {
-    const pollKey = `${projectId}:${docId}`;
-    const timeoutId = documentPollTimeoutsRef.current.get(pollKey);
-
-    if (typeof timeoutId === "number") {
-      window.clearTimeout(timeoutId);
-    }
-
-    documentPollTimeoutsRef.current.delete(pollKey);
-  }
-
-  function scheduleDocumentStatusPoll(
-    projectId: string,
-    apiProjectId: number,
-    attachmentId: string,
-    docId: number,
-    startedAt = Date.now(),
-  ) {
-    clearDocumentPoll(projectId, docId);
-
-    const pollKey = `${projectId}:${docId}`;
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const status = await fetchPaimJson<ApiDocumentStatusResponse>(
-          `/projects/${apiProjectId}/documents/${docId}/status`,
-        );
-        const documentStatus = toProjectDocumentStatus(status.status);
-
-        updateProjectAttachment(projectId, attachmentId, (attachment) => ({
-          ...attachment,
-          docId: status.doc_id,
-          documentStatus,
-          lastError: status.last_error ?? null,
-        }));
-
-        if (isProjectDocumentTerminal(documentStatus)) {
-          documentPollTimeoutsRef.current.delete(pollKey);
-          return;
-        }
-
-        if (Date.now() - startedAt >= DOCUMENT_STATUS_POLL_TIMEOUT_MS) {
-          updateProjectAttachment(projectId, attachmentId, (attachment) => ({
-            ...attachment,
-            documentStatus: "delayed",
-            lastError: "처리 지연 — 나중에 다시 확인",
-          }));
-          documentPollTimeoutsRef.current.delete(pollKey);
-          return;
-        }
-
-        scheduleDocumentStatusPoll(projectId, apiProjectId, attachmentId, docId, startedAt);
-      } catch (error) {
-        updateProjectAttachment(projectId, attachmentId, (attachment) => ({
-          ...attachment,
-          documentStatus: "failed",
-          lastError: getErrorMessage(error, "문서 처리 상태를 확인할 수 없습니다"),
-        }));
-        documentPollTimeoutsRef.current.delete(pollKey);
-      }
-    }, DOCUMENT_STATUS_POLL_INTERVAL_MS);
-
-    documentPollTimeoutsRef.current.set(pollKey, timeoutId);
-  }
-
-  async function syncProjectDocuments(projectId: string, apiProjectId: number) {
-    if (serverStatus === "offline") {
-      return;
-    }
-
-    try {
-      const documents = await fetchPaimJson<ApiDocumentListItem[]>(
-        `/projects/${apiProjectId}/documents`,
-      );
-
-      updateProject(projectId, (project) => ({
-        ...project,
-        files: mergeServerDocumentsIntoAttachments(project.files ?? [], documents),
-      }));
-    } catch (error) {
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "서버 문서 목록을 불러올 수 없습니다"),
-        scope: "overview",
-      });
-    }
-  }
-
-  function updateGithubRepository(
-    projectId: string,
-    updater: (repository: GitRepositoryInfo) => GitRepositoryInfo,
-  ) {
-    updateProject(projectId, (project) =>
-      project.githubRepository
-        ? { ...project, githubRepository: updater(project.githubRepository) }
-        : project,
-    );
-  }
-
-  function clearGithubRepositoryPoll(projectId: string, repoId: number) {
-    const pollKey = `${projectId}:${repoId}`;
-    const timeoutId = githubRepositoryPollTimeoutsRef.current.get(pollKey);
-
-    if (typeof timeoutId === "number") {
-      window.clearTimeout(timeoutId);
-    }
-
-    githubRepositoryPollTimeoutsRef.current.delete(pollKey);
-  }
-
-  function scheduleGithubRepositoryStatusPoll(
-    projectId: string,
-    apiProjectId: number,
-    repoId: number,
-    startedAt = Date.now(),
-  ) {
-    clearGithubRepositoryPoll(projectId, repoId);
-
-    const pollKey = `${projectId}:${repoId}`;
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        const status = await fetchPaimJson<ApiRepositoryStatusResponse>(
-          `/projects/${apiProjectId}/repositories/${repoId}/status`,
-        );
-
-        updateGithubRepository(projectId, (repository) =>
-          applyGithubRepositoryStatus(repository, status),
-        );
-
-        if (status.status === "indexed" || status.status === "failed") {
-          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
-          return;
-        }
-
-        if (Date.now() - startedAt >= GITHUB_REPOSITORY_SYNC_TIMEOUT_MS) {
-          updateGithubRepository(projectId, (repository) => ({
-            ...repository,
-            syncStatus: "delayed",
-            lastError: "처리 지연 — 나중에 다시 확인",
-          }));
-          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
-          return;
-        }
-
-        scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, repoId, startedAt);
-      } catch (error) {
-        if (isGithubSessionExpiredError(error)) {
-          handleGithubSessionExpired(projectId);
-          githubRepositoryPollTimeoutsRef.current.delete(pollKey);
-          return;
-        }
-
-        updateGithubRepository(projectId, (repository) => ({
-          ...repository,
-          syncStatus: "failed",
-          lastError: getErrorMessage(error, "GitHub repo 동기화 상태를 확인할 수 없습니다"),
-        }));
-        githubRepositoryPollTimeoutsRef.current.delete(pollKey);
-      }
-    }, GITHUB_REPOSITORY_SYNC_POLL_INTERVAL_MS);
-
-    githubRepositoryPollTimeoutsRef.current.set(pollKey, timeoutId);
-  }
-
-  async function syncProjectRepositories(projectId: string, apiProjectId: number) {
-    if (serverStatus === "offline") {
-      return;
-    }
-
-    try {
-      const repositories = await fetchPaimJson<ApiRepositoryListItem[]>(
-        `/projects/${apiProjectId}/repositories`,
-      );
-      const serverRepository = repositories[0];
-
-      updateProject(projectId, (project) => {
-        if (!serverRepository) {
-          return project.githubRepository?.repoId
-            ? {
-                ...project,
-                githubConnected: false,
-                githubEvents: undefined,
-                githubRepository: undefined,
-              }
-            : project;
-        }
-
-        return {
-          ...project,
-          githubConnected: true,
-          githubRepository: mergeGithubRepositoryInfo(project.githubRepository, serverRepository),
-        };
-      });
-
-      if (!serverRepository) {
-        return;
-      }
-
-      const status = await fetchPaimJson<ApiRepositoryStatusResponse>(
-        `/projects/${apiProjectId}/repositories/${serverRepository.id}/status`,
-      );
-      updateGithubRepository(projectId, (repository) =>
-        applyGithubRepositoryStatus(repository, status),
-      );
-
-      if (status.status === "syncing") {
-        scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, serverRepository.id);
-      }
-    } catch (error) {
-      if (isGithubSessionExpiredError(error)) {
-        handleGithubSessionExpired(projectId);
-        return;
-      }
-
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "GitHub repo 연결 정보를 불러올 수 없습니다"),
-        scope: "github",
-      });
-    }
-  }
-
-  // 서버 세션 목록과 각 세션의 복호화 메시지를 함께 가져온다.
-  async function fetchProjectChatSessions(apiProjectId: number) {
-    const sessions = await fetchPaimJson<ApiChatSessionResponse[]>(
-      `/projects/${apiProjectId}/sessions`,
-    );
-
-    return Promise.all(
-      sessions.map(async (session) => {
-        const messages = await fetchPaimJson<ApiChatMessageResponse[]>(
-          `/projects/${apiProjectId}/sessions/${encodeURIComponent(session.id)}/messages`,
-        );
-
-        return {
-          session,
-          messages: messages
-            .map(createMessageFromApi)
-            .filter((message): message is Message => message !== null),
-        };
-      }),
-    );
-  }
-
-  // 선택된 프로젝트의 서버 세션을 로컬 캐시에 병합한다.
-  async function syncProjectChatSessions(projectId: string, apiProjectId: number) {
-    if (serverStatus === "offline") {
-      return;
-    }
-
-    try {
-      const serverSessions = await fetchProjectChatSessions(apiProjectId);
-      const currentProject = projectsRef.current.find((project) => project.id === projectId);
-
-      if (!currentProject) {
-        return;
-      }
-
-      const nextSessions = mergeServerChatSessions(currentProject.sessions, serverSessions);
-
-      updateProject(projectId, (project) => ({
-        ...project,
-        sessions: nextSessions,
-      }));
-
-      if (
-        selectedProjectIdRef.current === projectId &&
-        !nextSessions.some((session) => session.id === selectedSessionIdRef.current)
-      ) {
-        setSelectedSessionId(nextSessions[0]?.id ?? null);
-      }
-    } catch (error) {
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "서버 채팅 세션을 불러올 수 없습니다"),
-        scope: "overview",
-      });
-    }
-  }
-
-  async function startGithubRepositorySync(
-    projectId: string,
-    apiProjectId: number,
-    repoId: number,
-    state?: string,
-  ) {
-    const response = await fetchPaimJson<ApiRepositoryConnectResponse>(
-      `/projects/${apiProjectId}/repositories/${repoId}/sync`,
-      {
-        method: "POST",
-        body: JSON.stringify(state ? { state } : {}),
-      },
-    );
-
-    updateGithubRepository(projectId, (repository) => ({
-      ...repository,
-      repoId: response.repo_id,
-      syncStatus: response.status,
-      lastError: null,
-      syncWarnings: undefined,
-    }));
-    scheduleGithubRepositoryStatusPoll(projectId, apiProjectId, response.repo_id);
-
-    return response;
-  }
-
-  function createQueryHistory(messages: Message[]): ApiQueryHistoryMessage[] {
-    return messages
-      .filter((message): message is Message & ApiQueryHistoryMessage =>
-        message.role === "assistant" || message.role === "user",
-      )
-      .slice(-QUERY_HISTORY_LIMIT)
-      .map((message) => ({
-        role: message.role,
-        content: message.content,
-      }));
-  }
-
-  async function fetchProjectQuery(
-    apiProjectId: number,
-    question: string,
-    history: ApiQueryHistoryMessage[],
-  ) {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
-
-    try {
-      return await fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
-        method: "POST",
-        signal: controller.signal,
-        body: JSON.stringify({ question, history }),
-      });
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-
-  function getQueryErrorMessage(error: unknown) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return "Q&A 응답 시간이 초과되었습니다. 다시 시도해 주세요";
-    }
-
-    return getErrorMessage(error, "Q&A 응답을 가져올 수 없습니다");
-  }
-
-  // 서버 업로드는 로컬 파일을 base64로 읽어 브라우저 FormData 파일로 감싼다.
-  async function readUploadFile(entry: Attachment) {
-    const encoded = await invoke<string>("read_file_base64", { path: entry.path });
-    const bytes = base64ToBytes(encoded);
-
-    return new File([bytes], entry.name, { type: getUploadMimeType(entry.name) });
-  }
-
-  async function uploadProjectDocument(
-    projectId: string,
-    apiProjectId: number,
-    entry: Attachment,
-  ) {
-    updateProjectAttachment(projectId, entry.id, (attachment) => ({
-      ...attachment,
-      documentStatus: "uploading",
-      lastError: null,
-    }));
-
-    try {
-      const file = await readUploadFile(entry);
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetchPaimFormData<ApiDocumentUploadResponse>(
-        `/projects/${apiProjectId}/documents`,
-        formData,
-      );
-      const documentStatus = toProjectDocumentStatus(response.status);
-
-      updateProjectAttachment(projectId, entry.id, (attachment) => ({
-        ...attachment,
-        docId: response.doc_id,
-        documentStatus,
-        lastError: null,
-      }));
-
-      if (!isProjectDocumentTerminal(documentStatus)) {
-        scheduleDocumentStatusPoll(projectId, apiProjectId, entry.id, response.doc_id);
-      }
-    } catch (error) {
-      updateProjectAttachment(projectId, entry.id, (attachment) => ({
-        ...attachment,
-        documentStatus: "failed",
-        lastError: getErrorMessage(error, "문서를 업로드할 수 없습니다"),
-      }));
-    }
-  }
-
-  // 지원 문서만 서버로 보내고, 그 외 파일은 기존처럼 로컬 참조로 남긴다.
-  async function uploadProjectDocuments(
-    projectId: string,
-    project: ProjectWorkspace,
-    entries: Attachment[],
-  ) {
-    const supportedFiles = collectFileAttachments(entries).filter(
-      (entry) =>
-        !entry.serverOnly &&
-        typeof entry.docId !== "number" &&
-        isSupportedProjectDocument(entry.name),
-    );
-
-    if (supportedFiles.length === 0) {
-      return;
-    }
-
-    if (project.serverMissing) {
-      setDemoStatus({
-        ok: false,
-        message: "서버에서 찾을 수 없는 프로젝트에는 문서를 업로드할 수 없습니다",
-        scope: "overview",
-      });
-      return;
-    }
-
-    if (shouldSkipServerAction("overview")) {
-      return;
-    }
-
-    try {
-      const apiProject = await ensureApiProject(project);
-
-      if (typeof apiProject.apiProjectId !== "number") {
-        throw new Error("서버 프로젝트를 준비할 수 없습니다");
-      }
-
-      setDemoStatus({
-        ok: true,
-        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 중...`,
-        scope: "overview",
-      });
-
-      for (const entry of supportedFiles) {
-        await uploadProjectDocument(projectId, apiProject.apiProjectId, entry);
-      }
-
-      setDemoStatus({
-        ok: true,
-        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 요청 완료`,
-        scope: "overview",
-      });
-      void syncProjectDocuments(projectId, apiProject.apiProjectId);
-    } catch (error) {
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "문서를 서버로 업로드할 수 없습니다"),
-        scope: "overview",
-      });
-    }
-  }
-
   // FastAPI의 정수 project_id가 있어야 서버 메모리 API를 조회할 수 있다.
   async function ensureApiProject(project: ProjectWorkspace) {
     if (typeof project.apiProjectId === "number") {
       return project;
-    }
-
-    if (serverStatus === "offline") {
-      throw new Error("PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중");
     }
 
     const createdProject = await fetchPaimJson<ApiProjectCreateResponse>("/projects", {
@@ -2447,109 +1266,6 @@ export function App() {
         session.id === sessionId ? updater(session) : session,
       ),
     }));
-  }
-
-  // 서버에 비어 있는 채팅 세션 row를 만든다.
-  async function createServerChatSession(apiProjectId: number, title: string) {
-    return fetchPaimJson<ApiChatSessionResponse>(`/projects/${apiProjectId}/sessions`, {
-      method: "POST",
-      body: JSON.stringify({ title: title || "New Chat" }),
-    });
-  }
-
-  // 로컬 세션은 첫 질문 전까지 서버 세션을 만들지 않는다.
-  async function ensureServerChatSession(
-    projectId: string,
-    session: ChatSession,
-    apiProjectId: number,
-    title: string,
-  ) {
-    if (session.serverSessionId) {
-      return session.serverSessionId;
-    }
-
-    const createdSession = await createServerChatSession(apiProjectId, title);
-
-    updateSessionInProject(projectId, session.id, (currentSession) => ({
-      ...currentSession,
-      serverSessionId: createdSession.id,
-      title: createdSession.title || currentSession.title,
-    }));
-
-    return createdSession.id;
-  }
-
-  // 서버에 이미 연결된 세션의 제목 변경만 동기화한다.
-  async function syncChatSessionTitle(projectId: string, sessionId: string, title: string) {
-    if (serverStatus === "offline") {
-      return;
-    }
-
-    const project = projectsRef.current.find((currentProject) => currentProject.id === projectId);
-    const session = project?.sessions.find((currentSession) => currentSession.id === sessionId);
-
-    if (!project || !session?.serverSessionId || typeof project.apiProjectId !== "number") {
-      return;
-    }
-
-    try {
-      await fetchPaimJson<ApiChatSessionResponse>(
-        `/projects/${project.apiProjectId}/sessions/${encodeURIComponent(session.serverSessionId)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ title }),
-        },
-      );
-    } catch (error) {
-      if (isPaimApiError(error) && error.status === 404) {
-        return;
-      }
-
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "채팅 세션 제목을 서버에 저장할 수 없습니다"),
-        scope: "overview",
-      });
-    }
-  }
-
-  // 서버 세션이 있으면 삭제하고, 404는 이미 삭제된 상태로 본다.
-  async function deleteServerChatSession(project: ProjectWorkspace, session: ChatSession) {
-    if (!session.serverSessionId) {
-      return true;
-    }
-
-    if (serverStatus === "offline") {
-      setDemoStatus({
-        ok: false,
-        message: "서버에 연결되지 않아 로컬 채팅만 삭제했습니다",
-        scope: "overview",
-      });
-      return true;
-    }
-
-    if (typeof project.apiProjectId !== "number") {
-      return true;
-    }
-
-    try {
-      await fetchPaimJson<void>(
-        `/projects/${project.apiProjectId}/sessions/${encodeURIComponent(session.serverSessionId)}`,
-        { method: "DELETE" },
-      );
-      return true;
-    } catch (error) {
-      if (isPaimApiError(error) && error.status === 404) {
-        return true;
-      }
-
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "채팅 세션을 서버에서 삭제할 수 없습니다"),
-        scope: "overview",
-      });
-      return false;
-    }
   }
 
   function handleSelectProject(projectId: string) {
@@ -2658,10 +1374,6 @@ export function App() {
 
 	  // 같은 도구도 새 탭으로 추가한다. 자료 탭은 탭별로 검색/선택/프리뷰 상태를 따로 가진다.
 	  function openProjectPanelTool(view: ProjectPanelToolView) {
-	    if (view === "memory" && shouldSkipServerAction("overview")) {
-	      return;
-	    }
-
 	    if (view === "memory" && !canOpenProjectMemory) {
 	      return;
 	    }
@@ -2694,142 +1406,133 @@ export function App() {
 	      : getProjectPanelTitle(tab.view);
 	  }
 
-  async function readDirectoryChildren(path: string) {
-    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
+		  async function readDirectoryChildren(path: string) {
+	    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
 
-    return children.map(createProjectFileEntry);
-  }
+	    return children.map(createProjectFileEntry);
+	  }
 
-  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
-    const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
-    const nextChildren = await Promise.all(
-      children.map((entry) =>
-        entry.kind === "directory"
-          ? createProjectDirectoryEntry(entry.path, uploadedAt)
-          : { ...createProjectFileEntry(entry), uploadedAt },
-      ),
-    );
+		  async function createProjectDirectoryEntry(path: string, uploadedAt: number): Promise<Attachment> {
+		    const children = await readDirectoryChildren(path);
 
-    return {
-      id: createId("project-file"),
-      name: getFileName(path),
-      path,
-      kind: "directory",
-      children: nextChildren,
-      childrenLoaded: true,
-      isExpanded: true,
-      uploadedAt,
-    };
-  }
+		    return {
+	      id: createId("project-file"),
+	      name: getFileName(path),
+	      path,
+	      kind: "directory",
+		      children,
+		      childrenLoaded: true,
+		      isExpanded: true,
+		      uploadedAt,
+		    };
+		  }
 
-  // 프로젝트 자료함에 단일 파일을 트리의 루트 항목으로 추가한다.
-  function createProjectFileRootEntry(path: string, uploadedAt: number): Attachment {
-    return {
-      id: createId("project-file"),
-      name: getFileName(path),
-      path,
-      kind: "file",
-      uploadedAt,
-    };
-  }
+		  // 프로젝트 자료함에 단일 파일을 트리의 루트 항목으로 추가한다.
+		  function createProjectFileRootEntry(path: string, uploadedAt: number): Attachment {
+		    return {
+		      id: createId("project-file"),
+		      name: getFileName(path),
+		      path,
+		      kind: "file",
+		      uploadedAt,
+		    };
+		  }
 
-  // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
-  async function handleOpenProjectFiles(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
+	  // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
+	  async function handleOpenProjectFiles(projectId: string) {
+	    const targetProject = projects.find((project) => project.id === projectId);
 
-    if (!targetProject) {
-      return;
-    }
+	    if (!targetProject) {
+	      return;
+	    }
 
-    if (!canUseTauriDialog()) {
-      setDemoStatus({
-        ok: false,
-        message: "데스크톱 앱에서 파일을 업로드할 수 있습니다",
-        scope: "overview",
-      });
-      return;
-    }
+	    if (!canUseTauriDialog()) {
+	      setDemoStatus({
+	        ok: false,
+	        message: "데스크톱 앱에서 파일을 업로드할 수 있습니다",
+	        scope: "overview",
+	      });
+	      return;
+	    }
 
-    try {
-      const selectedPaths = await open({
-        directory: false,
-        multiple: true,
-        title: "프로젝트 파일 업로드",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
+	    try {
+	      const selectedPaths = await open({
+	        directory: false,
+	        multiple: true,
+	        title: "프로젝트 파일 업로드",
+	      });
+	      const paths = normalizeDialogPaths(selectedPaths);
 
-      if (paths.length === 0) {
-        return;
-      }
+	      if (paths.length === 0) {
+	        return;
+	      }
 
-      const uploadedAt = Date.now();
-      const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
+		      const uploadedAt = Date.now();
+		      const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
 
-      updateProject(projectId, (project) => ({
-        ...project,
-        files: [...nextEntries, ...(project.files ?? [])],
-      }));
-      setSelectedProjectId(projectId);
-      setProjectSourcesMode("library");
-      void uploadProjectDocuments(projectId, targetProject, nextEntries);
-    } catch {
-      setDemoStatus({
-        ok: false,
-        message: "프로젝트 파일을 업로드할 수 없습니다",
-        scope: "overview",
-      });
-    }
-  }
+	      updateProject(projectId, (project) => ({
+	        ...project,
+	        files: [...nextEntries, ...(project.files ?? [])],
+	      }));
+	      setSelectedProjectId(projectId);
+	      setProjectSourcesMode("library");
+	    } catch {
+	      setDemoStatus({
+	        ok: false,
+	        message: "프로젝트 파일을 업로드할 수 없습니다",
+	        scope: "overview",
+	      });
+	    }
+	  }
 
-  // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
-  async function handleOpenProjectDirectory(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
+	  // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
+	  async function handleOpenProjectDirectory(projectId: string) {
+	    const targetProject = projects.find((project) => project.id === projectId);
 
-    if (!targetProject) {
-      return;
-    }
+	    if (!targetProject) {
+	      return;
+	    }
 
-    if (!canUseTauriDialog()) {
-      setDemoStatus({
-        ok: false,
-        message: "데스크톱 앱에서 폴더를 업로드할 수 있습니다",
-        scope: "overview",
-      });
-      return;
-    }
+	    if (!canUseTauriDialog()) {
+	      setDemoStatus({
+	        ok: false,
+	        message: "데스크톱 앱에서 폴더를 업로드할 수 있습니다",
+	        scope: "overview",
+	      });
+	      return;
+	    }
 
-    try {
-      const selectedPaths = await open({
-        directory: true,
-        multiple: true,
-        title: "프로젝트 폴더 업로드",
-      });
-      const paths = normalizeDialogPaths(selectedPaths);
+	    try {
+	      const selectedPaths = await open({
+	        directory: true,
+	        multiple: true,
+	        title: "프로젝트 폴더 업로드",
+	      });
+	      const paths = normalizeDialogPaths(selectedPaths);
 
-      if (paths.length === 0) {
-        return;
-      }
+	      if (paths.length === 0) {
+	        return;
+	      }
 
-      const uploadedAt = Date.now();
-      const nextEntries = await Promise.all(
-        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
-      );
+		      const uploadedAt = Date.now();
+		      const nextEntries = await Promise.all(
+		        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
+		      );
 
-      updateProject(projectId, (project) => ({
-        ...project,
-        files: [...nextEntries, ...(project.files ?? [])],
-      }));
-      setSelectedProjectId(projectId);
-      setProjectSourcesMode("library");
-      void uploadProjectDocuments(projectId, targetProject, nextEntries);
-    } catch {
-      setDemoStatus({
-        ok: false,
-        message: "프로젝트 폴더를 업로드할 수 없습니다",
-        scope: "overview",
-      });
-    }
-  }
+	      updateProject(projectId, (project) => ({
+	        ...project,
+	        files: [...nextEntries, ...(project.files ?? [])],
+	      }));
+	      setSelectedProjectId(projectId);
+	      setProjectSourcesMode("library");
+	    } catch {
+	      setDemoStatus({
+	        ok: false,
+	        message: "프로젝트 폴더를 업로드할 수 없습니다",
+	        scope: "overview",
+	      });
+	    }
+	  }
 
   async function handleToggleProjectFileEntry(projectId: string, entry: Attachment) {
     if (entry.kind !== "directory") {
@@ -2889,15 +1592,6 @@ export function App() {
 
     setProjectFilePreviewForTab(targetTabId, nextPreview);
 
-    if (entry.serverOnly) {
-      setProjectFilePreviewForTab(targetTabId, {
-        ...nextPreview,
-        isLoading: false,
-        error: "서버 문서는 로컬 경로가 없어 미리볼 수 없습니다",
-      });
-      return;
-    }
-
     try {
       const content = await invoke<string>("read_text_file", { path: entry.path });
 
@@ -2920,84 +1614,40 @@ export function App() {
   }
 
   // 파일 패널에서 선택한 항목을 트리에서 제거한다.
-  async function handleDeleteProjectFile(projectId: string, attachment: Attachment) {
-    const targetProject = projects.find((project) => project.id === projectId);
-    const linkedDocIds = Array.from(getAttachmentDocIds([attachment]));
+	  function handleDeleteProjectFile(projectId: string, attachmentId: string) {
+	    setProjectPanelTabs((currentTabs) =>
+	      currentTabs.map((tab) => {
+	        if (tab.view !== "files") {
+	          return tab;
+	        }
 
-    if (!targetProject) {
-      return;
-    }
+	        const isSelectedSource = tab.selectedProjectSourceId === attachmentId;
 
-    if (linkedDocIds.length > 0) {
-      if (shouldSkipServerAction("overview")) {
-        return;
-      }
-
-      if (targetProject.serverMissing || typeof targetProject.apiProjectId !== "number") {
-        setDemoStatus({
-          ok: false,
-          message: "서버 문서 삭제에 필요한 프로젝트 정보를 찾을 수 없습니다",
-          scope: "overview",
-        });
-        return;
-      }
-
-      for (const docId of linkedDocIds) {
-        try {
-          await fetchPaimJson<void>(
-            `/projects/${targetProject.apiProjectId}/documents/${docId}`,
-            { method: "DELETE" },
-          );
-        } catch (error) {
-          const message = getErrorMessage(error, "서버 문서를 삭제할 수 없습니다");
-
-          if (!/document not found/i.test(message)) {
-            setDemoStatus({
-              ok: false,
-              message,
-              scope: "overview",
-            });
-            return;
-          }
-        }
-
-        clearDocumentPoll(projectId, docId);
-      }
-    }
-
-    setProjectPanelTabs((currentTabs) =>
-      currentTabs.map((tab) => {
-        if (tab.view !== "files") {
-          return tab;
-        }
-
-        const isSelectedSource = tab.selectedProjectSourceId === attachment.id;
-
-        return {
-          ...tab,
-          filePreview: tab.filePreview?.id === attachment.id ? null : tab.filePreview,
-          pendingDeleteProjectFileId: null,
-          projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
-          selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
-        };
-      }),
-    );
+	        return {
+	          ...tab,
+	          filePreview: tab.filePreview?.id === attachmentId ? null : tab.filePreview,
+	          pendingDeleteProjectFileId: null,
+	          projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
+	          selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
+	        };
+	      }),
+	    );
 
     updateProject(projectId, (project) => ({
       ...project,
-      files: deleteProjectFileEntry(project.files ?? [], attachment.id),
+      files: deleteProjectFileEntry(project.files ?? [], attachmentId),
     }));
   }
 
-  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
-  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
-    if (pendingDeleteProjectFileId !== attachment.id) {
-      setPendingDeleteProjectFileId(attachment.id);
-      return;
-    }
+	  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
+	  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
+	    if (pendingDeleteProjectFileId !== attachment.id) {
+	      setPendingDeleteProjectFileId(attachment.id);
+	      return;
+	    }
 
-    void handleDeleteProjectFile(projectId, attachment);
-  }
+	    handleDeleteProjectFile(projectId, attachment.id);
+	  }
 
 	  // 자료 카드 선택은 해당 자료 하나만 트리 루트로 보여주고, 파일이면 바로 미리보기를 연다.
 	  function handleOpenProjectSource(source: Attachment) {
@@ -3080,10 +1730,6 @@ export function App() {
       return;
     }
 
-    if (shouldSkipServerAction("github")) {
-      return;
-    }
-
     setSelectedProjectId(projectId);
     setGithubRepositoryQuery("");
     setIsGithubAuthStarting(true);
@@ -3132,10 +1778,6 @@ export function App() {
     const session = githubLoginSessions[projectId];
 
     if (!session || isGithubAuthChecking) {
-      return;
-    }
-
-    if (session.state && shouldSkipServerAction("github")) {
       return;
     }
 
@@ -3227,11 +1869,6 @@ export function App() {
         scope: "github",
       });
     } catch (error) {
-      if (isGithubSessionExpiredError(error)) {
-        handleGithubSessionExpired(projectId);
-        return;
-      }
-
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub 로그인 상태를 확인할 수 없습니다"),
@@ -3286,10 +1923,6 @@ export function App() {
       return;
     }
 
-    if (session.state && shouldSkipServerAction("github")) {
-      return;
-    }
-
     setIsGithubRepoLoading(true);
 
     try {
@@ -3334,11 +1967,6 @@ export function App() {
         scope: "github",
       });
     } catch (error) {
-      if (isGithubSessionExpiredError(error)) {
-        handleGithubSessionExpired(projectId);
-        return;
-      }
-
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 목록을 불러올 수 없습니다"),
@@ -3354,10 +1982,6 @@ export function App() {
     const session = githubLoginSessions[projectId] ?? null;
 
     if (!trimmedRepositoryUrl || isGithubConnecting) {
-      return;
-    }
-
-    if (session?.state && shouldSkipServerAction("github")) {
       return;
     }
 
@@ -3380,7 +2004,6 @@ export function App() {
         githubEvents: events,
         githubRepository: repository,
       }));
-      setPendingGithubDisconnectProjectId(null);
       setDemoStatus({
         ok: true,
         message: `${repository.remoteRepo ?? repository.name} repo 연결됨`,
@@ -3388,11 +2011,6 @@ export function App() {
       });
       setGithubRepositoryQuery("");
     } catch (error) {
-      if (isGithubSessionExpiredError(error)) {
-        handleGithubSessionExpired(projectId);
-        return;
-      }
-
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo를 연결할 수 없습니다"),
@@ -3405,13 +2023,8 @@ export function App() {
 
   async function handleSyncGithubRepository(projectId: string) {
     const project = projects.find((currentProject) => currentProject.id === projectId);
-    const session = githubLoginSessions[projectId] ?? null;
 
     if (!project?.githubRepository || isGithubSyncing) {
-      return;
-    }
-
-    if (shouldSkipServerAction("github")) {
       return;
     }
 
@@ -3423,76 +2036,24 @@ export function App() {
     });
 
     try {
-      if (project.serverMissing) {
-        throw new Error("서버에서 찾을 수 없는 프로젝트에는 GitHub repo를 동기화할 수 없습니다");
-      }
-
-      const apiProject = await ensureApiProject(project);
-
-      if (typeof apiProject.apiProjectId !== "number") {
-        throw new Error("서버 프로젝트를 준비할 수 없습니다");
-      }
-
-      let repoId = project.githubRepository.repoId;
-
-      if (typeof repoId !== "number") {
-        const repositoryUrl = getGithubRepositoryUrl(project.githubRepository);
-
-        if (!repositoryUrl) {
-          throw new Error("GitHub repository URL을 확인할 수 없습니다");
-        }
-
-        const connected = await fetchPaimJson<ApiRepositoryConnectResponse>(
-          `/projects/${apiProject.apiProjectId}/repositories`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              provider: "github",
-              repository_url: repositoryUrl,
-              branch: project.githubRepository.branch,
-              ...(session?.state ? { state: session.state } : {}),
-            }),
-          },
-        );
-        repoId = connected.repo_id;
-
-        updateGithubRepository(projectId, (repository) => ({
-          ...repository,
-          repoId: connected.repo_id,
-          branch: connected.branch ?? repository.branch,
-          syncStatus: connected.status,
-          lastError: null,
-          syncWarnings: undefined,
-        }));
-
-        if (connected.status === "syncing") {
-          scheduleGithubRepositoryStatusPoll(projectId, apiProject.apiProjectId, connected.repo_id);
-        } else {
-          await startGithubRepositorySync(
-            projectId,
-            apiProject.apiProjectId,
-            connected.repo_id,
-            session?.state,
-          );
-        }
-      } else {
-        await startGithubRepositorySync(projectId, apiProject.apiProjectId, repoId, session?.state);
-      }
-
+      await fetchPaimJson("/github/sync", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: project.id,
+          projectName: project.name,
+          repository: project.githubRepository,
+          events: project.githubEvents ?? [],
+        }),
+      });
       setDemoStatus({
         ok: true,
-        message: "GitHub repo 서버 동기화를 시작했습니다",
+        message: "GitHub repo 서버 동기화 완료",
         scope: "github",
       });
     } catch (error) {
-      if (isGithubSessionExpiredError(error)) {
-        handleGithubSessionExpired(projectId);
-        return;
-      }
-
       setDemoStatus({
         ok: false,
-        message: getErrorMessage(error, "GitHub repo 서버 동기화를 시작할 수 없습니다"),
+        message: getErrorMessage(error, "GitHub sync API에 연결할 수 없습니다"),
         scope: "github",
       });
     } finally {
@@ -3500,71 +2061,13 @@ export function App() {
     }
   }
 
-  async function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
-    const project = projects.find((currentProject) => currentProject.id === projectId);
-    const repoId = project?.githubRepository?.repoId;
-
-    if (!project?.githubRepository) {
-      return;
-    }
-
-    if (typeof repoId === "number" && pendingGithubDisconnectProjectId !== projectId) {
-      setPendingGithubDisconnectProjectId(projectId);
-      setDemoStatus({
-        ok: false,
-        message: "한 번 더 누르면 서버 메모리와 GitHub 연결을 해제합니다",
-        scope: "github",
-      });
-      return;
-    }
-
-    if (typeof repoId === "number") {
-      if (shouldSkipServerAction("github")) {
-        return;
-      }
-
-      if (typeof project.apiProjectId !== "number") {
-        setDemoStatus({
-          ok: false,
-          message: "서버 GitHub 연결 해제에 필요한 프로젝트 정보를 찾을 수 없습니다",
-          scope: "github",
-        });
-        return;
-      }
-
-      try {
-        await fetchPaimJson<void>(
-          `/projects/${project.apiProjectId}/repositories/${repoId}`,
-          { method: "DELETE" },
-        );
-      } catch (error) {
-        if (isGithubSessionExpiredError(error)) {
-          handleGithubSessionExpired(projectId);
-          return;
-        }
-
-        const detail = getErrorMessage(error, "GitHub repo 연결을 해제할 수 없습니다");
-
-        if (!/repository not found/i.test(detail)) {
-          setDemoStatus({
-            ok: false,
-            message: detail,
-            scope: "github",
-          });
-          return;
-        }
-      }
-
-      clearGithubRepositoryPoll(projectId, repoId);
-    }
-
+  function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
     updateProject(projectId, (project) => ({
       ...project,
       githubConnected: false,
       githubEvents: undefined,
       githubRepository: undefined,
     }));
-    setPendingGithubDisconnectProjectId(null);
     setDemoStatus({
       ok: true,
       message,
@@ -3649,7 +2152,6 @@ export function App() {
         ...session,
         title: nextValue,
       }));
-      void syncChatSessionTitle(renameDraft.projectId, renameDraft.sessionId, nextValue);
     }
 
     setRenameDraft(null);
@@ -3667,8 +2169,8 @@ export function App() {
     }
   }
 
-  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
-  async function handleDeleteSession(
+	  // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
+	  function handleDeleteSession(
     projectId: string,
     sessionId: string,
     event: MouseEvent<HTMLButtonElement>,
@@ -3681,14 +2183,8 @@ export function App() {
       return;
     }
 
-    const targetSession = targetProject.sessions.find((session) => session.id === sessionId);
-
-    if (!targetSession || !(await deleteServerChatSession(targetProject, targetSession))) {
-      return;
-    }
-
-    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
-    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
+	    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
+	    const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
     const shouldMoveSelection =
       selectedProjectId === projectId &&
       (sessionId === selectedSessionId ||
@@ -3749,7 +2245,6 @@ export function App() {
     setIsSending(true);
     clearDraft();
 
-    // TODO: 서버 query 기반 브리핑으로 전환 검토
     await wait(DEMO_REPLY_DELAY_MS * 2);
 
     updateSessionInProject(project.id, nextSession.id, (session) => ({
@@ -3949,108 +2444,43 @@ export function App() {
       return;
     }
 
-    if (selectedProject.serverMissing) {
-      setDemoStatus({
-        ok: false,
-        message: "서버에서 찾을 수 없는 프로젝트에는 질문을 보낼 수 없습니다",
-        scope: "overview",
-      });
-      return;
-    }
-
-    if (shouldSkipServerAction("overview")) {
-      return;
-    }
-
     const targetProjectId = selectedProject.id;
     const targetSessionId = selectedSession.id;
     const messageAttachments = attachments;
-    const question = trimmedPrompt || "첨부 파일을 확인해줘";
-    const nextSessionTitle =
-      selectedSession.title === "New Chat"
-        ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
-        : selectedSession.title;
-    const history = createQueryHistory(selectedSession.messages);
     const userMessage: Message = {
       id: createId("user"),
       role: "user",
-      content: question,
+      content: trimmedPrompt || "첨부 파일을 확인해줘",
       attachments: messageAttachments,
     };
 
-    setIsSending(true);
-
-    let apiProjectId: number;
-    let serverSessionId: string;
-
-    try {
-      const apiProject = await ensureApiProject(selectedProject);
-
-      if (typeof apiProject.apiProjectId !== "number") {
-        throw new Error("서버 프로젝트를 준비할 수 없습니다");
-      }
-
-      apiProjectId = apiProject.apiProjectId;
-      serverSessionId = await ensureServerChatSession(
-        targetProjectId,
-        selectedSession,
-        apiProjectId,
-        nextSessionTitle,
-      );
-    } catch (error) {
-      setIsSending(false);
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "서버 채팅 세션을 준비할 수 없습니다"),
-        scope: "overview",
-      });
-      return;
-    }
-
-    if (selectedSession.serverSessionId && nextSessionTitle !== selectedSession.title) {
-      void syncChatSessionTitle(targetProjectId, targetSessionId, nextSessionTitle);
-    }
-
     updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
       ...session,
-      serverSessionId,
-      title: nextSessionTitle,
+      title:
+        session.title === "New Chat"
+          ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
+          : session.title,
       messages: [...session.messages, userMessage],
     }));
     setPrompt("");
     setAttachments([]);
+    setIsSending(true);
 
-    try {
-      const response = await fetchProjectQuery(apiProjectId, question, history);
+    await wait(DEMO_REPLY_DELAY_MS);
 
-      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-        ...session,
-        messages: [
-          ...session.messages,
-          {
-            id: createId("assistant"),
-            role: "assistant",
-            content: response.answer,
-            sources: response.sources?.filter(Boolean),
-          },
-        ],
-      }));
-    } catch (error) {
-      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-        ...session,
-        messages: [
-          ...session.messages,
-          {
-            id: createId("error"),
-            role: "error",
-            content: getQueryErrorMessage(error),
-          },
-        ],
-      }));
-    } finally {
-      setIsSending(false);
-      focusPrompt();
-    }
+    updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+      ...session,
+      messages: [
+        ...session.messages,
+        {
+          id: createId("assistant"),
+          role: "assistant",
+          content: createDemoAssistantReply(userMessage),
+        },
+      ],
+    }));
+    setIsSending(false);
+    focusPrompt();
   }
 
   // 채팅 앱의 기본 키보드 동작으로 Enter 전송, Shift+Enter 줄바꿈을 처리한다.
@@ -4079,14 +2509,6 @@ export function App() {
       style={appShellStyle}
     >
       {isWindows ? <WindowsTitlebar /> : null}
-      {serverStatus === "offline" ? (
-        <div className="server-offline-banner" role="status">
-          <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
-          <button onClick={() => void syncProjectsWithServer(true)} type="button">
-            다시 연결
-          </button>
-        </div>
-      ) : null}
       <aside className="sidebar">
         <div className="sidebar-header">
           <button
@@ -4324,7 +2746,7 @@ export function App() {
                   className="danger"
                   data-action="delete-session"
                   onClick={(event) =>
-                    void handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
+                    handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
                   }
                   role="menuitem"
                   type="button"
@@ -4367,11 +2789,6 @@ export function App() {
                         ))}
                         {message.attachments && message.attachments.length > 0 ? (
                           <AttachmentList attachments={message.attachments} label="첨부 파일" />
-                        ) : null}
-                        {message.sources && message.sources.length > 0 ? (
-                          <p className="message-sources">
-                            출처: {message.sources.join(", ")}
-                          </p>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
@@ -4491,18 +2908,13 @@ export function App() {
                 rows={2}
                 value={selectedProject.description ?? ""}
               />
-              {selectedProject.serverMissing ? (
-                <p className="runtime-status project-home-status" data-ok="false" role="status">
-                  서버에서 찾을 수 없어 로컬 캐시를 표시 중
-                </p>
-              ) : null}
 	              <div className="project-home-divider" />
 
               <div className="project-home-section-title">시작하기</div>
               <div className="project-home-upload-list">
-                <div className="project-home-upload-card" data-ready={selectedProjectFileCardReady}>
+                <div className="project-home-upload-card" data-ready={selectedProjectRootFileCount > 0}>
                   <span className="project-home-upload-state">
-                    {selectedProjectFileCardLabel}
+                    {selectedProjectRootFileCount > 0 ? "완료" : "파일"}
                   </span>
                   <Files size={18} />
                   <span className="project-home-upload-copy">
@@ -4526,9 +2938,9 @@ export function App() {
                     ) : null}
                   </span>
                 </div>
-                <div className="project-home-upload-card" data-ready={selectedProjectFolderCardReady}>
+                <div className="project-home-upload-card" data-ready={selectedProjectFolderCount > 0}>
                   <span className="project-home-upload-state">
-                    {selectedProjectFolderCardLabel}
+                    {selectedProjectFolderCount > 0 ? "완료" : "폴더"}
                   </span>
                   <FolderOpen size={18} />
                   <span className="project-home-upload-copy">
@@ -4597,15 +3009,10 @@ export function App() {
               <p className="project-home-note">
                 분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
               </p>
-              {selectedProjectHasDocumentInProgress ? (
-                <p className="project-home-action-hint" role="status">
-                  자료 처리 중 — 완료 후 분석할 수 있습니다
-                </p>
-              ) : null}
               <div className="project-home-actions">
                 <button
                   className="project-home-primary"
-                  disabled={isProjectBriefingDisabled}
+                  disabled={!hasProjectHomeContext || isSending}
                   onClick={() =>
                     void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
                   }
@@ -4871,16 +3278,15 @@ export function App() {
               filteredRepositories={filteredSelectedProjectGithubRepositories}
               githubConnected={selectedProject.githubConnected}
               isAuthChecking={isGithubAuthChecking}
-	              isAuthStarting={isGithubAuthStarting}
-	              isConnecting={isGithubConnecting}
-	              isDisconnectConfirming={pendingGithubDisconnectProjectId === selectedProject.id}
-	              isRepoLoading={isGithubRepoLoading}
-	              isSyncing={isGithubSyncing}
+              isAuthStarting={isGithubAuthStarting}
+              isConnecting={isGithubConnecting}
+              isRepoLoading={isGithubRepoLoading}
+              isSyncing={isGithubSyncing}
               onCheckLogin={() => void handleCheckGithubLogin(selectedProject.id)}
               onConnectRepository={(repositoryUrl) =>
                 void connectGithubRepository(selectedProject.id, repositoryUrl)
               }
-	              onDisconnect={(message) => void handleDisconnectGithub(selectedProject.id, message)}
+              onDisconnect={(message) => handleDisconnectGithub(selectedProject.id, message)}
               onLoadRepositories={() => void handleLoadGithubRepositories(selectedProject.id)}
               onOpenVerification={() => void handleOpenGithubVerification(selectedProject.id)}
               onQueryChange={setGithubRepositoryQuery}

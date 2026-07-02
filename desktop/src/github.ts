@@ -9,15 +9,8 @@ import type {
   GitHubTimelineEvent,
   GitRepositoryInfo,
 } from "./types";
-import { fetchPaimRootJson } from "./paimApi";
-export {
-  fetchPaimFormData,
-  fetchPaimJson,
-  fetchPaimRootJson,
-  getErrorMessage,
-  isPaimApiError,
-  PaimApiError,
-} from "./paimApi";
+import { fetchPaimJson } from "./paimApi";
+export { fetchPaimJson, getErrorMessage } from "./paimApi";
 
 type GitHubRepoApiResponse = {
   default_branch: string;
@@ -403,25 +396,25 @@ export async function fetchGithubUserProfile(accessToken: string): Promise<Githu
 }
 
 export async function createGithubAppSession() {
-  return fetchPaimRootJson<GithubAppSessionApiResponse>("/github/app/sessions", {
+  return fetchPaimJson<GithubAppSessionApiResponse>("/github/app/sessions", {
     method: "POST",
   });
 }
 
 export async function fetchGithubAppSession(state: string) {
-  return fetchPaimRootJson<GithubAppSessionApiResponse>(
+  return fetchPaimJson<GithubAppSessionApiResponse>(
     `/github/app/sessions/${encodeURIComponent(state)}`,
   );
 }
 
 export async function fetchGithubAppRepositories(state: string) {
-  return fetchPaimRootJson<GithubRepositoriesApiResponse>(
+  return fetchPaimJson<GithubRepositoriesApiResponse>(
     `/github/app/sessions/${encodeURIComponent(state)}/repositories`,
   );
 }
 
 export async function fetchGithubAppRepositoryPreview(repositoryUrl: string, state: string) {
-  return fetchPaimRootJson<GithubRepositoryPreviewApiResponse>("/github/app/repository-preview", {
+  return fetchPaimJson<GithubRepositoryPreviewApiResponse>("/github/app/repository-preview", {
     method: "POST",
     body: JSON.stringify({ repository_url: repositoryUrl, state }),
   });

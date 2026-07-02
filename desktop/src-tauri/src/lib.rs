@@ -93,20 +93,6 @@ fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&file).map_err(|_| "텍스트 파일만 미리볼 수 있습니다".to_string())
 }
 
-// 선택한 문서를 multipart 업로드할 수 있도록 base64 문자열로 읽는다.
-#[tauri::command]
-fn read_file_base64(path: String) -> Result<String, String> {
-    let file = PathBuf::from(path);
-
-    if !file.is_file() {
-        return Err("파일 경로가 아닙니다".to_string());
-    }
-
-    let bytes = std::fs::read(&file).map_err(|_| "파일을 읽을 수 없습니다".to_string())?;
-
-    Ok(general_purpose::STANDARD.encode(bytes))
-}
-
 // 로컬 이미지 파일을 프론트 미리보기용 data URL로 변환한다.
 #[tauri::command]
 fn create_attachment_preview(path: String) -> Result<Option<String>, String> {
@@ -207,7 +193,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_directory_children,
             read_text_file,
-            read_file_base64,
             create_attachment_preview,
             github_oauth_device_code,
             github_oauth_access_token
@@ -308,17 +293,5 @@ mod tests {
         fs::remove_file(path).expect("test file should be removable");
 
         assert_eq!(content, "line 1\nline 2");
-    }
-
-    #[test]
-    fn read_file_base64_returns_file_bytes() {
-        let path = temp_path("upload.md");
-
-        fs::write(&path, "# upload").expect("test file should be writable");
-        let encoded = read_file_base64(path.to_string_lossy().into_owned())
-            .expect("file bytes should be readable");
-        fs::remove_file(path).expect("test file should be removable");
-
-        assert_eq!(encoded, "IyB1cGxvYWQ=");
     }
 }

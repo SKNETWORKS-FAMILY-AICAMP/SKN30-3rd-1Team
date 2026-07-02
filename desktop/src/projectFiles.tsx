@@ -31,7 +31,6 @@ import type {
   Attachment,
   DemoStatus,
   DirectoryChildEntry,
-  ProjectDocumentStatus,
   ProjectFilePreview,
   ProjectSourcesMode,
 } from "./types";
@@ -121,71 +120,6 @@ function getProjectSourceTimeLabel(source: Attachment) {
 
   const date = new Date(source.uploadedAt);
   return `${date.getFullYear()}.${padTimePart(date.getMonth() + 1)}.${padTimePart(date.getDate())}`;
-}
-
-function getProjectDocumentStatusPriority(status?: ProjectDocumentStatus) {
-  const priorities: Record<ProjectDocumentStatus, number> = {
-    failed: 5,
-    delayed: 4,
-    uploading: 3,
-    processing: 2,
-    uploaded: 2,
-    indexed: 1,
-  };
-
-  return status ? priorities[status] : 0;
-}
-
-function findProjectDocumentStatusSource(source: Attachment): Attachment | null {
-  let currentSource = source.documentStatus ? source : null;
-
-  for (const child of source.children ?? []) {
-    const childSource = findProjectDocumentStatusSource(child);
-
-    if (
-      childSource &&
-      getProjectDocumentStatusPriority(childSource.documentStatus) >
-        getProjectDocumentStatusPriority(currentSource?.documentStatus)
-    ) {
-      currentSource = childSource;
-    }
-  }
-
-  return currentSource;
-}
-
-function getProjectDocumentStatusMeta(source: Attachment) {
-  const statusSource = findProjectDocumentStatusSource(source);
-
-  if (!statusSource?.documentStatus) {
-    return null;
-  }
-
-  if (statusSource.documentStatus === "uploading") {
-    return { label: "업로드중", tone: "pending", title: "서버로 업로드 중" };
-  }
-
-  if (statusSource.documentStatus === "uploaded" || statusSource.documentStatus === "processing") {
-    return { label: "처리중", tone: "pending", title: "서버에서 문서를 처리 중" };
-  }
-
-  if (statusSource.documentStatus === "indexed") {
-    return { label: "완료", tone: "success", title: "서버 인덱싱 완료" };
-  }
-
-  if (statusSource.documentStatus === "delayed") {
-    return {
-      label: "처리 지연",
-      tone: "muted",
-      title: statusSource.lastError ?? "처리 지연 — 나중에 다시 확인",
-    };
-  }
-
-  return {
-    label: "실패",
-    tone: "danger",
-    title: statusSource.lastError ?? "문서 처리 실패",
-  };
 }
 
 export function sortProjectSourcesByUploadedAt(sources: Attachment[]) {
@@ -534,7 +468,6 @@ export function ProjectFilesPanel({
                             ? { Icon: FolderOpen, color: "var(--muted)" }
                             : getProjectFileVisualMeta(source.name);
                         const SourceIcon = sourceMeta.Icon;
-                        const documentStatusMeta = getProjectDocumentStatusMeta(source);
 
                         return (
                           <article
@@ -558,15 +491,6 @@ export function ProjectFilesPanel({
                               <span>
                                 {source.kind === "directory" ? `폴더 · ${sourceCount}개 항목` : "파일"}
                               </span>
-                              {documentStatusMeta ? (
-                                <small
-                                  className="project-document-status"
-                                  data-status={documentStatusMeta.tone}
-                                  title={documentStatusMeta.title}
-                                >
-                                  {documentStatusMeta.label}
-                                </small>
-                              ) : null}
                             </div>
                             <div className="project-source-actions">
                               <details className="project-source-menu" onClick={(event) => event.stopPropagation()}>

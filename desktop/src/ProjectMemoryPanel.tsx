@@ -24,7 +24,7 @@ type ProjectMemoryPanelProps = {
 };
 
 const SUMMARY_ITEM_LIMIT = 5;
-const MEMORY_CATEGORIES: ProjectMemoryCategory[] = ["action", "decision", "issue", "risk"];
+const MEMORY_CATEGORIES: ProjectMemoryCategory[] = ["decision", "action", "issue", "risk"];
 const MEMORY_CATEGORY_META: Record<
   ProjectMemoryCategory,
   {
@@ -86,12 +86,10 @@ function MemoryItemRows({
   category,
   items,
   limit,
-  variant = "manage",
 }: {
   category: ProjectMemoryCategory;
   items: ProjectMemoryItem[];
   limit?: number;
-  variant?: "manage" | "summary";
 }) {
   const visibleItems = typeof limit === "number" ? items.slice(0, limit) : items;
   const hiddenCount = Math.max(items.length - visibleItems.length, 0);
@@ -104,22 +102,6 @@ function MemoryItemRows({
     <>
       {visibleItems.map((item, index) => {
         const meta = getMemoryItemMeta(item);
-
-        if (variant === "summary") {
-          return (
-            <p className="project-memory-summary-item" key={getMemoryItemKey(item, index)}>
-              <span className="project-memory-bullet">·</span>
-              <span className="project-memory-content" title={item.content}>
-                {item.content}
-              </span>
-              {meta ? (
-                <small className="project-memory-meta" title={meta}>
-                  {meta}
-                </small>
-              ) : null}
-            </p>
-          );
-        }
 
         return (
           <p key={getMemoryItemKey(item, index)}>
@@ -267,8 +249,8 @@ export function ProjectMemoryPanel({ isMaximized, project }: ProjectMemoryPanelP
                 return (
                   <div className="project-memory-summary-action" key={getMemoryItemKey(item, index)}>
                     <FileText size={16} />
-                    <span title={item.content}>{item.content}</span>
-                    {meta ? <em title={meta}>{meta}</em> : null}
+                    <span>{item.content}</span>
+                    {meta ? <em>{meta}</em> : null}
                   </div>
                 );
               })}
@@ -302,7 +284,6 @@ export function ProjectMemoryPanel({ isMaximized, project }: ProjectMemoryPanelP
                     category={category}
                     items={groupedItems[category]}
                     limit={2}
-                    variant="summary"
                   />
                 </article>
               );
