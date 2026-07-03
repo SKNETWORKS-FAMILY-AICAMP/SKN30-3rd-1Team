@@ -1,195 +1,187 @@
-# 🧠 PaiM — Project AI Manager
+# PaiM — Project AI Manager
 
-> 회의록과 기획 문서에서 **결정 · 액션 · 이슈 · 리스크**를 자동으로 추출해 관리하는 LLM 기반 AI 프로젝트 매니저
+**Download:** https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases
 
----
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-LangGraph-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-LLM-412991?style=flat-square&logo=openai&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Search-FF6B6B?style=flat-square)
+![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=flat-square&logo=tauri&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-Desktop%20App-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%20Release-2088FF?style=flat-square&logo=githubactions&logoColor=white)
 
-## 주요 기능
+회의록과 git 저장소를 하나의 **살아있는 프로젝트 기억**으로 통합하는 LLM 기반 AI 프로젝트 매니저입니다.
 
-| 기능 | 설명 |
-|------|------|
-| **문서 업로드** | `.md` / `.txt` / `.pdf` 멀티파일 업로드. 날짜 자동 추출 |
-| **구조화 추출** | LLM이 결정·액션·이슈·리스크 4종을 JSON으로 구조화 |
-| **메모리 대시보드** | 카테고리별 카드 뷰, 탭 필터 |
-| **Q&A 채팅** | 자연어로 프로젝트 기록 조회. 멀티턴 히스토리 유지 |
-| **타임라인** | 날짜별 그룹화 시각적 타임라인 |
+단순히 문서를 요약해주는 것보다, **회의록에서 나온 할 일이 PR 머지로 자동 정리되는 순환** — 즉 계획(문서)과 실행(git)이 분리되지 않는 관리 경험에 초점을 맞췄습니다.
 
----
+![PaiM 채팅과 GitHub 타임라인](desktop/assets/readme/chatting.png)
 
-## 시스템 흐름
+## Quick Summary
 
-```
-문서 업로드 → 3000자 청크 분할 → LLM 구조화 추출 → 중복 제거
-                                                        ├→ MySQL (카테고리 검색)
-                                                        └→ ChromaDB (벡터 검색)
+- 회의록(.md/.txt/.pdf) 업로드 → LLM이 **결정·액션·이슈·리스크**로 구조화 추출
+- GitHub repo 연결 → 머지된 PR이 열린 액션을 해결하면 **완료 제안** (승인은 항상 사람)
+- 질문 의도별 3경로 Q&A — 조회형은 **DB 직조회로 정답 보장**, 탐색형은 하이브리드 RAG
+- 앱을 열면 "지난 확인 이후" 변화를 **델타 브리핑**으로
+- macOS·Windows 데스크탑 앱, 태그 push 시 CI 자동 릴리즈
 
-Q&A 질문 → 키워드 분류 → MySQL / ChromaDB / Both → LLM 답변 생성
-```
-
----
-
-## 기술 스택
-
-- **프론트엔드**: Streamlit (MVP)
-- **백엔드**: FastAPI (추후 React 연동용)
-- **구조화 DB**: MySQL 8.0 (Docker)
-- **벡터 DB**: ChromaDB
-- **LLM**: OpenAI · Claude · Google (`.env`에서 전환)
-- **패키지 관리**: `uv` + `hatchling`
-
----
-
-## 빠른 시작
-
-### 1. 환경변수 설정
-
-```bash
-cp .env.example .env
-# .env에서 API 키와 DB 비밀번호 입력
+```text
+문서 업로드 ─┐
+             ├→ LLM 구조화 추출 → 프로젝트 메모리 (MySQL + ChromaDB + 응축 요약)
+repo 연결  ─┘
+repo sync → 머지 PR × 열린 액션 대조(Reconciler) → 완료 제안 → 사용자 승인
+질문 → 의도 라우터 → 조회(SQL 직조회) / 조망(요약) / 탐색(멀티쿼리 RAG) → 출처 있는 답변
 ```
 
-```env
-LLM_PROVIDER=openai          # openai | claude | google | local
+## Architecture
 
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4.1-mini
+![PaiM LangGraph 아키텍처](desktop/assets/readme/PaiM_LangGraph.png)
 
-ANTHROPIC_API_KEY=...
-CLAUDE_MODEL=claude-sonnet-4-6
+질문은 Router가 조회형(SQL) · 조망형(project_memory) · 탐색형(RAG)으로 분기하고, repo가 indexed 되면 Reconciler가 완료 제안만 생성합니다.
 
-GOOGLE_API_KEY=...
-GOOGLE_MODEL=gemini-1.5-pro
+## Team
 
-# local provider (Ollama / vLLM / LM Studio 등 OpenAI 호환 서버)
-# LOCAL_LLM_URL=http://localhost:11434/v1
-# LOCAL_LLM_MODEL=llama3
+<table>
+  <tr>
+    <td align="center" width="180"><a href="https://github.com/hellohaeyeon"><img src="https://github.com/hellohaeyeon.png" width="100" height="100" alt="서해연"/><br/><b>서해연</b></a><br/><sub>팀장 (PM)</sub><br/><sub>서버 담당</sub></td>
+    <td align="center" width="180"><a href="https://github.com/j3s30p"><img src="https://github.com/j3s30p.png" width="100" height="100" alt="박제섭"/><br/><b>박제섭</b></a><br/><sub>팀원</sub><br/><sub>PaiM 데스크탑 앱 개발<br/>릴리즈</sub></td>
+    <td align="center" width="180"><a href="https://github.com/star9906"><img src="https://github.com/star9906.png" width="100" height="100" alt="김동휘"/><br/><b>김동휘</b></a><br/><sub>팀원</sub><br/><sub>백엔드 담당<br/>LLM 위주 + DB</sub></td>
+    <td align="center" width="180"><a href="https://github.com/attatae01-svg"><img src="https://github.com/attatae01-svg.png" width="100" height="100" alt="이동욱"/><br/><b>이동욱</b></a><br/><sub>팀원</sub><br/><sub>백엔드 담당<br/>DB 위주 + LLM</sub></td>
+    <td align="center" width="180"><a href="https://github.com/robinlee3803-ai"><img src="https://github.com/robinlee3803-ai.png" width="100" height="100" alt="이승민"/><br/><b>이승민</b></a><br/><sub>팀원</sub><br/><sub>RAG 성능 검증<br/>데이터 수집</sub></td>
+  </tr>
+</table>
 
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=...
-DB_NAME=paiM
+## Project Goal
 
-CHROMA_PERSIST_DIR=.chroma
-```
+이 프로젝트의 핵심 질문은 다음과 같습니다.
 
-### 2. MySQL 실행
+- 회의록 같은 비정형 기록에서 관리 가능한 구조(결정/액션/이슈/리스크)를 안정적으로 추출할 수 있는가?
+- 기록 도구가 **실행(git)을 알 수 있는가** — PR 머지가 할 일 완료로 이어지는 순환을 만들 수 있는가?
+- AI에게 어디까지 권한을 줄 것인가 — 파괴적 변경은 제안-승인, 추가는 자동이라는 비대칭 원칙
+- "담당자·개수·마감" 같은 질문에 추측이 아닌 **정답을 보장**할 수 있는가?
+- README·커밋·이슈 같은 소스의 성격을 구분해 읽을 수 있는가? (설치 안내문 ≠ 할 일)
 
-```bash
-docker compose up -d
-```
+## Repository Structure
 
-### 3. 의존성 설치 및 앱 실행
-
-```bash
-uv sync
-uv run streamlit run frontend/app.py --server.port 8502
-```
-
-브라우저에서 `http://localhost:8502` 접속
-
-### 4. 데스크톱 앱 설치
-
-개발 목적이 아니라 앱을 사용만 한다면 직접 빌드하지 말고 GitHub Release에서 설치 파일을 내려받습니다.
-
-- macOS: `PaiM-...-macos-...` 파일
-- Windows: `PaiM-...-windows-...-setup.exe` 또는 `.msi` 파일
-
-설치 파일이 없다면 개발 환경을 직접 맞추는 대신 새 Release 생성을 요청합니다.
-
-### 5. 데스크톱 앱 개발 실행
-
-데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 개발 실행에는 아래 도구가 필요합니다.
-
-- Node.js LTS
-- Rust/Cargo
-- Windows: Microsoft C++ Build Tools, WebView2 Runtime
-- macOS: Xcode Command Line Tools
-
-루트 폴더에서 아래 명령을 실행합니다.
-
-```bash
-npm ci --prefix desktop
-npm run demo --prefix desktop
-```
-
-현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다.
-
-설치 파일을 직접 빌드하려면:
-
-```bash
-npm run app:build --prefix desktop
-```
-
-빌드 결과는 보통 아래 폴더에 생성됩니다.
-
-- macOS: `desktop/src-tauri/target/release/bundle/`
-- Windows: `desktop/src-tauri/target/release/bundle/msi/` 또는 `desktop/src-tauri/target/release/bundle/nsis/`
-
-macOS에서 `.app`만 빌드하고 바로 실행하려면:
-
-```bash
-npm run demo:mac --prefix desktop
-```
-
-데스크톱 앱 검증:
-
-```bash
-npm run test:offline --prefix desktop
-npm run test:layout --prefix desktop
-```
-
----
-
-## 프로젝트 구조
-
-```
-PaiM/
+```text
+.
+├── .github/workflows/
+│   └── release.yml                  # 태그 push 시 macOS/Windows 설치본 자동 빌드
 ├── backend/
-│   ├── pipeline/        # 추출(extractor) + 저장(ingestor)
-│   ├── llm/             # LLM 클라이언트 (OpenAI · Claude · Google)
-│   ├── retriever/       # Q&A 엔진 + 검색 라우팅
-│   └── db/              # MySQL · ChromaDB 연결 + schema.sql
-├── frontend/
-│   ├── app.py           # Streamlit 진입점
-│   ├── views/           # 업로드 · 대시보드 · 채팅 · 타임라인
-│   └── components/      # 공통 UI 컴포넌트
-├── desktop/             # Tauri + React 데스크톱 앱
-│   ├── src/             # React UI
-│   └── src-tauri/       # Tauri 런타임
-├── data/samples/        # 테스트용 샘플 회의록
-├── docker-compose.yml
-├── .env.example
+│   ├── api/                         # projects · documents · repositories · memory
+│   │                                #   suggestions · delta · query 엔드포인트
+│   ├── pipeline/                    # 추출(extractor, 소스 타입별 지침) + 저장(ingestor)
+│   ├── reconciler/                  # PR→액션 완료 제안 (LangGraph, 배치 판정)
+│   ├── retriever/                   # 의도 라우터 · Q&A 엔진(하이브리드 RRF) · 메모리 벡터
+│   ├── chat/                        # AES-256-GCM 암호화 세션
+│   ├── llm/                         # LLM 클라이언트 (fast/quality 티어링 팩토리)
+│   ├── github/                      # GitHub App 연동 (설치 세션 · repo preview)
+│   └── db/                          # MySQL(schema + migrate_v1~5) · ChromaDB
+├── desktop/
+│   ├── src/                         # React 19 UI (채팅 · 메모리 패널 · 제안 인박스 · 설정)
+│   ├── src-tauri/                   # Tauri 2 런타임
+│   └── .env.production              # 공개 빌드 설정 (OAuth client ID)
+├── docs/                            # API 명세 · 검색 품질 평가셋
+├── docker-compose.yml               # MySQL (스키마 자동 적용)
 └── pyproject.toml
 ```
 
----
+## Quick Start
 
-## LLM 제공자 지원 범위
+### 사용자 — 릴리즈 설치
 
-| 제공자 | 구조화 추출 | Q&A |
-|--------|:----------:|:---:|
-| OpenAI | ✅ | ✅ |
-| Claude | ✅ | ✅ |
-| Google | ❌ | ✅ |
-| Local  | ✅ | ✅ |
+1. [Releases](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases)에서 설치 파일 다운로드 — macOS `.dmg`, Windows `-setup.exe` / `.msi`
+2. macOS에서 "확인되지 않은 개발자" 경고 시: 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기** (코드 서명은 4차 로드맵)
+3. 로컬 백엔드 준비(아래) 후 앱 실행 — 설정에서 서버 주소 변경 가능
 
-> Google Gemini는 Q&A 전용. 중첩 스키마 미지원으로 구조화 추출 불가.
-> Local은 Ollama, vLLM, LM Studio 등 OpenAI 호환 서버를 사용. `LOCAL_LLM_URL`, `LOCAL_LLM_MODEL`로 지정.
+![PaiM 첫 화면](desktop/assets/readme/main1.png)
 
----
+### 백엔드 (필수 — 앱의 두뇌)
 
-## 데이터 모델
+```bash
+cp .env.example .env      # OPENAI_API_KEY · DB 비밀번호 · SESSION_MEMORY_KEY(base64 32바이트) 입력
+docker compose up -d      # MySQL — 스키마 자동 적용
+uv sync
+uv run uvicorn backend.main:app --port 8000
+```
 
-추출된 항목은 `category` 필드로 분류됩니다.
+### 개발자 — 데스크탑 앱
+
+요구사항: Node.js LTS, Rust/Cargo (Windows: MSVC Build Tools·WebView2 / macOS: Xcode CLT)
+
+```bash
+npm ci --prefix desktop
+npm run demo --prefix desktop        # 개발 실행
+npm run app:build --prefix desktop   # 설치본 빌드 (CI가 태그 push 시 자동 수행)
+```
+
+## How It Works
+
+### 1. 기억 만들기 — 소스를 아는 추출
+
+프로젝트를 만들고 회의록을 올리면, LLM이 결정·액션·이슈·리스크로 구조화합니다. 소스 타입별로 다른 추출 지침을 사용합니다.
+
+| 소스 | 추출 규칙 |
+| --- | --- |
+| 회의록/문서 | 결정·액션(담당자)·이슈·리스크 — 명확하지 않으면 추출 금지 |
+| repo README | 설치·사용법 지시문은 액션 금지, 로드맵/TODO의 미완 항목만 액션 |
+| repo 커밋 | 이미 끝난 일 — 액션이면 완료 상태로, 결정(마이그레이션 등) 중심 |
+| 열린 이슈/PR | 현재 문제와 진행 중 작업 |
+
+![프로젝트 시작과 우측 패널](desktop/assets/readme/main2.png)
+
+![브리핑과 프로젝트 메모리](desktop/assets/readme/projectmemory_short1.png)
+
+### 2. 기억이 스스로 갱신 — Reconciler
+
+repo sync 시 머지된 PR과 열린 액션을 LLM이 배치 대조해, 해결로 보이는 것만 **근거(PR 링크·이유)와 함께 제안**합니다. LLM에게 삭제 권한은 없습니다 — 승인/거절은 항상 사람이 합니다. 사용자가 수정한 기록은 `is_user_verified`로 보호되어 LLM 재처리가 덮어쓰지 않습니다.
+
+![완료 제안 인박스](desktop/assets/readme/suggestions.png)
+
+### 3. 기억에 묻기 — 의도 라우터
+
+| 경로 | 대상 질문 | 방식 |
+| --- | --- | --- |
+| 조회형 | "박제섭 담당 미완료 액션은?" | 필터 추출 → SQL 직조회 → 결정론 템플릿 (**정답 보장**) |
+| 조망형 | "전체 상황 정리해줘" | 응축 요약 직접 컨텍스트 (검색 없음) |
+| 탐색형 | "왜 이 방식을 선택했어?" | 멀티쿼리 재표현 → BM25+벡터 RRF 융합 → 출처 있는 생성 |
+
+채팅에 파일을 드래그하면 그 질문에서만 참고하는 임시 컨텍스트가 되며, 프로젝트 기억에는 남지 않습니다.
+
+## Data Model
 
 | 카테고리 | 설명 |
-|----------|------|
-| `decision` | 회의에서 결정된 사항 (결정 이유 포함) |
-| `action` | 담당자 배정 액션 아이템 (마감일은 content에 포함) |
-| `issue` | 미해결 문제 |
-| `risk` | 잠재적 위험 요소 |
+| --- | --- |
+| `decision` | 결정 사항 (기록된 이유 포함) |
+| `action` | 할 일 — `owner`(담당) · `due_date`(마감) · `completed_at`(완료) · `sort_order`(정렬) |
+| `issue` | 현재 문제 |
+| `risk` | 잠재 위험 |
 
-`date` 필드는 항상 **회의/문서 날짜** (`YYYY-MM-DD`). 액션 마감일은 `content` 필드 텍스트에 포함.
+- `date` = 회의/문서의 기록 날짜, `due_date` = 마감일 (별개 컬럼)
+- 완료 제안(`memory_suggestions`)은 근거·승인 이력과 함께 보존됩니다
+
+## LLM Provider Support
+
+| 제공자 | 구조화 추출 | Q&A |
+| --- | :---: | :---: |
+| OpenAI | ✅ | ✅ |
+| Claude | ✅ | ✅ |
+| Google | ❌ (중첩 스키마 미지원) | ✅ |
+| Local (Ollama·vLLM 등) | ✅ | ✅ |
+
+## Key Results
+
+프로토타입 전 기능을 실서버 E2E + 시연 리허설로 검증했습니다.
+
+| 항목 | 결과 |
+| --- | --- |
+| 회의록 액션 추출 (헤더 없는 서술형) | 9/9건, 담당자 100% 정확 |
+| repo README 오추출 (소스 지침 적용 후) | 액션 4건 → **0건** |
+| PR→액션 완료 제안 | 6/6건 매칭 (전부 high confidence) |
+| 조회형 질문 정확도 | DB 직조회 — 담당·개수·마감 정답 보장 |
+| 동일 질문 전/후 대비 | 승인 전 "진행 중" → 승인 후 "완료 (PR 근거)" |
 
 ## Roadmap
 
@@ -205,3 +197,5 @@ PaiM/
 - [ ] 로그인 시스템 — 사용자 계정과 토큰 인증 (현재 DEV 임시 인증 대체)
 - [ ] 팀 협업 — 하나의 프로젝트를 팀원들이 공유 (멤버·권한 관리, 함께 쓰는 프로젝트 메모리)
 - [ ] 입력 파일 확장 — 음성(회의 녹음), 이미지(화이트보드·스크린샷) 등도 분석 대상으로
+- [ ] 메모리 생명주기 완성 — 이슈 해결 감지, 결정 계보(supersede), 중복 병합
+- [ ] 코드 서명·공증 — 설치 경고 제거
