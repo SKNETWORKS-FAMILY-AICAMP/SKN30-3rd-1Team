@@ -1,153 +1,119 @@
-# 🧠 PaiM — Project AI Manager
+# PaiM — Project AI Manager
 
 > **내가 쉬는 동안 프로젝트를 파악해주는 AI PM.**
-> 회의록·문서·GitHub 활동을 하나의 **살아있는 메모리**로 쌓고, AI가 스스로 Issue와 PR을 읽어 액션 완료를 감지하고 다음 할 일(Action Plan)을 제안합니다.
+> 회의록·문서·GitHub 활동을 하나의 **살아있는 메모리**로 쌓고, AI가 스스로 Issue와 PR을 읽어 액션 완료를 감지하고 다음 할 일을 제안합니다.
 
----
+**Download:** https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases
 
-## 왜 PaiM인가 — 살아있는 메모리 (Living Memory)
+![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=flat-square&logo=fastapi&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-LangGraph-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-LLM-412991?style=flat-square&logo=openai&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Search-FF6B6B?style=flat-square)
+![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=flat-square&logo=tauri&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-Desktop%20App-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-CI%20Release-2088FF?style=flat-square&logo=githubactions&logoColor=white)
 
-대부분의 프로젝트 관리 도구는 사람이 상태를 직접 갱신해야 하는 **죽은 기록**입니다. PaiM의 메모리는 프로젝트가 움직이면 따라 움직입니다.
+회의록과 git 저장소를 하나의 **살아있는 프로젝트 기억**으로 통합하는 LLM 기반 AI 프로젝트 매니저입니다.
 
-```
-        ① 기록                    ② 관찰                       ③ 대조 (Reconciler)
-  회의록·문서 업로드      GitHub 저장소 동기화           머지된 PR ↔ 열린 액션을
-  → 결정·액션·이슈·      → README·커밋·열린            LLM이 매칭 → "이 액션,
-    리스크 자동 추출        Issue·PR을 메모리에 적재       이 PR로 완료된 것 같아요"
-        │                        │                            │
-        └────────────┬───────────┘                            │
-                     ▼                                        ▼
-        ④ 브리핑 (Delta Briefing)                ⑤ 제안 (Suggestion + Action Plan)
-  앱을 다시 열면 "지난 확인 이후                 완료 제안은 승인/거절로 확정하고,
-  진행된 것 / 새로 생긴 것 / 급한 것"을          모든 Q&A 답변에는 다음 할 일
-  스탠드업 브리핑으로 요약                        todo(Action Plan)가 따라붙음
-```
+단순히 문서를 요약해주는 것보다, **회의록에서 나온 할 일이 PR 머지로 자동 정리되는 순환** — 즉 계획(문서)과 실행(git)이 분리되지 않는 관리 경험에 초점을 맞췄습니다.
 
-동작 방식을 단계별로 풀면:
+![PaiM 채팅과 GitHub 타임라인](desktop/assets/readme/chatting.png)
 
-1. **기록** — 회의록을 올리면 LLM이 결정·액션·이슈·리스크를 구조화 추출해 MySQL(카테고리 검색)과 ChromaDB(벡터 검색)에 쌓고, 프로젝트 전체 요약 메모리를 갱신합니다.
-2. **관찰** — GitHub 저장소를 연결하면 README·커밋·열린 Issue·열린 PR 텍스트를 수집해 같은 추출 파이프라인으로 메모리에 합칩니다. 회의에서 말한 것과 코드에서 벌어지는 일이 한 메모리에 모입니다.
-3. **대조 (Reconciler)** — 저장소 동기화 직후 자동 실행됩니다. 지난 동기화 이후 **새로 머지된 PR**과 **메모리의 열린 액션**을 LLM이 대조해, PR이 액션을 실제로 수행했다고 판단되면 완료 제안을 만듭니다. 애매하면 제안하지 않는 **정확도 우선 원칙**(high/medium 확신 + 한 줄 근거 필수)으로 오탐을 줄입니다.
-4. **브리핑 (Delta Briefing)** — 프로젝트를 다시 열면 지난 확인 시점 이후의 변화만 골라 "무엇이 진행됐고, 무엇이 새로 생겼고, 무엇이 급한가"를 스탠드업 대체 브리핑으로 요약합니다. 자리를 비운 사이의 공백이 8문장 안에 메워집니다.
-5. **제안 (Suggestion + Action Plan)** — 완료 제안은 사용자가 승인/거절로 확정합니다(승인 시 액션 자동 완료 처리). 또한 모든 Q&A 답변 뒤에는 답변을 근거로 한 다음 할 일 todo 목록이 따라붙어, 조회가 곧 계획으로 이어집니다.
+## Quick Summary
 
-핵심은 **루프가 스스로 닫힌다**는 것입니다: 회의에서 "A가 X를 하기로 함"이 액션으로 기록되고 → A가 PR을 머지하면 → PaiM이 그 PR을 읽고 액션 완료를 제안하고 → 다음 브리핑에서 "X 진행됨"으로 보고됩니다. 사람은 상태를 갱신하는 대신 **제안을 승인만** 하면 됩니다.
+- 회의록(.md/.txt/.pdf) 업로드 → LLM이 **결정·액션·이슈·리스크**로 구조화 추출
+- GitHub repo 연결 → 머지된 PR이 열린 액션을 해결하면 **완료 제안** (승인은 항상 사람)
+- 질문 의도별 3경로 Q&A — 조회형은 **DB 직조회로 정답 보장**, 탐색형은 하이브리드 RAG
+- 앱을 열면 "지난 확인 이후" 변화를 **델타 브리핑**으로
+- macOS·Windows 데스크탑 앱, 태그 push 시 CI 자동 릴리즈
 
----
-
-## 주요 기능
-
-| 기능 | 설명 |
-|------|------|
-| **문서 업로드** | `.md` / `.txt` / `.pdf` 멀티파일 업로드. 날짜 자동 추출 |
-| **구조화 추출** | LLM이 결정·액션·이슈·리스크 4종을 JSON으로 구조화 |
-| **GitHub 동기화** | README·커밋·열린 Issue·PR을 메모리에 적재 (GitHub App 인증) |
-| **완료 제안 (Reconciler)** | 머지된 PR과 열린 액션을 LLM이 매칭해 완료 제안 → 승인/거절 |
-| **델타 브리핑** | 지난 확인 이후 진행·신규·긴급 사항을 스탠드업 브리핑으로 요약 |
-| **Q&A 채팅 + Action Plan** | 자연어로 프로젝트 기록 조회 + 답변 기반 다음 할 일 제안. 멀티턴 히스토리 유지 |
-| **메모리 대시보드** | 카테고리별 카드 뷰, 탭 필터 |
-| **타임라인** | 날짜별 그룹화 시각적 타임라인 |
-
----
-
-## 시스템 흐름
-
-```
-문서 업로드 → 3000자 청크 분할 → LLM 구조화 추출 → 중복 제거
-                                                        ├→ MySQL (카테고리 검색)
-                                                        └→ ChromaDB (벡터 검색)
-
-GitHub 동기화 → README·커밋·Issue·PR 수집 → 같은 추출 파이프라인 → 메모리 적재
-             └→ 머지 PR 감지 → Reconciler(LLM 매칭) → 완료 제안 생성
-
-Q&A 질문 → 키워드 분류 → MySQL / ChromaDB / Both → LLM 답변 생성
-        → 답변 자기검증(부족하면 질의 확장 후 재검색) → Action Plan 제안
+```text
+문서 업로드 ─┐
+             ├→ LLM 구조화 추출 → 프로젝트 메모리 (MySQL + ChromaDB + 응축 요약)
+repo 연결  ─┘
+repo sync → 머지 PR × 열린 액션 대조(Reconciler) → 완료 제안 → 사용자 승인
+질문 → 의도 라우터 → 조회(SQL 직조회) / 조망(요약) / 탐색(멀티쿼리 RAG) → 출처 있는 답변
 ```
 
----
+## Architecture
 
-## 핵심 설계 포인트
+![PaiM LangGraph 아키텍처](desktop/assets/readme/PaiM_LangGraph.png)
 
-- **스스로 닫히는 메모리 루프, 최종 결정은 사람** — Reconciler가 PR을 읽고 액션 완료를 감지하지만 자동으로 닫지 않고 제안으로 만듭니다. AI가 감지하고 사람이 승인하는 human-in-the-loop 구조라 메모리가 조용히 오염되지 않습니다.
-- **정확도 > 재현율** — 완료 매칭은 "애매하면 보고하지 않는다"가 규칙입니다. 놓친 제안은 다음 동기화나 사람이 잡을 수 있지만, 틀린 완료 처리는 신뢰를 무너뜨리기 때문입니다.
-- **자기검증하는 답변 그래프** — Q&A는 LangGraph로 검색 → 답변 → 검증 → (부족하면) 질의 확장 후 재검색 → Action Plan 생성 → 계획 검증까지 도는 그래프입니다. Plan 생성이 실패해도 답변은 유지되는 best-effort 설계입니다.
-- **로컬 우선 + 암호화** — 백엔드는 `127.0.0.1`에만 바인딩되어 LAN에 노출되지 않고, 세션 대화는 AES-256-GCM으로 암호화 저장됩니다. 회의록이라는 민감 데이터를 다루는 도구로서의 기본기입니다.
+질문은 Router가 조회형(SQL) · 조망형(project_memory) · 탐색형(RAG)으로 분기하고, repo가 indexed 되면 Reconciler가 완료 제안만 생성합니다.
 
----
+## Team
 
-## 기술 스택
+<table>
+  <tr>
+    <td align="center" width="180"><a href="https://github.com/hellohaeyeon"><img src="https://github.com/hellohaeyeon.png" width="100" height="100" alt="서해연"/><br/><b>서해연</b></a><br/><sub>팀장 (PM)</sub><br/><sub>서버 담당</sub></td>
+    <td align="center" width="180"><a href="https://github.com/j3s30p"><img src="https://github.com/j3s30p.png" width="100" height="100" alt="박제섭"/><br/><b>박제섭</b></a><br/><sub>팀원</sub><br/><sub>PaiM 데스크탑 앱 개발<br/>릴리즈</sub></td>
+    <td align="center" width="180"><a href="https://github.com/star9906"><img src="https://github.com/star9906.png" width="100" height="100" alt="김동휘"/><br/><b>김동휘</b></a><br/><sub>팀원</sub><br/><sub>백엔드 담당<br/>LLM 위주 + DB</sub></td>
+    <td align="center" width="180"><a href="https://github.com/attatae01-svg"><img src="https://github.com/attatae01-svg.png" width="100" height="100" alt="이동욱"/><br/><b>이동욱</b></a><br/><sub>팀원</sub><br/><sub>백엔드 담당<br/>DB 위주 + LLM</sub></td>
+    <td align="center" width="180"><a href="https://github.com/robinlee3803-ai"><img src="https://github.com/robinlee3803-ai.png" width="100" height="100" alt="이승민"/><br/><b>이승민</b></a><br/><sub>팀원</sub><br/><sub>RAG 성능 검증<br/>데이터 수집</sub></td>
+  </tr>
+</table>
 
-- **프론트엔드**: Streamlit (MVP)
-- **백엔드**: FastAPI (추후 React 연동용)
-- **구조화 DB**: MySQL 8.0 (Docker)
-- **벡터 DB**: ChromaDB
-- **LLM**: OpenAI · Claude · Google (`.env`에서 전환)
-- **패키지 관리**: `uv` + `hatchling`
+## Project Goal
 
----
+이 프로젝트의 핵심 질문은 다음과 같습니다.
 
-## 빠른 시작
+- 회의록 같은 비정형 기록에서 관리 가능한 구조(결정/액션/이슈/리스크)를 안정적으로 추출할 수 있는가?
+- 기록 도구가 **실행(git)을 알 수 있는가** — PR 머지가 할 일 완료로 이어지는 순환을 만들 수 있는가?
+- AI에게 어디까지 권한을 줄 것인가 — 파괴적 변경은 제안-승인, 추가는 자동이라는 비대칭 원칙
+- "담당자·개수·마감" 같은 질문에 추측이 아닌 **정답을 보장**할 수 있는가?
+- README·커밋·이슈 같은 소스의 성격을 구분해 읽을 수 있는가? (설치 안내문 ≠ 할 일)
 
-### 1. 환경변수 설정
+## Repository Structure
+
+```text
+.
+├── .github/workflows/
+│   └── release.yml                  # 태그 push 시 macOS/Windows 설치본 자동 빌드
+├── backend/
+│   ├── api/                         # projects · documents · repositories · memory
+│   │                                #   suggestions · delta · query 엔드포인트
+│   ├── pipeline/                    # 추출(extractor, 소스 타입별 지침) + 저장(ingestor)
+│   ├── reconciler/                  # PR→액션 완료 제안 (LangGraph, 배치 판정)
+│   ├── retriever/                   # 의도 라우터 · Q&A 엔진(하이브리드 RRF) · 메모리 벡터
+│   ├── chat/                        # AES-256-GCM 암호화 세션
+│   ├── llm/                         # LLM 클라이언트 (fast/quality 티어링 팩토리)
+│   ├── github/                      # GitHub App 연동 (설치 세션 · repo preview)
+│   └── db/                          # MySQL(schema + migrate_v1~5) · ChromaDB
+├── desktop/
+│   ├── src/                         # React 19 UI (채팅 · 메모리 패널 · 제안 인박스 · 설정)
+│   ├── src-tauri/                   # Tauri 2 런타임
+│   └── .env.production              # 공개 빌드 설정 (OAuth client ID)
+├── docs/                            # API 명세 · 검색 품질 평가셋
+├── docker-compose.yml               # MySQL (스키마 자동 적용)
+├── start-paim.bat                   # Windows 원클릭 실행 (Docker·백엔드·앱 자동 기동)
+└── pyproject.toml
+```
+
+## Quick Start
+
+### 사용자 — 릴리즈 설치
+
+1. [Releases](https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN30-3rd-1Team/releases)에서 설치 파일 다운로드 — macOS `.dmg`, Windows `-setup.exe` / `.msi`
+2. macOS에서 "확인되지 않은 개발자" 경고 시: 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기** (코드 서명은 4차 로드맵)
+3. 로컬 백엔드 준비(아래) 후 앱 실행 — 설정에서 서버 주소 변경 가능
+
+![PaiM 첫 화면](desktop/assets/readme/main1.png)
+
+### 백엔드 (필수 — 앱의 두뇌)
 
 ```bash
-cp .env.example .env
-# .env에서 API 키와 DB 비밀번호 입력
-```
-
-```env
-LLM_PROVIDER=openai          # openai | claude | google | local
-
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4.1-mini
-
-ANTHROPIC_API_KEY=...
-CLAUDE_MODEL=claude-sonnet-4-6
-
-GOOGLE_API_KEY=...
-GOOGLE_MODEL=gemini-1.5-pro
-
-# local provider (Ollama / vLLM / LM Studio 등 OpenAI 호환 서버)
-# LOCAL_LLM_URL=http://localhost:11434/v1
-# LOCAL_LLM_MODEL=llama3
-
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=...
-DB_NAME=paiM
-
-CHROMA_PERSIST_DIR=.chroma
-```
-
-### 2. MySQL 실행
-
-```bash
-docker compose up -d
-```
-
-### 3. 의존성 설치 및 앱 실행
-
-```bash
+cp .env.example .env      # OPENAI_API_KEY · DB 비밀번호 · SESSION_MEMORY_KEY(base64 32바이트) 입력
+docker compose up -d      # MySQL — 스키마 자동 적용
 uv sync
-uv run streamlit run frontend/app.py --server.port 8502
+uv run uvicorn backend.main:app --port 8000
 ```
 
-브라우저에서 `http://localhost:8502` 접속
+### Windows 원클릭 실행 (`start-paim.bat`)
 
-### 4. 데스크톱 앱 설치
-
-개발 목적이 아니라 앱을 사용만 한다면 직접 빌드하지 말고 GitHub Release에서 설치 파일을 내려받습니다.
-
-- macOS: `PaiM-...-macos-...` 파일
-- Windows: `PaiM-...-windows-...-setup.exe` 또는 `.msi` 파일
-
-설치 파일이 없다면 개발 환경을 직접 맞추는 대신 새 Release 생성을 요청합니다.
-
-> **주의**: 설치 파일에는 UI만 포함됩니다. 앱은 로컬 백엔드(`http://127.0.0.1:8000`)에 접속하므로 MySQL과 백엔드 서버가 같은 PC에서 실행 중이어야 합니다.
-
-#### Windows 원클릭 실행 (`start-paim.bat`)
-
-uv와 Docker Desktop이 설치되어 있다면, 저장소 클론 후 루트의 `start-paim.bat`을 더블클릭하면 아래 과정이 자동으로 진행됩니다.
+uv와 Docker Desktop이 설치되어 있다면 저장소 클론 후 루트의 `start-paim.bat`을 더블클릭하는 것으로 위 백엔드 과정 전체가 자동 진행됩니다.
 
 1. Docker 데몬 확인 — 꺼져 있으면 Docker Desktop 자동 실행
 2. `.env` 자동 생성 — 최초 1회만 메모장이 열리며 API 키와 `DB_PASSWORD` 입력 필요 (`SESSION_MEMORY_KEY`는 자동 생성)
@@ -157,100 +123,110 @@ uv와 Docker Desktop이 설치되어 있다면, 저장소 클론 후 루트의 `
 
 앱을 쓰는 동안 "PaiM Backend" 창은 켜둡니다. 두 번째 실행부터는 입력 없이 끝까지 자동 진행됩니다.
 
-### 5. 데스크톱 앱 개발 실행
+### 개발자 — 데스크탑 앱
 
-데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 개발 실행에는 아래 도구가 필요합니다.
-
-- Node.js LTS
-- Rust/Cargo
-- Windows: Microsoft C++ Build Tools, WebView2 Runtime
-- macOS: Xcode Command Line Tools
-
-루트 폴더에서 아래 명령을 실행합니다.
+요구사항: Node.js LTS, Rust/Cargo (Windows: MSVC Build Tools·WebView2 / macOS: Xcode CLT)
 
 ```bash
 npm ci --prefix desktop
-npm run demo --prefix desktop
+npm run demo --prefix desktop        # 개발 실행
+npm run app:build --prefix desktop   # 설치본 빌드 (CI가 태그 push 시 자동 수행)
 ```
 
-현재 소스는 macOS/Windows 모두 같은 명령으로 실행할 수 있습니다.
+## How It Works
 
-설치 파일을 직접 빌드하려면:
+대부분의 프로젝트 관리 도구는 사람이 상태를 직접 갱신해야 하는 **죽은 기록**입니다. PaiM의 메모리는 프로젝트가 움직이면 따라 움직입니다.
 
-```bash
-npm run app:build --prefix desktop
+```text
+        ① 기록                    ② 관찰                       ③ 대조 (Reconciler)
+  회의록·문서 업로드      GitHub 저장소 동기화           머지된 PR ↔ 열린 액션을
+  → 결정·액션·이슈·      → README·커밋·열린            LLM이 매칭 → "이 액션,
+    리스크 자동 추출        Issue·PR을 메모리에 적재       이 PR로 완료된 것 같아요"
+        │                        │                            │
+        └────────────┬───────────┘                            │
+                     ▼                                        ▼
+        ④ 브리핑 (Delta Briefing)                    ⑤ 제안 (Suggestion)
+  앱을 다시 열면 "지난 확인 이후                 근거(PR 링크·이유)와 함께 제안,
+  진행된 것 / 새로 생긴 것 / 급한 것"을          사람이 승인/거절로 확정
+  스탠드업 브리핑으로 요약                        (승인 시 액션 완료 처리)
 ```
 
-빌드 결과는 보통 아래 폴더에 생성됩니다.
+핵심은 **루프가 스스로 닫힌다**는 것입니다: 회의에서 "A가 X를 하기로 함"이 액션으로 기록되고 → A가 PR을 머지하면 → PaiM이 그 PR을 읽고 액션 완료를 제안하고 → 다음 브리핑에서 "X 진행됨"으로 보고됩니다. 사람은 상태를 갱신하는 대신 **제안을 승인만** 하면 됩니다.
 
-- macOS: `desktop/src-tauri/target/release/bundle/`
-- Windows: `desktop/src-tauri/target/release/bundle/msi/` 또는 `desktop/src-tauri/target/release/bundle/nsis/`
+### 1. 기억 만들기 — 소스를 아는 추출
 
-macOS에서 `.app`만 빌드하고 바로 실행하려면:
+프로젝트를 만들고 회의록을 올리면, LLM이 결정·액션·이슈·리스크로 구조화합니다. 소스 타입별로 다른 추출 지침을 사용합니다.
 
-```bash
-npm run demo:mac --prefix desktop
-```
+| 소스 | 추출 규칙 |
+| --- | --- |
+| 회의록/문서 | 결정·액션(담당자)·이슈·리스크 — 명확하지 않으면 추출 금지 |
+| repo README | 설치·사용법 지시문은 액션 금지, 로드맵/TODO의 미완 항목만 액션 |
+| repo 커밋 | 이미 끝난 일 — 액션이면 완료 상태로, 결정(마이그레이션 등) 중심 |
+| 열린 이슈/PR | 현재 문제와 진행 중 작업 |
 
-데스크톱 앱 검증:
+![프로젝트 시작과 우측 패널](desktop/assets/readme/main2.png)
 
-```bash
-npm run test:offline --prefix desktop
-npm run test:layout --prefix desktop
-```
+![브리핑과 프로젝트 메모리](desktop/assets/readme/projectmemory_short1.png)
 
----
+### 2. 기억이 스스로 갱신 — Reconciler
 
-## 프로젝트 구조
+repo sync 시 머지된 PR과 열린 액션을 LLM이 배치 대조해, 해결로 보이는 것만 **근거(PR 링크·이유)와 함께 제안**합니다. LLM에게 삭제 권한은 없습니다 — 승인/거절은 항상 사람이 합니다. 사용자가 수정한 기록은 `is_user_verified`로 보호되어 LLM 재처리가 덮어쓰지 않습니다.
 
-```
-PaiM/
-├── backend/
-│   ├── pipeline/        # 추출(extractor) + 저장(ingestor)
-│   ├── llm/             # LLM 클라이언트 (OpenAI · Claude · Google)
-│   ├── retriever/       # Q&A 엔진 + 검색 라우팅
-│   └── db/              # MySQL · ChromaDB 연결 + schema.sql
-├── frontend/
-│   ├── app.py           # Streamlit 진입점
-│   ├── views/           # 업로드 · 대시보드 · 채팅 · 타임라인
-│   └── components/      # 공통 UI 컴포넌트
-├── desktop/             # Tauri + React 데스크톱 앱
-│   ├── src/             # React UI
-│   └── src-tauri/       # Tauri 런타임
-├── data/samples/        # 테스트용 샘플 회의록
-├── docker-compose.yml
-├── .env.example
-└── pyproject.toml
-```
+![완료 제안 인박스](desktop/assets/readme/suggestions.png)
 
----
+### 3. 기억에 묻기 — 의도 라우터
 
-## LLM 제공자 지원 범위
+| 경로 | 대상 질문 | 방식 |
+| --- | --- | --- |
+| 조회형 | "박제섭 담당 미완료 액션은?" | 필터 추출 → SQL 직조회 → 결정론 템플릿 (**정답 보장**) |
+| 조망형 | "전체 상황 정리해줘" | 응축 요약 직접 컨텍스트 (검색 없음) |
+| 탐색형 | "왜 이 방식을 선택했어?" | 멀티쿼리 재표현 → BM25+벡터 RRF 융합 → 출처 있는 생성 |
 
-| 제공자 | 구조화 추출 | Q&A |
-|--------|:----------:|:---:|
-| OpenAI | ✅ | ✅ |
-| Claude | ✅ | ✅ |
-| Google | ❌ | ✅ |
-| Local  | ✅ | ✅ |
+채팅에 파일을 드래그하면 그 질문에서만 참고하는 임시 컨텍스트가 되며, 프로젝트 기억에는 남지 않습니다.
 
-> Google Gemini는 Q&A 전용. 중첩 스키마 미지원으로 구조화 추출 불가.
-> Local은 Ollama, vLLM, LM Studio 등 OpenAI 호환 서버를 사용. `LOCAL_LLM_URL`, `LOCAL_LLM_MODEL`로 지정.
+### 4. 자리 비운 사이 — 델타 브리핑
 
----
+프로젝트를 다시 열면 지난 확인 시점 이후의 변화만 골라 "무엇이 진행됐고, 무엇이 새로 생겼고, 무엇이 급한가"를 스탠드업 대체 브리핑으로 요약합니다. 완료된 액션과 새 완료 제안 → 새 결정·액션·이슈·리스크 → 마감 임박·기한 초과 순서로, 자리를 비운 사이의 공백이 8문장 안에 메워집니다.
 
-## 데이터 모델
+## Design Principles
 
-추출된 항목은 `category` 필드로 분류됩니다.
+- **정확도 > 재현율** — Reconciler의 완료 매칭은 "애매하면 보고하지 않는다"가 규칙입니다(high/medium 확신 + 한 줄 근거 필수). 놓친 제안은 다음 동기화나 사람이 잡을 수 있지만, 틀린 완료 처리는 신뢰를 무너뜨리기 때문입니다.
+- **파괴적 변경은 제안-승인, 추가는 자동** — 메모리에 쌓는 것은 자동이지만 완료 처리처럼 상태를 바꾸는 일은 반드시 사람의 승인을 거칩니다. 메모리가 조용히 오염되지 않는 human-in-the-loop 구조입니다.
+- **자기검증하는 답변 그래프** — 탐색형 Q&A는 LangGraph로 검색 → 답변 → 검증 → (부족하면) 질의 확장 후 재검색 → 다음 할 일(plan) 제안까지 도는 그래프입니다. plan 생성이 실패해도 답변은 유지되는 best-effort 설계입니다.
+- **로컬 우선 + 암호화** — 백엔드는 `127.0.0.1`에만 바인딩되어 LAN에 노출되지 않고, 세션 대화는 AES-256-GCM으로 암호화 저장됩니다. 회의록이라는 민감 데이터를 다루는 도구로서의 기본기입니다.
+
+## Data Model
 
 | 카테고리 | 설명 |
-|----------|------|
-| `decision` | 회의에서 결정된 사항 (결정 이유 포함) |
-| `action` | 담당자 배정 액션 아이템 (마감일은 content에 포함) |
-| `issue` | 미해결 문제 |
-| `risk` | 잠재적 위험 요소 |
+| --- | --- |
+| `decision` | 결정 사항 (기록된 이유 포함) |
+| `action` | 할 일 — `owner`(담당) · `due_date`(마감) · `completed_at`(완료) · `sort_order`(정렬) |
+| `issue` | 현재 문제 |
+| `risk` | 잠재 위험 |
 
-`date` 필드는 항상 **회의/문서 날짜** (`YYYY-MM-DD`). 액션 마감일은 `content` 필드 텍스트에 포함.
+- `date` = 회의/문서의 기록 날짜, `due_date` = 마감일 (별개 컬럼)
+- 완료 제안(`memory_suggestions`)은 근거·승인 이력과 함께 보존됩니다
+
+## LLM Provider Support
+
+| 제공자 | 구조화 추출 | Q&A |
+| --- | :---: | :---: |
+| OpenAI | ✅ | ✅ |
+| Claude | ✅ | ✅ |
+| Google | ❌ (중첩 스키마 미지원) | ✅ |
+| Local (Ollama·vLLM 등) | ✅ | ✅ |
+
+## Key Results
+
+프로토타입 전 기능을 실서버 E2E + 시연 리허설로 검증했습니다.
+
+| 항목 | 결과 |
+| --- | --- |
+| 회의록 액션 추출 (헤더 없는 서술형) | 9/9건, 담당자 100% 정확 |
+| repo README 오추출 (소스 지침 적용 후) | 액션 4건 → **0건** |
+| PR→액션 완료 제안 | 6/6건 매칭 (전부 high confidence) |
+| 조회형 질문 정확도 | DB 직조회 — 담당·개수·마감 정답 보장 |
+| 동일 질문 전/후 대비 | 승인 전 "진행 중" → 승인 후 "완료 (PR 근거)" |
 
 ## Roadmap
 
@@ -266,3 +242,5 @@ PaiM/
 - [ ] 로그인 시스템 — 사용자 계정과 토큰 인증 (현재 DEV 임시 인증 대체)
 - [ ] 팀 협업 — 하나의 프로젝트를 팀원들이 공유 (멤버·권한 관리, 함께 쓰는 프로젝트 메모리)
 - [ ] 입력 파일 확장 — 음성(회의 녹음), 이미지(화이트보드·스크린샷) 등도 분석 대상으로
+- [ ] 메모리 생명주기 완성 — 이슈 해결 감지, 결정 계보(supersede), 중복 병합
+- [ ] 코드 서명·공증 — 설치 경고 제거
