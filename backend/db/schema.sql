@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS documents (
     status      VARCHAR(20)  NOT NULL DEFAULT 'uploaded',
     file_path   VARCHAR(500),
     last_error  TEXT         DEFAULT NULL,
+    progress_done  INT       DEFAULT NULL,
+    progress_total INT       DEFAULT NULL,
     uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id)
 );

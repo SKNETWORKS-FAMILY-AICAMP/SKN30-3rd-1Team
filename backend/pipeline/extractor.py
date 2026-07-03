@@ -1,7 +1,7 @@
 # 문서 텍스트에서 결정/액션/이슈/리스크를 LLM으로 추출하는 모듈.
-# 대용량 문서는 3000자 단위 청크로 분할해 각각 추출한 뒤 합산하고 중복을 제거한다.
+# 대용량 문서는 문단 경계 기반 청크로 분할해 각각 추출한 뒤 합산하고 중복을 제거한다.
 import re
-from typing import List, Set, Tuple
+from typing import Callable, List, Optional, Set, Tuple
 from .models import MemoryItem, ExtractionResult
 from ..llm import get_llm_client, Message
 
@@ -76,7 +76,7 @@ Source-specific rules for open repository pull requests:
 """,
 }
 
-_CHUNK_SIZE = 3000  # 청크당 최대 문자 수
+_CHUNK_SIZE = 15000  # 청크당 최대 문자 수
 _CHUNK_OVERLAP = 200  # 청크 경계에서 문맥 유지를 위해 앞 청크와 겹치는 문자 수
 
 
@@ -139,17 +139,67 @@ def _post_process_items(items: List[MemoryItem], source_kind: str) -> List[Memor
     return filtered
 
 
-def _split_chunks(text: str) -> List[str]:
-    """텍스트를 _CHUNK_SIZE 단위로 분할. 짧으면 그대로 반환."""
-    if len(text) <= _CHUNK_SIZE:
+def _slice_chunks(text: str, chunk_size: int) -> List[str]:
+    """단일 초대형 문단은 기존 글자 수 슬라이스 방식으로 나눈다."""
+    if len(text) <= chunk_size:
         return [text]
+    overlap = min(_CHUNK_OVERLAP, chunk_size - 1)
+    step = chunk_size - overlap
     chunks = []
     start = 0
     while start < len(text):
-        end = start + _CHUNK_SIZE
+        end = min(start + chunk_size, len(text))
         chunks.append(text[start:end])
-        start = end - _CHUNK_OVERLAP  # 오버랩만큼 뒤로 물려서 다음 청크 시작
+        if end >= len(text):
+            break
+        start += step
     return chunks
+
+
+def _split_chunks(text: str, chunk_size: Optional[int] = None) -> List[str]:
+    """텍스트를 문단 경계 기준으로 분할. 짧으면 그대로 반환."""
+    chunk_size = _CHUNK_SIZE if chunk_size is None else chunk_size
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks = []
+    current: List[str] = []
+    current_len = 0
+    paragraphs = text.split("\n\n")
+
+    for idx, paragraph in enumerate(paragraphs):
+        unit = paragraph + ("\n\n" if idx < len(paragraphs) - 1 else "")
+
+        if len(paragraph) > chunk_size or len(unit) > chunk_size:
+            if current:
+                chunks.append("".join(current))
+                current = []
+                current_len = 0
+            chunks.extend(_slice_chunks(unit, chunk_size))
+            continue
+
+        if current and current_len + len(unit) > chunk_size:
+            chunks.append("".join(current))
+            current = []
+            current_len = 0
+
+        current.append(unit)
+        current_len += len(unit)
+
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
+def _notify_progress(on_progress: Optional[Callable[[int, int], None]], done: int, total: int) -> None:
+    if not on_progress:
+        return
+    try:
+        on_progress(done, total)
+    except Exception:
+        pass
 
 
 def _extract_chunk(client, text: str, default_source: str, source_kind: str) -> List[MemoryItem]:
@@ -212,6 +262,7 @@ def extract(
     provider: str = None,
     default_source: str = "",
     source_kind: str = "document",
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> List[MemoryItem]:
     """메인 추출 함수.
     1. 텍스트를 청크로 분할
@@ -222,18 +273,25 @@ def extract(
     """
     client = get_llm_client(provider)
     chunks = _split_chunks(text)
+    total_chunks = len(chunks)
+    _notify_progress(on_progress, 0, total_chunks)
 
     # 단일 청크면 바로 추출 후 반환 (dedup 불필요)
-    if len(chunks) == 1:
-        return _extract_chunk(client, chunks[0], default_source, source_kind)
+    if total_chunks == 1:
+        try:
+            return _extract_chunk(client, chunks[0], default_source, source_kind)
+        finally:
+            _notify_progress(on_progress, 1, total_chunks)
 
     all_items: List[MemoryItem] = []
     failed_chunks = 0
-    for chunk in chunks:
+    for idx, chunk in enumerate(chunks, start=1):
         try:
             all_items.extend(_extract_chunk(client, chunk, default_source, source_kind))
         except ValueError:
             failed_chunks += 1  # 청크 실패 카운트, 나머지 청크는 계속 처리
+        finally:
+            _notify_progress(on_progress, idx, total_chunks)
 
     if failed_chunks == len(chunks):
         raise ValueError("LLM did not return structured output for any chunk")

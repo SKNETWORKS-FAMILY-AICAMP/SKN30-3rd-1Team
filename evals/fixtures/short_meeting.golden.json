@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "category": "decision",
+      "must_include": ["FastAPI", "업로드 API", "백그라운드"],
+      "owner": null,
+      "date": "2026-06-30"
+    },
+    {
+      "category": "action",
+      "must_include": ["김민수", "API 문서", "상태 응답"],
+      "owner": "김민수",
+      "date": "2026-06-30"
+    },
+    {
+      "category": "issue",
+      "must_include": ["PDF", "빈 문자열"],
+      "owner": null,
+      "date": "2026-06-30"
+    },
+    {
+      "category": "risk",
+      "must_include": ["Windows", "데모 일정"],
+      "owner": null,
+      "date": "2026-06-30"
+    }
+  ]
+}

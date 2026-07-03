@@ -206,3 +206,4 @@ ignore
 # 로컬 런타임 산출물
 data/uploads/
 .claude/
+evals/results/

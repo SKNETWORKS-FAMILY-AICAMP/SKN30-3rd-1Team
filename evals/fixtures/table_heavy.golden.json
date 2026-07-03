@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "category": "decision",
+      "must_include": ["MySQL", "progress_done", "progress_total"],
+      "owner": null,
+      "date": "2026-07-02"
+    },
+    {
+      "category": "action",
+      "must_include": ["김민수", "API status", "progress_done"],
+      "owner": "김민수",
+      "date": "2026-07-02"
+    },
+    {
+      "category": "action",
+      "must_include": ["박지현", "Streamlit", "진행바"],
+      "owner": "박지현",
+      "date": "2026-07-02"
+    },
+    {
+      "category": "issue",
+      "must_include": ["PDF", "비어"],
+      "owner": "최도윤",
+      "date": "2026-07-02"
+    },
+    {
+      "category": "risk",
+      "must_include": ["API 비용", "pytest"],
+      "owner": "최도윤",
+      "date": "2026-07-02"
+    }
+  ]
+}
