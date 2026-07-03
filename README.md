@@ -96,6 +96,20 @@ uv run streamlit run frontend/app.py --server.port 8502
 
 설치 파일이 없다면 개발 환경을 직접 맞추는 대신 새 Release 생성을 요청합니다.
 
+> **주의**: 설치 파일에는 UI만 포함됩니다. 앱은 로컬 백엔드(`http://127.0.0.1:8000`)에 접속하므로 MySQL과 백엔드 서버가 같은 PC에서 실행 중이어야 합니다.
+
+#### Windows 원클릭 실행 (`start-paim.bat`)
+
+uv와 Docker Desktop이 설치되어 있다면, 저장소 클론 후 루트의 `start-paim.bat`을 더블클릭하면 아래 과정이 자동으로 진행됩니다.
+
+1. Docker 데몬 확인 — 꺼져 있으면 Docker Desktop 자동 실행
+2. `.env` 자동 생성 — 최초 1회만 메모장이 열리며 API 키와 `DB_PASSWORD` 입력 필요 (`SESSION_MEMORY_KEY`는 자동 생성)
+3. MySQL 컨테이너 시작 후 준비될 때까지 대기
+4. `uv sync` 후 백엔드를 새 창("PaiM Backend")에서 실행
+5. 설치된 PaiM 앱 자동 실행
+
+앱을 쓰는 동안 "PaiM Backend" 창은 켜둡니다. 두 번째 실행부터는 입력 없이 끝까지 자동 진행됩니다.
+
 ### 5. 데스크톱 앱 개발 실행
 
 데스크톱 앱은 `desktop/` 폴더에 분리되어 있습니다. 개발 실행에는 아래 도구가 필요합니다.
