@@ -54,7 +54,11 @@ fn read_directory_children(path: String) -> Result<Vec<DirectoryChildEntry>, Str
             let path = entry.path();
             let metadata = entry.metadata().ok()?;
             let name = path.file_name()?.to_string_lossy().into_owned();
-            let kind = if metadata.is_dir() { "directory" } else { "file" };
+            let kind = if metadata.is_dir() {
+                "directory"
+            } else {
+                "file"
+            };
 
             Some(DirectoryChildEntry {
                 name,
@@ -74,6 +78,13 @@ fn read_directory_children(path: String) -> Result<Vec<DirectoryChildEntry>, Str
     });
 
     Ok(entries)
+}
+
+#[tauri::command]
+fn path_kind(path: String) -> Result<String, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+
+    Ok(if meta.is_dir() { "directory" } else { "file" }.to_string())
 }
 
 // 선택한 텍스트 파일의 본문만 읽어 파일 패널 프리뷰에 보여준다.
@@ -206,6 +217,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             read_directory_children,
+            path_kind,
             read_text_file,
             read_file_base64,
             create_attachment_preview,
@@ -296,6 +308,37 @@ mod tests {
         assert_eq!(entries[0].kind, "directory");
         assert_eq!(entries[1].name, "App.tsx");
         assert_eq!(entries[1].kind, "file");
+    }
+
+    #[test]
+    fn path_kind_returns_file() {
+        let path = temp_path("kind-file.txt");
+
+        fs::write(&path, "file").expect("test file should be writable");
+        let kind =
+            path_kind(path.to_string_lossy().into_owned()).expect("file kind should be readable");
+        fs::remove_file(path).expect("test file should be removable");
+
+        assert_eq!(kind, "file");
+    }
+
+    #[test]
+    fn path_kind_returns_directory() {
+        let path = temp_path("kind-dir");
+
+        fs::create_dir(&path).expect("test directory should be writable");
+        let kind = path_kind(path.to_string_lossy().into_owned())
+            .expect("directory kind should be readable");
+        fs::remove_dir(path).expect("test directory should be removable");
+
+        assert_eq!(kind, "directory");
+    }
+
+    #[test]
+    fn path_kind_rejects_missing_path() {
+        let path = temp_path("missing");
+
+        assert!(path_kind(path.to_string_lossy().into_owned()).is_err());
     }
 
     #[test]

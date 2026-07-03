@@ -1115,6 +1115,12 @@ button {
   background: var(--drag-bg);
 }
 
+.app-shell[data-drag-active="true"] [data-drop-zone] {
+  outline: 2px dashed var(--drag-border);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
 .project-start {
   display: grid;
   place-items: center;
@@ -3497,6 +3503,34 @@ input.project-memory-check-circle:checked::after {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 58px var(--content-gutter) 28px;
+}
+
+.chat-project-badge {
+  /* 채팅은 항상 맨 아래로 자동 스크롤되므로 sticky로 고정해야 대화 중에도 보인다 */
+  position: sticky;
+  top: 10px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  max-width: min(100%, var(--prompt-width));
+  margin: 0 auto 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.chat-project-badge span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-shell[data-platform="macos"] .chat-scroll {

@@ -2088,7 +2088,11 @@ export function App() {
   // 드롭 리스너는 마운트 시 1회 등록이라, 최신 첨부 핸들러를 ref로 전달해
   // 선택 프로젝트/세션이 초기 null 스냅샷에 갇히는 stale closure를 막는다.
   const appendAttachmentPathsRef = useRef<((paths: string[]) => Promise<void>) | undefined>(undefined);
+  const addDroppedPathsToProjectRef = useRef<
+    ((projectId: string, paths: string[]) => Promise<void>) | undefined
+  >(undefined);
   appendAttachmentPathsRef.current = appendAttachmentPaths;
+  addDroppedPathsToProjectRef.current = addDroppedPathsToProject;
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) {
@@ -2112,7 +2116,18 @@ export function App() {
         }
 
         setIsDragActive(false);
-        void appendAttachmentPathsRef.current?.(event.payload.paths);
+
+        const { x, y } = event.payload.position;
+        const scale = window.devicePixelRatio || 1;
+        const element = document.elementFromPoint(x / scale, y / scale);
+        const zone = element?.closest("[data-drop-zone]");
+        const selectedProjectId = selectedProjectIdRef.current;
+
+        if (zone && selectedProjectId) {
+          void addDroppedPathsToProjectRef.current?.(selectedProjectId, event.payload.paths);
+        } else {
+          void appendAttachmentPathsRef.current?.(event.payload.paths);
+        }
       })
       .then((unlisten) => {
         if (isDisposed) {
@@ -3184,11 +3199,59 @@ export function App() {
     };
   }
 
+  function registerProjectEntries(projectId: string, entries: Attachment[]) {
+    const targetProject = projectsRef.current.find((project) => project.id === projectId);
+
+    if (!targetProject || entries.length === 0) {
+      return;
+    }
+
+    updateProject(projectId, (project) => ({
+      ...project,
+      files: [...entries, ...(project.files ?? [])],
+    }));
+    setSelectedProjectId(projectId);
+    setProjectSourcesMode("library");
+    void uploadProjectDocuments(projectId, targetProject, entries);
+  }
+
+  async function addDroppedPathsToProject(projectId: string, paths: string[]) {
+    if (paths.length === 0) {
+      return;
+    }
+
+    const uploadedAt = Date.now();
+    const entries = (
+      await Promise.all(
+        paths.map(async (path) => {
+          try {
+            const kind = await invoke<"directory" | "file">("path_kind", { path });
+
+            return kind === "directory"
+              ? createProjectDirectoryEntry(path, uploadedAt)
+              : createProjectFileRootEntry(path, uploadedAt);
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((entry): entry is Attachment => entry !== null);
+
+    if (entries.length === 0) {
+      setDemoStatus({
+        ok: false,
+        message: "드롭한 파일이나 폴더를 등록할 수 없습니다",
+        scope: "overview",
+      });
+      return;
+    }
+
+    registerProjectEntries(projectId, entries);
+  }
+
   // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
   async function handleOpenProjectFiles(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
-
-    if (!targetProject) {
+    if (!projectsRef.current.some((project) => project.id === projectId)) {
       return;
     }
 
@@ -3215,14 +3278,7 @@ export function App() {
 
       const uploadedAt = Date.now();
       const nextEntries = paths.map((path) => createProjectFileRootEntry(path, uploadedAt));
-
-      updateProject(projectId, (project) => ({
-        ...project,
-        files: [...nextEntries, ...(project.files ?? [])],
-      }));
-      setSelectedProjectId(projectId);
-      setProjectSourcesMode("library");
-      void uploadProjectDocuments(projectId, targetProject, nextEntries);
+      registerProjectEntries(projectId, nextEntries);
     } catch {
       setDemoStatus({
         ok: false,
@@ -3234,9 +3290,7 @@ export function App() {
 
   // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
   async function handleOpenProjectDirectory(projectId: string) {
-    const targetProject = projects.find((project) => project.id === projectId);
-
-    if (!targetProject) {
+    if (!projectsRef.current.some((project) => project.id === projectId)) {
       return;
     }
 
@@ -3265,14 +3319,7 @@ export function App() {
       const nextEntries = await Promise.all(
         paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
       );
-
-      updateProject(projectId, (project) => ({
-        ...project,
-        files: [...nextEntries, ...(project.files ?? [])],
-      }));
-      setSelectedProjectId(projectId);
-      setProjectSourcesMode("library");
-      void uploadProjectDocuments(projectId, targetProject, nextEntries);
+      registerProjectEntries(projectId, nextEntries);
     } catch {
       setDemoStatus({
         ok: false,
@@ -5215,6 +5262,10 @@ export function App() {
               </div>
             ) : (
               <div className="chat-scroll" ref={chatScrollRef}>
+                <div className="chat-project-badge">
+                  <FolderOpen aria-hidden="true" size={12} />
+                  <span>{selectedProject?.name ?? "PaiM"}</span>
+                </div>
                 <div className="conversation">
                   {selectedSession.messages.map((message) => (
                     <article className="message" data-role={message.role} key={message.id}>
@@ -5327,7 +5378,11 @@ export function App() {
           </>
         ) : selectedProject ? (
           <>
-            <section className="project-home" aria-label="프로젝트 시작 화면">
+            <section
+              className="project-home"
+              data-drop-zone="project-files"
+              aria-label="프로젝트 시작 화면"
+            >
               <div className="project-home-content">
               <div className="project-home-name-row">
                 <input

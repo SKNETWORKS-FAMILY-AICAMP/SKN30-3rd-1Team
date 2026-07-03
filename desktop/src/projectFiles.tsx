@@ -461,7 +461,7 @@ export function ProjectFilesPanel({
 }: ProjectFilesPanelProps) {
   if (mode === "library") {
     return (
-      <div className="project-panel-content project-sources-panel">
+      <div className="project-panel-content project-sources-panel" data-drop-zone="project-files">
         <div className="project-sources-header">
           <div className="project-sources-actions">
             <details className="project-upload-menu">
@@ -612,6 +612,7 @@ export function ProjectFilesPanel({
   return (
     <div
       className="project-panel-content project-files-panel"
+      data-drop-zone="project-files"
       data-single-file={isSelectedSourceFile ? "true" : undefined}
       data-tree-collapsed={isTreeCollapsed}
     >
