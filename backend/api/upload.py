@@ -122,12 +122,29 @@ def _set_doc_status(doc_id: int, status: str, last_error: Optional[str] = None):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                "UPDATE documents SET status=%s, last_error=%s WHERE id=%s",
+                "UPDATE documents"
+                " SET status=%s, last_error=%s, progress_done=NULL, progress_total=NULL"
+                " WHERE id=%s",
                 (status, last_error, doc_id),
             )
         conn.commit()
     except Exception:
         logger.warning("documents status update failed doc_id=%s", doc_id, exc_info=True)
+    finally:
+        conn.close()
+
+
+def _set_doc_progress(doc_id: int, done: int, total: int):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE documents SET progress_done=%s, progress_total=%s WHERE id=%s",
+                (done, total, doc_id),
+            )
+        conn.commit()
+    except Exception:
+        logger.warning("documents progress update failed doc_id=%s", doc_id, exc_info=True)
     finally:
         conn.close()
 
@@ -162,7 +179,11 @@ def _process_upload_locked(
 ):
     """실제 업로드 처리 본문. 호출자는 동시 실행을 제한한다."""
     try:
-        items = extract(content, default_source=filename)
+        items = extract(
+            content,
+            default_source=filename,
+            on_progress=lambda done, total: _set_doc_progress(doc_id, done, total),
+        )
     except Exception as exc:
         logger.error("extract 실패 doc_id=%s", doc_id, exc_info=True)
         delete_file(file_path)
@@ -298,7 +319,8 @@ def get_document_status(project_id: int, doc_id: int):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT id, status, last_error FROM documents WHERE id = %s AND project_id = %s",
+                "SELECT id, status, last_error, progress_done, progress_total"
+                " FROM documents WHERE id = %s AND project_id = %s",
                 (doc_id, project_id),
             )
             row = cursor.fetchone()
@@ -318,6 +340,8 @@ def get_document_status(project_id: int, doc_id: int):
         "doc_id": row["id"],
         "status": row["status"],
         "last_error": row.get("last_error"),
+        "progress_done": row.get("progress_done"),
+        "progress_total": row.get("progress_total"),
         "extracted": counts,
     }
 

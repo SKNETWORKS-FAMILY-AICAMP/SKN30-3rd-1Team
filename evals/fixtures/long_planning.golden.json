@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "category": "decision",
+      "must_include": ["검색", "BM25", "하이브리드"],
+      "owner": null,
+      "date": "2026-07-01"
+    },
+    {
+      "category": "action",
+      "must_include": ["박지현", "권한 모델", "정리"],
+      "owner": "박지현",
+      "date": "2026-07-01"
+    },
+    {
+      "category": "issue",
+      "must_include": ["알림", "중복"],
+      "owner": null,
+      "date": "2026-07-01"
+    },
+    {
+      "category": "risk",
+      "must_include": ["Windows", "설치 파일", "누락"],
+      "owner": null,
+      "date": "2026-07-01"
+    }
+  ]
+}

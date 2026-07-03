@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "category": "decision",
+      "must_include": ["15000", "문단 경계", "확정"],
+      "owner": null,
+      "date": "2026-06-30"
+    },
+    {
+      "category": "action",
+      "must_include": ["김민수", "API 문서", "progress_done"],
+      "owner": "김민수",
+      "date": "2026-06-30"
+    },
+    {
+      "category": "action",
+      "must_include": ["박지현", "진행바", "사라지는지"],
+      "owner": "박지현",
+      "date": "2026-06-30"
+    }
+  ]
+}

@@ -87,36 +87,45 @@ def _submit(project_id: int, filename: str, doc_type: str,
         conn.close()
 
     partial = False
-    with st.spinner("LLM 추출 중..."):
-        try:
-            items = extract(content, default_source=filename)
-        except PartialExtractionError as e:
-            # 일부 청크만 실패한 경우 — 성공한 항목은 저장
-            st.warning(f"일부 청크 추출 실패 ({e.failed}/{e.total}). 추출된 항목만 저장합니다.")
-            items = e.items
-            partial = True
-        except Exception as e:
-            _delete_document(doc_id)
-            st.error(f"추출 실패: {e}")
-            return
+    progress = st.progress(0, text="LLM 추출 중...")
 
-        try:
-            for item in items:
-                if not item.date:
-                    item.date = detected_date or None  # LLM이 날짜 미반환 시 문서 날짜로 보완
-            ingest(
-                project_id=project_id,
-                doc_id=doc_id,
-                items=items,
-                raw_text=content,
-                source=filename,
-                date=detected_date,
-                doc_type=doc_type,
-            )
-        except Exception as e:
-            _delete_document(doc_id)
-            st.error(f"저장 실패: {e}")
-            return
+    def on_progress(done: int, total: int):
+        ratio = (done / total) if total else 0
+        progress.progress(ratio, text=f"LLM 추출 중... (청크 {done}/{total})")
+
+    try:
+        items = extract(content, default_source=filename, on_progress=on_progress)
+    except PartialExtractionError as e:
+        # 일부 청크만 실패한 경우 — 성공한 항목은 저장
+        st.warning(f"일부 청크 추출 실패 ({e.failed}/{e.total}). 추출된 항목만 저장합니다.")
+        items = e.items
+        partial = True
+    except Exception as e:
+        progress.empty()
+        _delete_document(doc_id)
+        st.error(f"추출 실패: {e}")
+        return
+
+    try:
+        progress.progress(1.0, text="저장 중...")
+        for item in items:
+            if not item.date:
+                item.date = detected_date or None  # LLM이 날짜 미반환 시 문서 날짜로 보완
+        ingest(
+            project_id=project_id,
+            doc_id=doc_id,
+            items=items,
+            raw_text=content,
+            source=filename,
+            date=detected_date,
+            doc_type=doc_type,
+        )
+    except Exception as e:
+        progress.empty()
+        _delete_document(doc_id)
+        st.error(f"저장 실패: {e}")
+        return
+    progress.empty()
 
     counts = {"decision": 0, "action": 0, "issue": 0, "risk": 0}
     for item in items:

@@ -31,6 +31,20 @@ BEGIN
         ALTER TABLE documents ADD COLUMN last_error TEXT DEFAULT NULL AFTER file_path;
     END IF;
 
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'documents' AND COLUMN_NAME = 'progress_done'
+    ) THEN
+        ALTER TABLE documents ADD COLUMN progress_done INT DEFAULT NULL AFTER last_error;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'documents' AND COLUMN_NAME = 'progress_total'
+    ) THEN
+        ALTER TABLE documents ADD COLUMN progress_total INT DEFAULT NULL AFTER progress_done;
+    END IF;
+
     -- ── 2) repositories 테이블 (CREATE TABLE IF NOT EXISTS 는 MySQL 지원) ──
     CREATE TABLE IF NOT EXISTS repositories (
         id             INT PRIMARY KEY AUTO_INCREMENT,

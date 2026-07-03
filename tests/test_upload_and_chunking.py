@@ -46,6 +46,77 @@ def test_split_text_whitespace_returns_empty():
     assert _split_text("   ") == []
 
 
+# ─── extractor._split_chunks() ──────────────────────────────────────────────
+
+def test_extractor_split_chunks_short_returns_single():
+    from backend.pipeline.extractor import _split_chunks
+    assert _split_chunks("짧은 텍스트", chunk_size=100) == ["짧은 텍스트"]
+
+
+def test_extractor_split_chunks_uses_paragraph_boundaries():
+    from backend.pipeline.extractor import _split_chunks
+    text = "a" * 8 + "\n\n" + "b" * 8 + "\n\n" + "c" * 8
+    chunks = _split_chunks(text, chunk_size=17)
+    assert chunks == ["a" * 8 + "\n\n", "b" * 8 + "\n\n", "c" * 8]
+    assert "".join(chunks) == text
+
+
+def test_extractor_split_chunks_long_single_paragraph_falls_back_to_overlap():
+    from backend.pipeline.extractor import _split_chunks
+    text = "x" * 650
+    chunks = _split_chunks(text, chunk_size=300)
+    assert len(chunks) > 1
+    assert all(len(chunk) <= 300 for chunk in chunks)
+    assert chunks[1] == text[100:400]
+
+
+def test_extractor_split_chunks_no_content_loss_for_paragraph_chunks():
+    from backend.pipeline.extractor import _split_chunks
+    text = "첫 문단입니다.\n\n둘째 문단입니다.\n\n셋째 문단입니다."
+    assert "".join(_split_chunks(text, chunk_size=20)) == text
+
+
+def test_extractor_split_chunks_chunk_size_parameter():
+    from backend.pipeline.extractor import _split_chunks
+    text = "a" * 100
+    assert len(_split_chunks(text)) == 1
+    assert len(_split_chunks(text, chunk_size=30)) > 1
+
+
+def test_extract_reports_progress_for_each_chunk(monkeypatch):
+    from backend.llm.base import LLMResponse
+    from backend.pipeline.extractor import extract
+
+    class Client:
+        def chat(self, **kwargs):
+            return LLMResponse(content="", tool_input={"items": []})
+
+    calls = []
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: Client())
+    monkeypatch.setattr("backend.pipeline.extractor._split_chunks", lambda text: ["one", "two"])
+
+    extract("ignored", on_progress=lambda done, total: calls.append((done, total)))
+
+    assert calls == [(0, 2), (1, 2), (2, 2)]
+
+
+def test_extract_reports_progress_when_chunk_fails(monkeypatch):
+    from backend.pipeline.extractor import PartialExtractionError, extract
+
+    calls = []
+    monkeypatch.setattr("backend.pipeline.extractor.get_llm_client", lambda provider=None: object())
+    monkeypatch.setattr("backend.pipeline.extractor._split_chunks", lambda text: ["one", "two"])
+    mock_extract = MagicMock(side_effect=[[], ValueError("bad chunk")])
+    monkeypatch.setattr("backend.pipeline.extractor._extract_chunk", mock_extract)
+
+    try:
+        extract("ignored", on_progress=lambda done, total: calls.append((done, total)))
+    except PartialExtractionError:
+        pass
+
+    assert calls == [(0, 2), (1, 2), (2, 2)]
+
+
 # ─── upload_document 비동기 경로 ──────────────────────────────────────────────
 
 def _make_conn(fetchone=None, fetchall=None, lastrowid=99):
@@ -73,6 +144,23 @@ def _conn_seq(old_doc_ids=(), new_doc_id=99):
         _make_conn(None, [], new_doc_id),
         _make_conn(None, []),
     ]
+
+
+def test_document_status_includes_progress_fields():
+    """status 응답은 진행률 컬럼을 그대로 내려준다."""
+    from backend.api.upload import get_document_status
+
+    conn = _make_conn(
+        {"id": 99, "status": "processing", "last_error": None, "progress_done": 1, "progress_total": 3},
+        [{"category": "action", "cnt": 2}],
+    )
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        result = get_document_status(1, 99)
+
+    assert result["progress_done"] == 1
+    assert result["progress_total"] == 3
+    assert result["extracted"]["action"] == 2
 
 
 def test_extract_failure_sets_failed_status():
