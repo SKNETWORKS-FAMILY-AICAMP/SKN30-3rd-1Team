@@ -5,6 +5,7 @@
 import streamlit as st
 from backend.db.mysql import get_connection
 from frontend.views import upload, dashboard, chat, timeline
+from frontend.views.upload import _extract_date, _read_pdf, _submit
 
 st.set_page_config(
     page_title="PaiM",
@@ -67,6 +68,47 @@ def create_project(name: str) -> int:
         return project_id
     finally:
         conn.close()
+
+
+def _infer_quick_doc_type(filename: str) -> str:
+    name = filename.lower()
+    if "meeting" in name or "회의" in name:
+        return "meeting"
+    if any(keyword in name for keyword in ("plan", "기획", "roadmap", "spec")):
+        return "planning"
+    return "memo"
+
+
+def _process_sidebar_uploads(project_id: int, files: list) -> list[str]:
+    messages = []
+    for uploaded in files:
+        filename = uploaded.name
+        raw = uploaded.read()
+        if filename.lower().endswith(".pdf"):
+            content = _read_pdf(raw)
+            if not content.strip():
+                message = f"⚠️ {filename} — PDF에서 텍스트를 읽을 수 없습니다."
+                st.caption(message)
+                messages.append(message)
+                continue
+        else:
+            content = raw.decode("utf-8", errors="replace")
+            if not content.strip():
+                message = f"⚠️ {filename} — 문서 내용이 비어 있습니다."
+                st.caption(message)
+                messages.append(message)
+                continue
+
+        summary = _submit(
+            project_id,
+            filename,
+            _infer_quick_doc_type(filename),
+            content,
+            _extract_date(content),
+            compact=True,
+        )
+        messages.append(summary or f"⚠️ {filename} — 업로드 실패")
+    return messages
 
 
 def sidebar():
@@ -141,6 +183,26 @@ def sidebar():
                 st.rerun()
 
     selected_project = next(p for p in projects if p["id"] == selected_id)
+
+    if "sidebar_uploader_key" not in st.session_state:
+        st.session_state.sidebar_uploader_key = 0
+
+    files = st.sidebar.file_uploader(
+        "📤 빠른 업로드",
+        type=["md", "txt", "pdf"],
+        accept_multiple_files=True,
+        key=f"sidebar_upload_{st.session_state.sidebar_uploader_key}",
+    )
+    results = st.session_state.pop("sidebar_upload_result", None)
+    if results:
+        for message in results:
+            st.sidebar.caption(message)
+
+    if files:
+        with st.sidebar:
+            st.session_state.sidebar_upload_result = _process_sidebar_uploads(selected_id, files)
+        st.session_state.sidebar_uploader_key += 1
+        st.rerun()
 
     st.sidebar.divider()
 

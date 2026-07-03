@@ -59,7 +59,7 @@ def _validate_date(date_str: str) -> bool:
 
 
 def _submit(project_id: int, filename: str, doc_type: str,
-            content: str, detected_date: str):
+            content: str, detected_date: str, compact: bool = False):
     """파일 1개 처리 흐름:
     1. documents 테이블에 메타데이터 INSERT
     2. extractor.extract() 로 LLM 추출 (PartialExtractionError 시 부분 저장)
@@ -133,10 +133,17 @@ def _submit(project_id: int, filename: str, doc_type: str,
 
     label = "부분 업로드 완료 (일부 청크 추출 실패)" if partial else "업로드 완료"
     st.success(f"{label} (doc_id: {doc_id})")
-    cols = st.columns(4)
     labels = {"decision": "결정", "action": "액션", "issue": "이슈", "risk": "리스크"}
-    for col, (cat, cnt) in zip(cols, counts.items()):
-        col.metric(labels[cat], cnt)
+    summary = "✅ " + filename + " — " + " · ".join(
+        f"{labels[cat]} {counts[cat]}" for cat in ("decision", "action", "issue", "risk")
+    )
+    if compact:
+        st.caption(summary)
+    else:
+        cols = st.columns(4)
+        for col, (cat, cnt) in zip(cols, counts.items()):
+            col.metric(labels[cat], cnt)
+    return summary
 
 
 def render(project_id: int, project_name: str):
@@ -144,6 +151,24 @@ def render(project_id: int, project_name: str):
     탭 1 — 파일 업로드: 멀티파일 선택 → 파일별 진행바 표시 후 순차 처리.
     탭 2 — 텍스트 입력: 직접 붙여넣기 후 날짜 수동 보정 가능.
     """
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stMainBlockContainer"] [data-testid="stFileUploaderDropzone"],
+        section.main [data-testid="stFileUploaderDropzone"] {
+            min-height: 140px;
+            border: 2px dashed #BDBDBD;
+            border-radius: 12px;
+        }
+        div[data-testid="stMainBlockContainer"] [data-testid="stFileUploaderDropzone"]:hover,
+        section.main [data-testid="stFileUploaderDropzone"]:hover {
+            border-color: #1E88E5;
+            background: #E3F2FD22;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.header(f"문서 업로드 — {project_name}")
 
     tab_file, tab_text = st.tabs(["📁 파일 업로드", "✏️ 텍스트 직접 입력"])
