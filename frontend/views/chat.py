@@ -18,7 +18,13 @@ def render(project_id: int, project_name: str):
     - 기존 메시지 재렌더링 후 새 입력 처리
     - api_history에서 현재 질문은 제외 (qa_engine 내부에서 컨텍스트로 조합됨)
     """
-    st.header(f"Q&A 채팅 — {project_name}")
+    st.header("Q&A 채팅")
+    st.markdown(
+        f'<span style="font-size:12px;font-weight:600;color:#1E88E5;'
+        f'background:#E3F2FD;padding:2px 10px;border-radius:10px;">'
+        f'📁 {html.escape(project_name)}</span>',
+        unsafe_allow_html=True,
+    )
 
     # 프로젝트별 히스토리 키로 분리 (다른 프로젝트 전환 시 각각 유지됨)
     history_key = f"chat_history_{project_id}"
@@ -34,7 +40,7 @@ def render(project_id: int, project_name: str):
             if msg["role"] == "assistant" and msg.get("meta"):
                 _render_meta(msg["meta"])
 
-    question = st.chat_input("프로젝트에 대해 질문하세요...")
+    question = st.chat_input(f"{project_name} 프로젝트에 대해 질문하세요...")
     if not question:
         return
 
