@@ -1234,7 +1234,7 @@ async function verifyProjectCreationFlow(send) {
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
-        hasCreateTrigger: Boolean(Array.from(document.querySelectorAll('.project-create-trigger')).find((button) => button.textContent.includes('New Project'))),
+        hasCreateTrigger: Boolean(Array.from(document.querySelectorAll('.project-create-trigger')).find((button) => /New Project|새 프로젝트/.test(button.textContent || ''))),
         hasCreateMenu: Boolean(document.querySelector('.project-create-menu')),
       };
     })()`,
@@ -3638,10 +3638,11 @@ async function verifyProjectPanelCollapse(send) {
     returnByValue: true,
     expression: `(() => {
       const shell = document.querySelector('.app-shell');
-      const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const panel = document.querySelector('.project-panel')?.getBoundingClientRect();
       return {
         collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
-        panelWidth: panel.width,
+        hasPanel: Boolean(panel),
+        panelWidth: panel?.width ?? 0,
         hasRailButton: Boolean(document.querySelector('.project-panel-rail-toggle')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
         stored: localStorage.getItem(${JSON.stringify(PROJECT_PANEL_COLLAPSED_STORAGE_KEY)}) || "",
@@ -3683,8 +3684,8 @@ async function verifyProjectPanelCollapse(send) {
     failures.push("project panel collapsed state should be stored after clicking collapse");
   }
 
-  if (value.collapsed.panelWidth > 70 || !value.collapsed.hasRailButton) {
-    failures.push(`collapsed project panel should become a narrow rail: ${value.collapsed.panelWidth}`);
+  if (value.collapsed.hasPanel || !value.collapsed.hasRailButton) {
+    failures.push(`collapsed project panel should unmount content and leave the chrome rail button: ${value.collapsed.panelWidth}`);
   }
 
   if (!value.collapsed.hasPrompt) {

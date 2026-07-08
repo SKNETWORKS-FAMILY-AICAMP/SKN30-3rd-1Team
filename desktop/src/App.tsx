@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { AppShell } from "@astryxdesign/core/AppShell";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -31,6 +32,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Divider } from "@astryxdesign/core/Divider";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { Layout, LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout";
 import { Markdown } from "@astryxdesign/core/Markdown";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Slider } from "@astryxdesign/core/Slider";
@@ -5153,6 +5155,23 @@ export function App() {
             </div>
           ) : null}
         </div>
+        <AppShell
+          className="paim-astryx-app-shell"
+          contentPadding={0}
+          mobileNav={false}
+          variant="surface"
+        >
+        <Layout
+          className="paim-frame-layout"
+          height="fill"
+          padding={0}
+          start={
+            <LayoutPanel
+              className="sidebar-layout-panel"
+              isScrollable={false}
+              padding={0}
+              width={isSidebarCollapsed ? 0 : sidebarWidth}
+            >
         <aside className="sidebar">
           <div className="sidebar-header" />
 
@@ -5416,6 +5435,10 @@ export function App() {
           </div>
         ) : null}
       </aside>
+            </LayoutPanel>
+          }
+          content={
+            <LayoutContent className="main-layout-content" padding={0}>
 
       <main
         className="chat"
@@ -5865,8 +5888,17 @@ export function App() {
           </div>
         )}
       </main>
+            </LayoutContent>
+          }
+          end={
 
-      {showProjectPanel && selectedProject ? (
+            showProjectPanel && selectedProject && !isProjectPanelCollapsed ? (
+        <LayoutPanel
+          className="project-panel-layout-panel"
+          isScrollable={false}
+          padding={0}
+          width={isProjectPanelMaximized ? 0 : projectPanelWidth}
+        >
         <aside
           className="project-panel"
           data-collapsed={isProjectPanelCollapsed}
@@ -6092,7 +6124,11 @@ export function App() {
             </>
           )}
         </aside>
-      ) : null}
+        </LayoutPanel>
+            ) : undefined
+          }
+        />
+        </AppShell>
       </div>
       </Theme>
     </I18nProvider>

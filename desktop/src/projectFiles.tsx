@@ -651,6 +651,16 @@ export function ProjectFilesPanel({
       data-drop-zone="project-files"
       data-single-file={isSelectedSourceFile ? "true" : undefined}
       data-tree-collapsed={isTreeCollapsed}
+      onMouseDown={(event) => {
+        if (!isTreeCollapsed || isSelectedSourceFile || (event.target as Element).closest("button")) {
+          return;
+        }
+
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX >= bounds.right - 56) {
+          onTreeResizeStart(event);
+        }
+      }}
     >
       <div className="project-files-header">
         <div className="project-files-toolbar">
@@ -737,7 +747,15 @@ export function ProjectFilesPanel({
         )}
       </div>
       {!isSelectedSourceFile ? (
-        <div className="project-files-tree-pane">
+        <div
+          className="project-files-tree-pane"
+          onMouseDown={(event) => {
+            if (!isTreeCollapsed || (event.target as Element).closest("button")) {
+              return;
+            }
+            onTreeResizeStart(event);
+          }}
+        >
           <div
             aria-label={t("파일 트리 크기 조절")}
             aria-orientation="vertical"

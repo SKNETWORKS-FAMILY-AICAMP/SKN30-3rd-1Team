@@ -104,8 +104,8 @@ button {
   --project-panel-control-cluster-width: 96px;
   --window-radius: 0px;
   --prompt-width: 1240px;
-  display: grid;
-  grid-template-columns: var(--sidebar-width, 272px) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 100vh;
   border: 1px solid var(--border);
@@ -114,17 +114,11 @@ button {
   overscroll-behavior: none;
   background: var(--bg);
   color: var(--text);
-  transition: grid-template-columns 180ms ease;
-}
-
-.app-shell[data-sidebar-collapsed="true"] {
-  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .app-shell[data-platform="windows"] {
   --titlebar-offset: 34px;
   --window-control-cluster-width: 48px;
-  grid-template-rows: 34px minmax(0, 1fr);
 }
 
 .app-shell[data-platform="macos"] {
@@ -180,6 +174,32 @@ button {
   white-space: nowrap;
 }
 
+.paim-frame-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.paim-astryx-app-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  background: transparent;
+}
+
+.sidebar-layout-panel {
+  overflow: hidden;
+  transition: width 180ms ease;
+}
+
+.main-layout-content {
+  min-width: 0;
+}
+
+.project-panel-layout-panel {
+  overflow: visible;
+  transition: width 180ms ease;
+}
+
 .windows-titlebar-controls {
   display: flex;
   height: 100%;
@@ -211,11 +231,11 @@ button {
 
 .sidebar {
   position: relative;
-  grid-column: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
   padding: 42px 12px 14px;
   border-right: 1px solid var(--border);
@@ -688,7 +708,6 @@ button {
 
 .chat {
   position: relative;
-  grid-column: 2;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   height: 100%;
@@ -3240,7 +3259,6 @@ button {
 @media (max-width: 1180px) {
   .app-shell {
     --content-gutter: 48px;
-    grid-template-columns: var(--sidebar-width, 272px) minmax(0, 1fr);
   }
 
   .chat-scroll {
@@ -3257,11 +3275,6 @@ button {
   .app-shell {
     --content-gutter: 20px;
     position: relative;
-    grid-template-columns: 44px minmax(0, 1fr);
-  }
-
-  .app-shell[data-sidebar-collapsed="true"] {
-    grid-template-columns: 0 minmax(0, 1fr);
   }
 
   .sidebar {
@@ -3368,27 +3381,14 @@ button {
 
 }
 
-.app-shell[data-project-panel="true"] {
-  grid-template-columns:
-    var(--sidebar-width, 272px)
-    minmax(0, 1fr)
-    var(--project-panel-width, 360px);
-}
-
-.app-shell[data-project-panel="true"][data-sidebar-collapsed="true"] {
-  grid-template-columns:
-    0
-    minmax(0, 1fr)
-    var(--project-panel-width, 360px);
-}
-
 .project-panel {
   position: relative;
-  grid-column: 3;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  height: 100%;
+  width: 100%;
   overflow: hidden;
   border-left: 1px solid var(--border);
   background: var(--bg);
@@ -3443,13 +3443,13 @@ button {
 }
 
 .app-shell[data-project-panel-maximized="true"] .project-panel {
-  position: absolute;
+  position: fixed;
   z-index: 60;
   top: 0;
   right: 0;
   bottom: 0;
   left: var(--sidebar-width, 272px);
-  grid-column: auto;
+  width: auto;
   border-left: 0;
 }
 
@@ -4158,6 +4158,11 @@ button {
   padding: 12px 4px;
 }
 
+.project-files-panel[data-tree-collapsed="true"] .project-files-tree-resize-handle {
+  left: 0;
+  width: 44px;
+}
+
 .project-files-panel[data-tree-collapsed="true"] .project-files-search,
 .project-files-panel[data-tree-collapsed="true"] .project-file-tree,
 .project-files-panel[data-tree-collapsed="true"] .overview-empty-text {
@@ -4182,31 +4187,7 @@ button {
   justify-self: start;
 }
 
-@media (max-width: 1180px) {
-  .app-shell[data-project-panel="true"] {
-    grid-template-columns:
-      var(--sidebar-width, 272px)
-      minmax(0, 1fr)
-      var(--project-panel-width, 360px);
-  }
-
-  .app-shell[data-project-panel="true"][data-sidebar-collapsed="true"] {
-    grid-template-columns:
-      0
-      minmax(0, 1fr)
-      var(--project-panel-width, 360px);
-  }
-}
-
 @media (max-width: 860px) {
-  .app-shell[data-project-panel="true"] {
-    grid-template-columns: 44px minmax(0, 1fr);
-  }
-
-  .app-shell[data-project-panel="true"][data-sidebar-collapsed="true"] {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-
   .project-panel {
     display: none;
   }
