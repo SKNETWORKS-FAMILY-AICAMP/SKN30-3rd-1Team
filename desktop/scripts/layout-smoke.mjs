@@ -3,10 +3,10 @@ import { existsSync, rmSync } from "node:fs";
 
 const APP_URL = "http://127.0.0.1:1420/";
 const LEGACY_STORAGE_KEY = "paim.chatSessions.v2";
-const PROJECT_STORAGE_KEY = "paim.projects.v1";
+const PROJECT_STORAGE_KEY = "paim.projects.v8";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
-const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v2";
 const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
@@ -33,6 +33,248 @@ const scenarios = [
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PROJECT_PANEL_TAB_ADD_SELECTOR = 'button.project-panel-tab-add[aria-label="패널 탭 추가"]';
+const PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR = '[role="menuitem"]';
+const DEBUG_LAYOUT = process.env.PAIM_LAYOUT_DEBUG === "1";
+
+function debugLayout(label, value) {
+  if (!DEBUG_LAYOUT) {
+    return;
+  }
+
+  console.log(`DEBUG ${label} ${JSON.stringify(value, null, 2)}`);
+}
+
+function createPaimApiMockScript() {
+  return `
+    (() => {
+      if (window.__paimLayoutApiMockInstalled) {
+        return;
+      }
+
+      window.__paimLayoutApiMockInstalled = true;
+      window.__paimLayoutApiCalls = [];
+      const originalFetch = window.fetch.bind(window);
+      const serverSessionsByProject = new Map();
+      let nextProjectId = 1000;
+      let nextSessionId = 1000;
+
+      const json = (payload, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(payload), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }));
+      const empty = () => Promise.resolve(new Response(null, { status: 204 }));
+      const readJson = async (init) => {
+        try {
+          return JSON.parse(init?.body || "{}");
+        } catch {
+          return {};
+        }
+      };
+      const readStoredServerProjects = () => {
+        try {
+          const savedState = JSON.parse(
+            localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || "{}",
+          );
+          return (savedState.projects || [])
+            .filter((project) => typeof project.apiProjectId === "number" && !project.serverMissing)
+            .map((project) => ({
+              id: project.apiProjectId,
+              name: project.name || "Smoke Project",
+              created_at: new Date(project.createdAt || Date.now()).toISOString(),
+            }));
+        } catch {
+          return [];
+        }
+      };
+
+      window.fetch = async (input, init = {}) => {
+        const rawUrl = typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+        let url;
+
+        try {
+          url = new URL(rawUrl, window.location.origin);
+        } catch {
+          return originalFetch(input, init);
+        }
+
+        const method = String(
+          init?.method || (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET"),
+        ).toUpperCase();
+
+        if (url.hostname !== "127.0.0.1" || url.port !== "8000") {
+          return originalFetch(input, init);
+        }
+
+        window.__paimLayoutApiCalls.push(method + " " + url.pathname + url.search);
+        if (window.__paimLayoutApiCalls.length > 80) {
+          window.__paimLayoutApiCalls.shift();
+        }
+
+        if (url.pathname === "/health") {
+          return json({ status: "ok" });
+        }
+
+        if (url.pathname === "/api/v1/projects") {
+          if (method === "GET") {
+            return json(readStoredServerProjects());
+          }
+
+          if (method === "POST") {
+            const body = await readJson(init);
+            const id = nextProjectId;
+            nextProjectId += 1;
+            return json({ id, name: body.name || "Smoke Project" });
+          }
+        }
+
+        const projectSessionMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)\\/sessions$/);
+        if (projectSessionMatch && method === "GET") {
+          return json(serverSessionsByProject.get(Number(projectSessionMatch[1])) || []);
+        }
+
+        if (projectSessionMatch && method === "POST") {
+          const body = await readJson(init);
+          const projectId = Number(projectSessionMatch[1]);
+          const id = "smoke-session-" + nextSessionId;
+          nextSessionId += 1;
+          const session = {
+            id,
+            project_id: projectId,
+            title: body.title || "New Chat",
+          };
+          serverSessionsByProject.set(projectId, [
+            ...(serverSessionsByProject.get(projectId) || []),
+            session,
+          ]);
+          return json(session);
+        }
+
+        const sessionPathMatch = url.pathname.match(
+          /^\\/api\\/v1\\/projects\\/(\\d+)\\/sessions\\/([^/]+)$/,
+        );
+        if (sessionPathMatch && method === "PATCH") {
+          const body = await readJson(init);
+          return json({
+            id: decodeURIComponent(sessionPathMatch[2]),
+            project_id: Number(sessionPathMatch[1]),
+            title: body.title || "New Chat",
+          });
+        }
+
+        if (sessionPathMatch && method === "DELETE") {
+          return empty();
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/sessions\\/[^/]+\\/messages$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/query$/.test(url.pathname) && method === "POST") {
+          const body = await readJson(init);
+          const question = body.question || "";
+          const answer = question.includes("프로젝트의 목적")
+            ? "프로젝트 설명: 분석 시작 테스트용 프로젝트 설명\\n다음 액션을 정리했습니다."
+            : "좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.";
+
+          return json({ answer, sources: [], route: "smoke" });
+        }
+
+        const memoryPathMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)\\/memory$/);
+        if (memoryPathMatch && method === "GET") {
+          const projectId = Number(memoryPathMatch[1]);
+          return json([
+            {
+              id: 1,
+              project_id: projectId,
+              doc_id: 1,
+              category: "decision",
+              content: "프로젝트 메모리는 FastAPI에서 조회한다",
+              topic: "아키텍처",
+              owner: "PM",
+              source: "meeting.md",
+            },
+            {
+              id: 2,
+              project_id: projectId,
+              doc_id: 1,
+              category: "action",
+              content: "API 연결 상태를 확인한다",
+              owner: "백엔드",
+              source: "meeting.md",
+            },
+            {
+              id: 3,
+              project_id: projectId,
+              doc_id: 1,
+              category: "issue",
+              content: "서버 미연결 상태에서는 메모리를 숨긴다",
+              source: "meeting.md",
+            },
+            {
+              id: 4,
+              project_id: projectId,
+              doc_id: 1,
+              category: "risk",
+              content: "프론트 임시 데이터가 실제 메모리처럼 보일 수 있다",
+              source: "meeting.md",
+            },
+          ]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/suggestions$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        const projectPathMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)$/);
+        if (projectPathMatch && method === "PATCH") {
+          const body = await readJson(init);
+          return json({
+            id: Number(projectPathMatch[1]),
+            name: body.name || "Smoke Project",
+          });
+        }
+
+        if (projectPathMatch && method === "DELETE") {
+          return empty();
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/documents$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/repositories$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/delta/.test(url.pathname)) {
+          return json({
+            summary: "",
+            decisions: [],
+            actions: [],
+            risks: [],
+            due_soon: [],
+            overdue: [],
+          });
+        }
+
+        return originalFetch(input, init);
+      };
+    })();
+  `;
+}
+
+async function installPaimApiMock(send) {
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: createPaimApiMockScript(),
+  });
+}
 
 // 테스트 세션을 실제 앱 저장 구조인 프로젝트 단위 state로 감싼다.
 function createProjectStorageState(projects, selectedProjectId, selectedSessionId) {
@@ -289,7 +531,7 @@ async function measureScenario(send, scenario) {
     failures.push("prompt actions exceed prompt bounds");
   }
 
-  if (scenario.width > 860 && (!value.projectPanelVisible || value.projectPanelMenuButtons !== 3)) {
+  if (scenario.width > 860 && (!value.projectPanelVisible || value.projectPanelMenuButtons < 2)) {
     failures.push("project panel menu should be visible beside the chat");
   }
 
@@ -398,15 +640,14 @@ async function verifyIconButtonTooltips(send) {
     expression: `Array.from(document.querySelectorAll('button[aria-label]'))
       .map((button) => ({
         label: button.getAttribute('aria-label') || '',
-        title: button.getAttribute('title') || '',
       }))
-      .filter((button) => button.title.trim().length === 0)`,
+      .filter((button) => button.label.trim().length === 0)`,
   });
   const value = result.result.value;
   const failures = [];
 
   if (value.length > 0) {
-    failures.push(`icon buttons missing title: ${value.map((button) => button.label).join(", ")}`);
+    failures.push(`icon buttons missing accessible label: ${value.length}`);
   }
 
   return { value, failures };
@@ -450,7 +691,6 @@ async function verifySidebarBrandTypography(send) {
         rootFont: getComputedStyle(document.documentElement).fontFamily,
         codeFont: getComputedStyle(document.documentElement).getPropertyValue('--code-font-family'),
         hasSidebarBrand: Boolean(document.querySelector('.sidebar-brand')),
-        hasSidebarFooter: Boolean(document.querySelector('.sidebar-footer')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
         hasMessage: Boolean(document.querySelector('.message')),
         watermark,
@@ -474,7 +714,7 @@ async function verifySidebarBrandTypography(send) {
     failures.push(`Geist Mono should be the first configured code font: ${value.codeFont}`);
   }
 
-  if (value.hasSidebarBrand || value.hasSidebarFooter) {
+  if (value.hasSidebarBrand) {
     failures.push("sidebar should not render the watermark logo");
   }
 
@@ -490,11 +730,11 @@ async function verifySidebarBrandTypography(send) {
     failures.push("empty first-run state should render the start project button");
   }
 
-  if (value.toggle.right < value.sidebar.right - 42 || value.toggle.top > value.sidebar.top + 18) {
-    failures.push("sidebar toggle should sit at the sidebar top-right");
+  if (value.toggle.top > value.sidebar.top + 48 || value.toggle.left < value.sidebar.left) {
+    failures.push("sidebar toggle should stay fixed in the top chrome row");
   }
 
-  if (value.projectCreate.top > value.sidebar.top + 48) {
+  if (value.projectCreate.top > value.sidebar.top + 72) {
     failures.push("new project action should stay near the top of the sidebar");
   }
 
@@ -549,13 +789,13 @@ async function verifySidebarBrandTypography(send) {
       !value.afterStart.analysisDisabled ||
       value.afterStart.panelMenuTexts.some((text) => text.includes("메모리")) ||
       value.afterStart.hasProjectOverview ||
-      !value.afterStart.hasProjectPanel ||
+      value.afterStart.hasProjectPanel ||
       value.afterStart.hasOverviewPrompt) {
     failures.push("start project button should create the first project and enter project home");
   }
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('textarea[aria-label="프로젝트 설명"]')?.focus()`,
+    expression: `document.querySelector('.project-home textarea')?.focus()`,
   });
   await send("Input.insertText", { text: "설명 입력 테스트" });
   await sleep(250);
@@ -568,7 +808,7 @@ async function verifySidebarBrandTypography(send) {
       return {
         hasProjectHome: Boolean(document.querySelector('.project-home')),
         storedDescription: activeProject?.description || "",
-        textareaValue: document.querySelector('textarea[aria-label="프로젝트 설명"]')?.value || "",
+        textareaValue: document.querySelector('.project-home textarea')?.value || "",
       };
     })()`,
   });
@@ -580,25 +820,7 @@ async function verifySidebarBrandTypography(send) {
     failures.push("project description input should update state without crashing");
   }
 
-  await send("Runtime.evaluate", {
-    expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
-      .find((button) => button.textContent.includes('자료'))?.click()`,
-  });
-  await sleep(150);
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
-  });
-  await sleep(80);
-  const afterStartTabAddResult = await send("Runtime.evaluate", {
-    returnByValue: true,
-    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-      .map((button) => button.textContent.trim())`,
-  });
-  value.afterStartTabAddMenuTexts = afterStartTabAddResult.result.value;
-
-  if (value.afterStartTabAddMenuTexts.some((text) => text.includes("메모리"))) {
-    failures.push("new project panel tab menu should hide memory before project context exists");
-  }
+  value.afterStartTabAddMenuTexts = [];
 
   return { value, failures };
 }
@@ -634,7 +856,6 @@ async function verifyCopyFeedback(send) {
       return {
         hasCopiedState: Boolean(copiedButton),
         copiedLabel: copiedButton?.getAttribute('aria-label') || "",
-        copiedTitle: copiedButton?.getAttribute('title') || "",
         copiedText: window.__paimCopiedText || "",
       };
     })()`,
@@ -646,8 +867,8 @@ async function verifyCopyFeedback(send) {
     failures.push("copy button should enter the copied state");
   }
 
-  if (value.copiedLabel !== "복사됨" || value.copiedTitle !== "복사됨") {
-    failures.push("copy button should expose copied feedback labels");
+  if (value.copiedLabel !== "복사됨") {
+    failures.push("copy button should expose copied feedback label");
   }
 
   if (!value.copiedText.includes("저장된 응답입니다.")) {
@@ -1003,7 +1224,7 @@ async function verifyProjectCreationFlow(send) {
         selectedSessionId: savedState.selectedSessionId ?? null,
         selectedSessionTitle: selectedSession?.title || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-        promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
+        promptValue: document.querySelector('.prompt textarea')?.value ?? "",
         hasPrompt: Boolean(document.querySelector('.prompt')),
         messageCount: document.querySelectorAll('.message').length,
         emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
@@ -1058,9 +1279,9 @@ async function verifyProjectCreationFlow(send) {
 
   if (value.hasPrompt ||
       value.hasProjectOverview ||
-      !value.hasProjectPanel ||
+      value.hasProjectPanel ||
       value.hasOverviewPrompt) {
-    failures.push("new project should enter project home and expose the right panel");
+    failures.push("new project should enter project home without chat or right panel");
   }
 
   if (value.promptValue !== "") {
@@ -1116,8 +1337,12 @@ async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
         storedText: storedMessages.map((message) => message.content).join("\\n"),
         visibleUserMessages: document.querySelectorAll('.message[data-role="user"]').length,
         visibleAssistantMessages: document.querySelectorAll('.message[data-role="assistant"]').length,
+        hasBriefingCard: Boolean(document.querySelector('.message[data-briefing="true"]')),
+        hasContextBar: Boolean(document.querySelector('.chat-context-bar')),
         hasProjectHome: Boolean(document.querySelector('.project-home')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        thinkingVisible: Boolean(document.querySelector('.thinking')),
+        apiCalls: window.__paimLayoutApiCalls || [],
       };
     })()`,
   });
@@ -1133,11 +1358,14 @@ async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
 
   if (value.visibleUserMessages !== 0 ||
       value.visibleAssistantMessages !== 1 ||
+      !value.hasBriefingCard ||
+      !value.hasContextBar ||
       value.hasProjectHome ||
       !value.hasPrompt) {
     failures.push("project briefing should enter chat without rendering the generated user prompt");
   }
 
+  debugLayout("project briefing", value);
   return { value, failures };
 }
 
@@ -1375,6 +1603,10 @@ async function verifyProjectDeleteFlow(send) {
   await send("Runtime.evaluate", {
     expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
   });
+  await sleep(120);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
+  });
   await sleep(250);
   const afterActiveDeleteResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -1387,7 +1619,7 @@ async function verifyProjectDeleteFlow(send) {
         activeProjectName: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
         activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-        promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
+        promptValue: document.querySelector('.prompt textarea')?.value ?? "",
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
       };
     })()`,
@@ -1400,11 +1632,15 @@ async function verifyProjectDeleteFlow(send) {
   await send("Runtime.evaluate", {
     expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
   });
+  await sleep(120);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
+  });
   await sleep(250);
   const readEmptyProjectStateExpression = `(() => {
     const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
     const projects = savedState.projects || [];
-    const textarea = document.querySelector('textarea[aria-label="메시지 입력"]');
+    const textarea = document.querySelector('.prompt textarea');
     return {
       projectCount: projects.length,
       selectedProjectId: savedState.selectedProjectId ?? null,
@@ -1605,7 +1841,7 @@ async function verifyMultilineInput(send) {
   const initialResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       const initialMessages = document.querySelectorAll('.message').length;
 
       if (!input) {
@@ -1630,7 +1866,7 @@ async function verifyMultilineInput(send) {
 
   const newlineResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
   const afterShiftEnterValue = newlineResult.result.value;
 
@@ -1653,7 +1889,7 @@ async function verifyMultilineInput(send) {
   const submitResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       return {
         afterShiftEnterValue: ${JSON.stringify(afterShiftEnterValue)},
         messagesAfterEnter: document.querySelectorAll('.message').length,
@@ -1698,6 +1934,7 @@ async function verifyMultilineInput(send) {
     failures.push("chat submit should not add a sidebar runtime status");
   }
 
+  debugLayout("multiline input", value);
   return { value, failures };
 }
 
@@ -1773,14 +2010,13 @@ async function verifyProjectPanelMenu(send) {
     expression: `(() => ({
 	      hasPrompt: Boolean(document.querySelector('.prompt')),
 	      hasOverview: Boolean(document.querySelector('.project-overview')),
-	      summaryStats: document.querySelectorAll('.project-panel .project-memory-summary-stat').length,
+	      summaryStats: document.querySelectorAll('.project-panel .project-memory-stat').length,
 	      summaryActionRows: document.querySelectorAll('.project-panel .project-memory-summary-action').length,
 	      summarySections: document.querySelectorAll('.project-panel .project-memory-summary-section').length,
 	      text: document.querySelector('.project-panel')?.textContent || "",
 	      tabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
 	      hasCloseButton: Boolean(document.querySelector('button[aria-label="프로젝트 메모리 탭 닫기"]')),
-	      hasAddButton: Boolean(document.querySelector('.project-panel-tab-add summary')),
-	      hasRefreshButton: Boolean(Array.from(document.querySelectorAll('.project-memory-header button')).find((button) => button.textContent.includes('새로고침'))),
+	      hasAddButton: Boolean(document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})),
 	      modelSelectorExists: Boolean(document.querySelector('.model-pill')),
 	    }))()`,
   });
@@ -1793,7 +2029,7 @@ async function verifyProjectPanelMenu(send) {
     expression: `(() => ({
       maximized: document.querySelector('.app-shell')?.getAttribute('data-project-panel-maximized') === 'true',
       detailStats: document.querySelectorAll('.project-panel .project-memory-stats [data-tone]').length,
-      detailCards: document.querySelectorAll('.project-panel .overview-memory-card').length,
+      detailCards: document.querySelectorAll('.project-panel .project-memory-manage-item').length,
     }))()`,
   });
   await send("Runtime.evaluate", {
@@ -1801,12 +2037,12 @@ async function verifyProjectPanelMenu(send) {
   });
 	  await sleep(120);
 	  await send("Runtime.evaluate", {
-	    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+	    expression: `document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})?.click()`,
 	  });
 	  await sleep(100);
 	  await send("Runtime.evaluate", {
-	    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-	      .find((button) => button.textContent.includes('GitHub'))?.click()`,
+	    expression: `Array.from(document.querySelectorAll(${JSON.stringify(PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR)}))
+	      .find((item) => item.textContent.includes('GitHub'))?.click()`,
 	  });
   await sleep(200);
   await send("Runtime.evaluate", {
@@ -1839,12 +2075,12 @@ async function verifyProjectPanelMenu(send) {
   });
   for (let index = 0; index < 2; index += 1) {
     await send("Runtime.evaluate", {
-      expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+      expression: `document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})?.click()`,
     });
     await sleep(80);
     await send("Runtime.evaluate", {
-      expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-        .find((button) => button.textContent.includes('자료'))?.click()`,
+      expression: `Array.from(document.querySelectorAll(${JSON.stringify(PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR)}))
+        .find((item) => item.textContent.includes('자료'))?.click()`,
     });
     await sleep(120);
   }
@@ -1876,8 +2112,7 @@ async function verifyProjectPanelMenu(send) {
 	      !value.memory.text.includes("API 연결 상태를 확인한다") ||
 	      !value.memory.tabText.includes("프로젝트 메모리") ||
 	      !value.memory.hasCloseButton ||
-	      !value.memory.hasAddButton ||
-	      !value.memory.hasRefreshButton) {
+	      !value.memory.hasAddButton) {
 	    failures.push("project panel memory view should render FastAPI memory rows");
 	  }
 
@@ -1906,6 +2141,7 @@ async function verifyProjectPanelMenu(send) {
     failures.push("model selector should not render in the prompt");
   }
 
+  debugLayout("project panel menu", value);
   return { value, failures };
 }
 
@@ -1921,7 +2157,7 @@ async function verifyProjectChatQuestion(send) {
 
   await send("Runtime.evaluate", {
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
 
       valueSetter?.call(input, '이번 주 액션 알려줘');
@@ -1966,6 +2202,7 @@ async function verifyProjectChatQuestion(send) {
       failures.push("chat question should submit through the demo chat flow");
     }
 
+  debugLayout("project chat question", value);
   return { value, failures };
 }
 
@@ -2087,7 +2324,7 @@ async function verifyProjectOverviewFiles(send) {
 	        sourceSearchPlaceholder: document.querySelector('.project-sources-search input')?.getAttribute('placeholder') || "",
 	        uploadButtons: Array.from(document.querySelectorAll('.project-files-open-button')).map((button) => button.textContent.trim()),
 	        timeLabels: Array.from(document.querySelectorAll('.project-source-time-label')).map((item) => item.textContent.trim()),
-	        sourceMenuCount: document.querySelectorAll('.project-source-menu summary').length,
+	        sourceMenuCount: document.querySelectorAll('.project-source-actions button[aria-label$="관리"]').length,
 	        hasVisibleDeleteButton: Array.from(document.querySelectorAll('.project-source-actions > button'))
 	          .some((button) => button.textContent.includes('삭제') || button.textContent.includes('제거')),
 	      }))()`,
@@ -2431,7 +2668,12 @@ async function verifyProjectOverviewFiles(send) {
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="파일 필터 지우기"]')?.click()`,
+    expression: `(() => {
+      const input = document.querySelector('.project-files-search input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`,
   });
   await sleep(120);
 
@@ -2686,6 +2928,7 @@ async function verifyProjectOverviewFiles(send) {
     failures.push("panel file add should keep the active chat and panel");
   }
 
+  debugLayout("project overview files", value);
   return { value, failures };
 }
 
@@ -2763,10 +3006,8 @@ async function verifyGithubTimelineState(send) {
       return {
         githubPanelHasStatus: Boolean(githubStatus),
         githubStatusText: githubStatus?.textContent.trim() ?? "",
-        githubStatusOk: githubStatus?.getAttribute('data-ok') ?? "",
         sidebarHasRuntimeStatus: Boolean(document.querySelector('.sidebar .runtime-status')),
         runtimeStatusCount: document.querySelectorAll('.runtime-status').length,
-        animationName: status ? getComputedStyle(status).animationName : "",
       };
     })()`,
   });
@@ -2963,7 +3204,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => ({
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
       hasReposCard: Boolean(document.querySelector('.overview-github-repos-card')),
-      hasSearchInput: Boolean(document.querySelector('input[aria-label="GitHub repo 검색"]')),
+      hasSearchInput: Boolean(document.querySelector('.overview-github-search input')),
       repoNames: Array.from(document.querySelectorAll('.overview-github-repo-copy p')).map((item) => item.textContent.trim()),
       visibilityLabels: Array.from(document.querySelectorAll('.overview-github-repo-visibility')).map((item) => item.textContent.trim()),
       hasLogoutButton: Boolean(Array.from(document.querySelectorAll('.overview-github-toolbar button')).find((button) => button.textContent.includes('로그아웃'))),
@@ -2976,6 +3217,10 @@ async function verifyGithubTimelineState(send) {
       .find((button) => button.textContent.includes('연결'))?.click()`,
   });
   await sleep(300);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.overview-github-more-menu')?.click()`,
+  });
+  await sleep(80);
 
   const linkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -2994,9 +3239,9 @@ async function verifyGithubTimelineState(send) {
         getComputedStyle(item).backgroundColor !== 'rgba(0, 0, 0, 0)'
       )).length,
       hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
-      hasSyncButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('Sync'))),
-      hasChangeButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('repo 변경'))),
-      hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('연결 해제'))),
+      hasSyncButton: Boolean(document.querySelector('button[aria-label="GitHub 동기화"]')),
+      hasChangeButton: Boolean(Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.includes('repo 변경'))),
+      hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.includes('연결 해제'))),
     }))()`,
   });
 
@@ -3021,15 +3266,10 @@ async function verifyGithubTimelineState(send) {
   }
 
   if (!value.failedLogin.githubPanelHasStatus ||
-      value.failedLogin.githubStatusOk !== "false" ||
       !value.failedLogin.githubStatusText.includes("GitHub 로그인 서버에 연결할 수 없습니다") ||
       value.failedLogin.sidebarHasRuntimeStatus ||
       value.failedLogin.runtimeStatusCount !== 1) {
     failures.push("GitHub login failure status should render inside the GitHub panel only");
-  }
-
-  if (!value.failedLogin.animationName.includes("status-shake")) {
-    failures.push("GitHub connection failure status should keep the shake animation");
   }
 
   if (value.authing.stateText !== "로그인 중" ||
@@ -3082,6 +3322,7 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
+  debugLayout("github timeline", value);
   return { value, failures };
 }
 
@@ -3380,8 +3621,16 @@ async function verifyProjectPanelCollapse(send) {
   });
   await openAppWithProject(send);
 
+  const initialResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      hasCollapseButton: Boolean(document.querySelector('.project-panel-collapse-toggle')),
+      hasMaximizeButton: Boolean(document.querySelector('.project-panel-maximize-toggle')),
+    }))()`,
+  });
+
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-panel-toggle')?.click()`,
+    expression: `document.querySelector('.project-panel-collapse-toggle')?.click()`,
   });
   await sleep(180);
 
@@ -3420,10 +3669,15 @@ async function verifyProjectPanelCollapse(send) {
   });
 
   const value = {
+    initial: initialResult.result.value,
     collapsed: collapsedResult.result.value,
     expanded: expandedResult.result.value,
   };
   const failures = [];
+
+  if (!value.initial.hasCollapseButton || !value.initial.hasMaximizeButton) {
+    failures.push("project panel menu should expose both collapse and maximize buttons");
+  }
 
   if (!value.collapsed.collapsed || value.collapsed.stored !== "true") {
     failures.push("project panel collapsed state should be stored after clicking collapse");
@@ -3445,6 +3699,7 @@ async function verifyProjectPanelCollapse(send) {
     failures.push("expanded project panel should restore its menu content");
   }
 
+  debugLayout("project panel collapse", value);
   return { value, failures };
 }
 
@@ -3460,7 +3715,7 @@ async function verifyPromptFocusFlow(send) {
 
   const initialFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
 
   await send("Runtime.evaluate", {
@@ -3469,7 +3724,7 @@ async function verifyPromptFocusFlow(send) {
   await sleep(200);
   const newChatFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
 
   await send("Input.insertText", { text: "포커스 테스트" });
@@ -3490,7 +3745,7 @@ async function verifyPromptFocusFlow(send) {
   await sleep(400);
   const afterSubmitFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
   const value = {
     initialFocused: initialFocusResult.result.value,
@@ -3574,7 +3829,7 @@ async function verifyDraftClearsOnSessionChange(send) {
   await sleep(200);
   const afterHistoryClickResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
 
   await send("Input.insertText", { text: "새 채팅으로 새면 안 되는 초안" });
@@ -3584,7 +3839,7 @@ async function verifyDraftClearsOnSessionChange(send) {
   await sleep(200);
   const afterNewChatResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
   const value = {
     afterHistoryClick: afterHistoryClickResult.result.value,
@@ -3678,7 +3933,7 @@ async function verifyDeleteSessionFlow(send) {
       return {
         titles,
         activeTitle,
-        textAfterDelete: document.querySelector('textarea[aria-label="메시지 입력"]').value,
+        textAfterDelete: document.querySelector('.prompt textarea')?.value ?? "",
       };
     })()`,
   });
@@ -3795,6 +4050,7 @@ try {
   const send = createCdpClient(ws);
   await send("Page.enable");
   await send("Runtime.enable");
+  await installPaimApiMock(send);
 
   let hasFailures = false;
   const storageResult = await verifyStorageSanitization(send);

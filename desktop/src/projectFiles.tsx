@@ -25,8 +25,21 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { BreadcrumbItem, Breadcrumbs } from "@astryxdesign/core/Breadcrumbs";
+import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import type { CSSProperties, MouseEvent } from "react";
 
+import { useI18n } from "./i18n";
 import type {
   Attachment,
   DemoStatus,
@@ -188,6 +201,22 @@ function getProjectDocumentStatusMeta(source: Attachment) {
   };
 }
 
+function getProjectDocumentStatusVariant(tone: string): BadgeVariant {
+  if (tone === "success") {
+    return "green";
+  }
+
+  if (tone === "danger") {
+    return "red";
+  }
+
+  if (tone === "pending") {
+    return "yellow";
+  }
+
+  return "neutral";
+}
+
 export function sortProjectSourcesByUploadedAt(sources: Attachment[]) {
   return sources
     .map((source, index) => ({ source, index }))
@@ -331,10 +360,28 @@ function getProjectFilePathSegments(path: string) {
   return path.split(/[\\/]+/).filter(Boolean).slice(-4);
 }
 
-function getProjectFilePreviewLines(content: string) {
-  const lines = content.split(/\r?\n/);
+function getProjectFilePreviewLanguage(name: string) {
+  const lowerName = name.toLowerCase();
+  const extension = lowerName.includes(".") ? lowerName.split(".").pop() : "";
+  const languageByExtension: Record<string, string> = {
+    css: "css",
+    html: "html",
+    js: "javascript",
+    json: "json",
+    jsx: "jsx",
+    md: "markdown",
+    py: "python",
+    sh: "bash",
+    svg: "svg",
+    ts: "typescript",
+    tsx: "tsx",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    zsh: "bash",
+  };
 
-  return lines.length === 0 ? [""] : lines;
+  return languageByExtension[extension ?? ""] ?? "plaintext";
 }
 
 // Codex 파일 패널처럼 폴더를 접고 펼칠 수 있는 프로젝트 파일 트리를 렌더링한다.
@@ -347,6 +394,8 @@ function ProjectFileTree({
   pendingDeleteEntryId,
   selectedEntryId,
 }: ProjectFileTreeProps) {
+  const { t } = useI18n();
+
   return (
     <div className="project-file-tree" role={level === 0 ? "tree" : "group"}>
       {entries.map((entry) => {
@@ -373,18 +422,18 @@ function ProjectFileTree({
               style={{ "--file-depth": level } as CSSProperties}
             >
               {isDirectory ? (
-                <button
-                  aria-label={`${entry.name} ${isExpanded ? "접기" : "펼치기"}`}
+                <IconButton
                   className="project-file-disclosure"
+                  icon={<ChevronRight size={16} />}
+                  label={t(isExpanded ? "{name} 접기" : "{name} 펼치기", { name: entry.name })}
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggle(entry);
                   }}
-                  title={`${entry.name} ${isExpanded ? "접기" : "펼치기"}`}
-                  type="button"
-                >
-                  <ChevronRight size={16} />
-                </button>
+                  size="sm"
+                  tooltip={t(isExpanded ? "{name} 접기" : "{name} 펼치기", { name: entry.name })}
+                  variant="ghost"
+                />
               ) : (
                 <span className="project-file-disclosure" />
               )}
@@ -401,18 +450,24 @@ function ProjectFileTree({
               >
                 {entry.name}
               </span>
-              <button
-                aria-label={`${entry.name} ${pendingDeleteEntryId === entry.id ? "제거 확인" : "제거"}`}
+              <IconButton
                 className="project-file-remove"
+                icon={pendingDeleteEntryId === entry.id ? <Check size={13} /> : <X size={13} />}
+                label={t(
+                  pendingDeleteEntryId === entry.id ? "{name} 제거 확인" : "{name} 제거",
+                  { name: entry.name },
+                )}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete(entry);
                 }}
-                title={`${entry.name} ${pendingDeleteEntryId === entry.id ? "제거 확인" : "제거"}`}
-                type="button"
-              >
-                {pendingDeleteEntryId === entry.id ? <Check size={13} /> : <X size={13} />}
-              </button>
+                size="sm"
+                tooltip={t(
+                  pendingDeleteEntryId === entry.id ? "{name} 제거 확인" : "{name} 제거",
+                  { name: entry.name },
+                )}
+                variant="ghost"
+              />
             </div>
             {isDirectory && isExpanded && entry.children ? (
               <ProjectFileTree
@@ -459,66 +514,47 @@ export function ProjectFilesPanel({
   treeFileCount,
   treeWidth,
 }: ProjectFilesPanelProps) {
+  const { t } = useI18n();
+
   if (mode === "library") {
     return (
       <div className="project-panel-content project-sources-panel" data-drop-zone="project-files">
         <div className="project-sources-header">
           <div className="project-sources-actions">
-            <details className="project-upload-menu">
-              <summary className="project-files-open-button" title="프로젝트 자료 업로드">
-                <Upload size={15} />
-                <span>업로드</span>
-              </summary>
-              <div className="project-upload-menu-popover">
-                <button
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    onOpenFiles();
-                  }}
-                  type="button"
-                >
-                  파일
-                </button>
-                <button
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    onOpenDirectory();
-                  }}
-                  type="button"
-                >
-                  폴더
-                </button>
-              </div>
-            </details>
+            <DropdownMenu
+              button={{
+                className: "project-files-open-button",
+                icon: <Upload size={15} />,
+                label: t("업로드"),
+                size: "sm",
+                tooltip: t("프로젝트 자료 업로드"),
+                variant: "secondary",
+              }}
+              items={[
+                { label: t("파일"), onClick: onOpenFiles },
+                { label: t("폴더"), onClick: onOpenDirectory },
+              ]}
+            />
           </div>
           {attachments.length > 0 ? (
-            <label className="project-files-search project-sources-search">
-              <Search size={15} />
-              <input
-                aria-label="프로젝트 자료 검색"
-                onChange={(event) => onQueryChange(event.target.value)}
-                placeholder="자료 검색..."
-                type="text"
-                value={query}
-              />
-              {query ? (
-                <button
-                  aria-label="프로젝트 자료 검색 지우기"
-                  onClick={() => onQueryChange("")}
-                  title="프로젝트 자료 검색 지우기"
-                  type="button"
-                >
-                  <X size={14} />
-                </button>
-              ) : null}
-            </label>
+            <TextInput
+              className="project-files-search project-sources-search"
+              hasClear
+              isLabelHidden
+              label={t("프로젝트 자료 검색")}
+              onChange={onQueryChange}
+              placeholder={t("자료 검색...")}
+              startIcon={<Search size={15} />}
+              value={query}
+              width="100%"
+            />
           ) : null}
         </div>
 
-        <section className="project-sources-section" aria-label="프로젝트 자료">
+        <section className="project-sources-section" aria-label={t("프로젝트 자료")}>
           <div className="project-sources-section-title">
-            <h2>업로드한 자료</h2>
-            <span>{attachments.length}개</span>
+            <h2>{t("업로드한 자료")}</h2>
+            <span>{t("{count}개", { count: attachments.length })}</span>
           </div>
           {attachments.length > 0 ? (
             groupedFiles.length > 0 ? (
@@ -537,18 +573,12 @@ export function ProjectFilesPanel({
                         const documentStatusMeta = getProjectDocumentStatusMeta(source);
 
                         return (
-                          <article
+                          <ClickableCard
                             className="project-source-card"
                             key={source.id}
+                            label={t("{name} 열기", { name: source.name })}
                             onClick={() => onOpenSource(source)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                onOpenSource(source);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
+                            padding={2}
                           >
                             <div className="project-source-icon">
                               <SourceIcon size={18} style={{ color: sourceMeta.color }} />
@@ -556,35 +586,38 @@ export function ProjectFilesPanel({
                             <div className="project-source-body">
                               <strong title={source.path}>{source.name}</strong>
                               <span>
-                                {source.kind === "directory" ? `폴더 · ${sourceCount}개 항목` : "파일"}
+                                {source.kind === "directory"
+                                  ? t("폴더 · {count}개 항목", { count: sourceCount })
+                                  : t("파일")}
                               </span>
                               {documentStatusMeta ? (
-                                <small
+                                <Badge
                                   className="project-document-status"
-                                  data-status={documentStatusMeta.tone}
-                                  title={documentStatusMeta.title}
-                                >
-                                  {documentStatusMeta.label}
-                                </small>
+                                  label={t(documentStatusMeta.label)}
+                                  variant={getProjectDocumentStatusVariant(documentStatusMeta.tone)}
+                                />
                               ) : null}
                             </div>
                             <div className="project-source-actions">
-                              <details className="project-source-menu" onClick={(event) => event.stopPropagation()}>
-                                <summary aria-label={`${source.name} 관리`} title={`${source.name} 관리`}>
-                                  <Ellipsis size={15} />
-                                </summary>
-                                <div className="project-source-menu-popover">
-                                  <button
-                                    data-confirming={pendingDeleteEntryId === source.id ? "true" : undefined}
-                                    onClick={() => onRequestDelete(source)}
-                                    type="button"
-                                  >
-                                    {pendingDeleteEntryId === source.id ? "삭제 확인" : "삭제"}
-                                  </button>
-                                </div>
-                              </details>
+                              <DropdownMenu
+                                button={{
+                                  icon: <Ellipsis size={15} />,
+                                  isIconOnly: true,
+                                  label: t("{name} 관리", { name: source.name }),
+                                  size: "sm",
+                                  tooltip: t("{name} 관리", { name: source.name }),
+                                  variant: "ghost",
+                                }}
+                                items={[
+                                  {
+                                    label: pendingDeleteEntryId === source.id ? t("삭제 확인") : t("삭제"),
+                                    onClick: () => onRequestDelete(source),
+                                  },
+                                ]}
+                                menuWidth={112}
+                              />
                             </div>
-                          </article>
+                          </ClickableCard>
                         );
                       })}
                     </div>
@@ -592,17 +625,20 @@ export function ProjectFilesPanel({
                 ))}
               </div>
             ) : (
-              <p className="overview-empty-text">
-                <Search size={17} />
-                검색 결과가 없습니다.
-              </p>
+              <EmptyState
+                className="project-panel-empty-state"
+                icon={<Search size={17} />}
+                isCompact
+                title={t("검색 결과가 없습니다.")}
+              />
             )
           ) : (
-            <div className="project-sources-empty">
-              <FolderOpen size={32} />
-              <strong>등록된 자료가 없습니다</strong>
-              <span>PaiM에게 제공할 파일이나 폴더를 업로드하세요.</span>
-            </div>
+            <EmptyState
+              className="project-sources-empty"
+              description={t("PaiM에게 제공할 파일이나 폴더를 업로드하세요.")}
+              icon={<FolderOpen size={32} />}
+              title={t("등록된 자료가 없습니다")}
+            />
           )}
         </section>
       </div>
@@ -618,75 +654,92 @@ export function ProjectFilesPanel({
     >
       <div className="project-files-header">
         <div className="project-files-toolbar">
-          <button className="project-sources-secondary" onClick={onBackToLibrary} type="button">
-            자료함
-          </button>
-          <span className="project-files-count">{treeFileCount}</span>
+          <Button
+            className="project-sources-secondary"
+            label={t("자료함")}
+            onClick={onBackToLibrary}
+            size="sm"
+            variant="ghost"
+          />
+          <Badge className="project-files-count" label={treeFileCount} />
         </div>
         <div className="project-files-pathbar">
           <p className="project-files-root">{getProjectFileRootLabel(treeAttachments)}</p>
           {!isSelectedSourceFile ? (
-            <button
-              aria-label={isTreeCollapsed ? "파일 트리 펼치기" : "파일 트리 접기"}
+            <IconButton
               className="project-files-tree-toggle"
+              icon={<FolderOpen size={16} />}
+              label={isTreeCollapsed ? t("파일 트리 펼치기") : t("파일 트리 접기")}
               onClick={onToggleTreeCollapsed}
-              title={isTreeCollapsed ? "파일 트리 펼치기" : "파일 트리 접기"}
-              type="button"
-            >
-              <FolderOpen size={16} />
-            </button>
+              size="sm"
+              tooltip={isTreeCollapsed ? t("파일 트리 펼치기") : t("파일 트리 접기")}
+              variant="ghost"
+            />
           ) : null}
         </div>
         {demoStatus && demoStatus.scope !== "github" ? (
-          <p
-            className="notice runtime-status project-panel-status"
-            data-kind={demoStatus.ok ? "info" : "error"}
+          <Banner
+            className="runtime-status project-panel-status"
+            container="card"
             key={statusRevision}
-            role="status"
-          >
-            <i aria-hidden="true" />
-            <span>{demoStatus.message}</span>
-          </p>
+            status={demoStatus.ok ? "info" : "error"}
+            title={t(demoStatus.message)}
+          />
         ) : null}
       </div>
       <div className="project-files-main">
         {preview ? (
           <div className="project-file-preview">
-            <div className="project-file-preview-path">
+            <Breadcrumbs
+              className="project-file-preview-path"
+              label={t("{name} 경로", { name: preview.name })}
+              separator={<ChevronRight size={14} />}
+              variant="supporting"
+            >
               {getProjectFilePathSegments(preview.path).map((segment, index, segments) => (
-                <span data-current={index === segments.length - 1 ? "true" : undefined} key={`${segment}-${index}`}>
+                <BreadcrumbItem
+                  isCurrent={index === segments.length - 1}
+                  key={`${segment}-${index}`}
+                >
                   {segment}
-                  {index < segments.length - 1 ? <ChevronRight size={14} /> : null}
-                </span>
+                </BreadcrumbItem>
               ))}
-            </div>
-            {preview.isLoading || preview.error ? (
-              <div className="project-file-preview-state">
-                {preview.error ?? "파일을 읽는 중입니다..."}
-              </div>
+            </Breadcrumbs>
+            {preview.isLoading ? (
+              <Center height="100%" minHeight={0} width="100%">
+                <Spinner label={t("파일을 읽는 중입니다...")} shade="subtle" />
+              </Center>
+            ) : preview.error ? (
+              <Center height="100%" minHeight={0} width="100%">
+                <EmptyState isCompact title={preview.error} />
+              </Center>
             ) : (
-              <div className="project-file-code" aria-label={`${preview.name} 미리보기`}>
-                {getProjectFilePreviewLines(preview.content).map((line, index) => (
-                  <div className="project-file-code-line" key={`${index}-${line}`}>
-                    <span className="project-file-code-line-number">{index + 1}</span>
-                    <code>{line || " "}</code>
-                  </div>
-                ))}
-              </div>
+              <CodeBlock
+                className="project-file-code"
+                code={preview.content}
+                container="section"
+                hasLineNumbers
+                language={getProjectFilePreviewLanguage(preview.name)}
+                maxHeight="100%"
+                size="sm"
+                title={preview.name}
+                width="100%"
+              />
             )}
           </div>
         ) : (
-          <div className="project-files-preview-empty">
-            <FolderOpen size={34} />
-            <strong>파일 열기</strong>
-            <span>워크스페이스 트리에서 파일을 선택하세요</span>
-          </div>
+          <EmptyState
+            className="project-files-preview-empty"
+            description={t("워크스페이스 트리에서 파일을 선택하세요")}
+            icon={<FolderOpen size={34} />}
+            title={t("파일 열기")}
+          />
         )}
       </div>
       {!isSelectedSourceFile ? (
         <div className="project-files-tree-pane">
           <div
-            aria-label="파일 트리 크기 조절"
+            aria-label={t("파일 트리 크기 조절")}
             aria-orientation="vertical"
             aria-valuemax={MAX_PROJECT_FILE_TREE_WIDTH}
             aria-valuemin={MIN_PROJECT_FILE_TREE_WIDTH}
@@ -695,26 +748,17 @@ export function ProjectFilesPanel({
             onMouseDown={onTreeResizeStart}
             role="separator"
           />
-          <label className="project-files-search">
-            <Search size={15} />
-            <input
-              aria-label="파일 필터링"
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="파일 필터링..."
-              type="text"
-              value={query}
-            />
-            {query ? (
-              <button
-                aria-label="파일 필터 지우기"
-                onClick={() => onQueryChange("")}
-                title="파일 필터 지우기"
-                type="button"
-              >
-                <X size={14} />
-              </button>
-            ) : null}
-          </label>
+          <TextInput
+            className="project-files-search"
+            hasClear
+            isLabelHidden
+            label={t("파일 필터링")}
+            onChange={onQueryChange}
+            placeholder={t("파일 필터링...")}
+            startIcon={<Search size={15} />}
+            value={query}
+            width="100%"
+          />
           {treeAttachments.length > 0 ? (
             filteredTreeFiles.length > 0 ? (
               <ProjectFileTree
@@ -726,16 +770,20 @@ export function ProjectFilesPanel({
                 selectedEntryId={preview?.id}
               />
             ) : (
-              <p className="overview-empty-text">
-                <Search size={17} />
-                검색 결과가 없습니다.
-              </p>
+              <EmptyState
+                className="project-panel-empty-state"
+                icon={<Search size={17} />}
+                isCompact
+                title={t("검색 결과가 없습니다.")}
+              />
             )
           ) : (
-            <p className="overview-empty-text">
-              <FolderOpen size={18} />
-              아직 열린 프로젝트 폴더가 없습니다.
-            </p>
+            <EmptyState
+              className="project-panel-empty-state"
+              icon={<FolderOpen size={18} />}
+              isCompact
+              title={t("아직 열린 프로젝트 폴더가 없습니다.")}
+            />
           )}
         </div>
       ) : null}

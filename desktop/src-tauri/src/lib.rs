@@ -203,11 +203,6 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                window
-                    .set_decorations(false)
-                    .expect("Windows should use the app titlebar");
-
                 window.show().expect("main window should be visible");
             }
 

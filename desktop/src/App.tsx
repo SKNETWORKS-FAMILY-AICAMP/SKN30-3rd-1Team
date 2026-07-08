@@ -22,6 +22,22 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Divider } from "@astryxdesign/core/Divider";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Markdown } from "@astryxdesign/core/Markdown";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { Slider } from "@astryxdesign/core/Slider";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -40,11 +56,10 @@ import {
   useRef,
   useState,
 } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import packageJson from "../package.json";
 import paimWatermark from "./assets/paim-watermark.png";
 import { GithubPanel } from "./GithubPanel";
+import { I18nProvider, translate } from "./i18n";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { formatRelativeAge } from "./format";
 import {
@@ -86,7 +101,9 @@ import {
   loadPaimSettings,
   normalizePaimSettings,
   savePaimSettings,
+  type LanguageSetting,
   type PaiMSettings,
+  type SuggestionMinConfidence,
   type ThemeSetting,
 } from "./settings";
 import type {
@@ -280,10 +297,16 @@ const QUERY_HISTORY_LIMIT = 20;
 const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
 const ACTION_MENU_HEIGHT = 76;
-const ACTION_MENU_GAP = 6;
+const ACTION_MENU_GAP = 12;
 const PROJECT_STORAGE_KEY = "paim.projects.v8";
 const PROJECT_BRIEFING_QUESTION =
   "이 프로젝트의 목적, 현재 상태(완료된 것과 진행 중인 것), 그리고 다음에 해야 할 액션을 프로젝트 기록을 근거로 간결하게 브리핑해줘. 담당자와 마감일이 있는 액션은 함께 표기해줘.";
+const PROJECT_ANALYSIS_PENDING_STEPS = [
+  "프로젝트 설명을 읽는 중",
+  "연결된 자료를 훑는 중",
+  "핵심 결정과 액션을 정리하는 중",
+  "브리핑을 작성하는 중",
+];
 const LEGACY_PROJECT_STORAGE_KEYS = [
   "paim.projects.v7",
   "paim.projects.v6",
@@ -295,7 +318,7 @@ const LEGACY_PROJECT_STORAGE_KEYS = [
 ];
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
-const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v2";
 const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const ZOOM_STORAGE_KEY = "paim.zoomScale.v1";
@@ -321,9 +344,16 @@ function isMacHost() {
   return window.navigator.userAgent.includes("Mac");
 }
 
+function isWindowControlTarget(target: EventTarget) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("button, a, input, textarea, select, [role='button']"))
+  );
+}
+
 function WindowsTitlebar() {
   function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
+    if (event.button !== 0 || isWindowControlTarget(event.target)) {
       return;
     }
 
@@ -331,7 +361,7 @@ function WindowsTitlebar() {
   }
 
   function handleToggleMaximize(event: MouseEvent<HTMLDivElement>) {
-    if ((event.target as HTMLElement).closest("button")) {
+    if (isWindowControlTarget(event.target)) {
       return;
     }
 
@@ -346,32 +376,59 @@ function WindowsTitlebar() {
     >
       <div className="windows-titlebar-title">PaiM</div>
       <div className="windows-titlebar-controls">
-        <button
-          aria-label="최소화"
+        <IconButton
+          className="windows-titlebar-button"
+          icon={<Minus size={14} />}
+          label="최소화"
           onClick={() => void getCurrentWindow().minimize()}
-          title="최소화"
-          type="button"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          aria-label="최대화"
+          tooltip="최소화"
+          variant="ghost"
+        />
+        <IconButton
+          className="windows-titlebar-button"
+          icon={<Square size={12} />}
+          label="최대화"
           onClick={() => void getCurrentWindow().toggleMaximize()}
-          title="최대화"
-          type="button"
-        >
-          <Square size={12} />
-        </button>
-        <button
-          aria-label="닫기"
-          className="windows-close-button"
+          tooltip="최대화"
+          variant="ghost"
+        />
+        <IconButton
+          className="windows-titlebar-button windows-close-button"
+          icon={<X size={15} />}
+          label="닫기"
           onClick={() => void getCurrentWindow().close()}
-          title="닫기"
-          type="button"
-        >
-          <X size={15} />
-        </button>
+          tooltip="닫기"
+          variant="ghost"
+        />
       </div>
+    </div>
+  );
+}
+
+function MacTrafficLights() {
+  return (
+    <div className="mac-traffic-lights" aria-label="창 제어">
+      <button
+        aria-label="닫기"
+        className="mac-traffic-button"
+        data-action="close"
+        onClick={() => void getCurrentWindow().close()}
+        type="button"
+      />
+      <button
+        aria-label="최소화"
+        className="mac-traffic-button"
+        data-action="minimize"
+        onClick={() => void getCurrentWindow().minimize()}
+        type="button"
+      />
+      <button
+        aria-label="최대화"
+        className="mac-traffic-button"
+        data-action="maximize"
+        onClick={() => void getCurrentWindow().toggleMaximize()}
+        type="button"
+      />
     </div>
   );
 }
@@ -635,7 +692,7 @@ function loadSidebarCollapsed() {
 
 // 우측 프로젝트 패널 접힘 상태를 앱 재실행 후에도 유지한다.
 function loadProjectPanelCollapsed() {
-  return window.localStorage.getItem(PROJECT_PANEL_COLLAPSED_STORAGE_KEY) === "true";
+  return window.localStorage.getItem(PROJECT_PANEL_COLLAPSED_STORAGE_KEY) !== "false";
 }
 
 function clampSidebarWidth(width: number) {
@@ -716,6 +773,15 @@ function getZoomShortcutDirection(event: globalThis.KeyboardEvent, isWindows: bo
   }
 
   return null;
+}
+
+function getProjectAnalysisPendingStep(elapsedSeconds: number) {
+  return PROJECT_ANALYSIS_PENDING_STEPS[
+    Math.min(
+      PROJECT_ANALYSIS_PENDING_STEPS.length - 1,
+      Math.floor(elapsedSeconds / 4),
+    )
+  ];
 }
 
 function getFileName(path: string) {
@@ -1180,15 +1246,15 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
               <img src={attachment.previewUrl} alt={`${attachment.name} 미리보기`} />
               <span>{attachment.name}</span>
               {onRemove ? (
-                <button
-                  aria-label={`${attachment.name} 제거`}
+                <IconButton
                   className="remove-attachment-button"
+                  icon={<X size={14} />}
+                  label={`${attachment.name} 제거`}
                   onClick={() => onRemove(attachment.id)}
-                  title={`${attachment.name} 제거`}
-                  type="button"
-                >
-                  <X size={14} />
-                </button>
+                  size="sm"
+                  tooltip={`${attachment.name} 제거`}
+                  variant="ghost"
+                />
               ) : null}
             </div>
           );
@@ -1196,25 +1262,33 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
 
         if (onRemove) {
           return (
-            <span className="attachment-chip removable" key={attachment.id}>
-              <span className="attachment-name">{attachment.name}</span>
-              <button
-                aria-label={`${attachment.name} 제거`}
-                className="remove-attachment-button"
-                onClick={() => onRemove(attachment.id)}
-                title={`${attachment.name} 제거`}
-                type="button"
-              >
-                <X size={13} />
-              </button>
-            </span>
+            <Badge
+              className="attachment-chip"
+              key={attachment.id}
+              label={
+                <>
+                  <span className="attachment-name">{attachment.name}</span>
+                  <IconButton
+                    className="remove-attachment-button"
+                    icon={<X size={13} />}
+                    label={`${attachment.name} 제거`}
+                    onClick={() => onRemove(attachment.id)}
+                    size="sm"
+                    tooltip={`${attachment.name} 제거`}
+                    variant="ghost"
+                  />
+                </>
+              }
+            />
           );
         }
 
         return (
-          <span className="attachment-chip" key={attachment.id}>
-            <span className="attachment-name">{attachment.name}</span>
-          </span>
+          <Badge
+            className="attachment-chip"
+            key={attachment.id}
+            label={<span className="attachment-name">{attachment.name}</span>}
+          />
         );
       })}
     </div>
@@ -1256,6 +1330,12 @@ export function App() {
   const [postSyncRefreshRevision, setPostSyncRefreshRevision] = useState(0);
   const [mainView, setMainView] = useState<MainView>("workspace");
   const [settings, setSettingsState] = useState(loadPaimSettings);
+  const t = (key: string, vars?: Record<string, number | string>) =>
+    translate(settings.language, key, vars);
+  const tUploadState = (label: string) =>
+    label.startsWith("처리중 ")
+      ? t("처리중 {value}", { value: label.replace("처리중 ", "") })
+      : t(label);
   const [serverTestState, setServerTestState] = useState<ServerTestState>({
     message: "",
     status: "idle",
@@ -1316,12 +1396,18 @@ export function App() {
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
-  const showProjectPanel = mainView === "workspace" && Boolean(selectedProject);
+  const showProjectPanel =
+    mainView === "workspace" && Boolean(selectedProject) && Boolean(selectedSession);
   const activeProjectPanelTab = useMemo(
     () => projectPanelTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? null,
     [activeProjectPanelTabId, projectPanelTabs],
   );
   const projectPanelView: ProjectPanelView = activeProjectPanelTab?.view ?? "menu";
+  const isProjectBriefingPending =
+    selectedSession?.title === "Project Briefing" &&
+    selectedSession.messages.length === 0 &&
+    isSending;
+  const projectAnalysisPendingStep = getProjectAnalysisPendingStep(thinkingElapsedSeconds);
   const activeProjectFileTab =
     activeProjectPanelTab?.view === "files" ? activeProjectPanelTab : null;
   const projectFileQuery = activeProjectFileTab?.fileQuery ?? "";
@@ -1474,6 +1560,10 @@ export function App() {
 
   function handleThemeChange(theme: ThemeSetting) {
     updateSettings({ theme });
+  }
+
+  function handleLanguageChange(language: LanguageSetting) {
+    updateSettings({ language });
   }
 
   async function handleTestServerConnection() {
@@ -1670,13 +1760,9 @@ export function App() {
   } as CSSProperties;
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (settings.theme === "system") {
-      root.removeAttribute("data-theme");
-      return;
-    }
-    root.dataset.theme = settings.theme;
-  }, [settings.theme]);
+    document.documentElement.lang = settings.language === "en" ? "en" : "ko";
+    document.documentElement.dataset.language = settings.language;
+  }, [settings.language]);
 
   useEffect(() => {
     setServerTestState({ message: "", status: "idle" });
@@ -2251,9 +2337,13 @@ export function App() {
   }
 
   function updateProject(projectId: string, updater: (project: ProjectWorkspace) => ProjectWorkspace) {
-    setProjects((currentProjects) =>
-      currentProjects.map((project) => (project.id === projectId ? updater(project) : project)),
-    );
+    setProjects((currentProjects) => {
+      const nextProjects = currentProjects.map((project) =>
+        project.id === projectId ? updater(project) : project,
+      );
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
   }
 
   function markProjectSeen(projectId: string) {
@@ -3034,6 +3124,7 @@ export function App() {
     setSelectedSessionId(null);
     setProjectPanelTabs([]);
     setActiveProjectPanelTabId(null);
+    setIsProjectPanelCollapsed(true);
     clearDraft();
   }
 
@@ -3111,6 +3202,7 @@ export function App() {
     setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(nextSession.id);
+    setIsProjectPanelCollapsed(true);
     setCollapsedProjectIds((currentProjectIds) =>
       currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId),
     );
@@ -4169,6 +4261,12 @@ export function App() {
     setRenameDraft(null);
   }
 
+  function updateRenameDraftValue(value: string) {
+    setRenameDraft((currentDraft) =>
+      currentDraft ? { ...currentDraft, value } : currentDraft,
+    );
+  }
+
   function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -4282,6 +4380,7 @@ export function App() {
     }));
     setSelectedProjectId(project.id);
     setSelectedSessionId(nextSession.id);
+    setIsProjectPanelCollapsed(true);
     setIsSending(true);
     setThinkingStartedAt(requestStartedAt);
     clearDraft();
@@ -4765,146 +4864,178 @@ export function App() {
     event.currentTarget.form?.requestSubmit();
   }
 
+  function handleChromeDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isWindows || event.button !== 0 || isWindowControlTarget(event.target)) {
+      return;
+    }
+
+    void getCurrentWindow().startDragging();
+  }
+
+  function handleChromeToggleMaximize(event: MouseEvent<HTMLDivElement>) {
+    if (isWindows || isWindowControlTarget(event.target)) {
+      return;
+    }
+
+    void getCurrentWindow().toggleMaximize();
+  }
+
   function renderSettingsPage() {
     const effectiveServerUrl = settings.serverUrl || getPaimApiRootUrl() || DEFAULT_PAIM_API_ROOT_URL;
 
     return (
-      <section className="settings-page" aria-label="설정">
+      <section className="settings-page" aria-label={t("설정")}>
         <div className="settings-content">
           <header className="settings-header">
-            <button
-              aria-label="설정에서 돌아가기"
+            <Button
               className="settings-back-button"
+              icon={<ArrowLeft size={15} />}
+              isIconOnly
+              label={t("설정에서 돌아가기")}
               onClick={() => setMainView("workspace")}
-              title="돌아가기"
-              type="button"
-            >
-              <ArrowLeft size={15} />
-            </button>
-            <div>
-              <p>Settings</p>
-              <h1>설정</h1>
-            </div>
+              tooltip={t("돌아가기")}
+              variant="ghost"
+            />
+            <h1>{t("설정")}</h1>
           </header>
 
-          <section className="settings-group" aria-label="테마">
+          <section className="settings-group" aria-label={t("테마")}>
             <div className="settings-copy">
-              <h2>테마</h2>
-              <p>시스템 설정을 따르거나 PaiM 화면만 고정합니다.</p>
+              <h2>{t("테마")}</h2>
+              <p>{t("시스템 설정을 따르거나 PaiM 화면만 고정합니다.")}</p>
             </div>
-            <div className="settings-segmented">
-              {[
-                ["system", "시스템"],
-                ["dark", "다크"],
-                ["light", "라이트"],
-              ].map(([value, label]) => (
-                <button
-                  data-active={settings.theme === value ? "true" : undefined}
-                  key={value}
-                  onClick={() => handleThemeChange(value as ThemeSetting)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label={t("테마 선택")}
+              layout="fill"
+              onChange={(value) => handleThemeChange(value as ThemeSetting)}
+              size="sm"
+              value={settings.theme}
+            >
+              <SegmentedControlItem label={t("시스템")} value="system" />
+              <SegmentedControlItem label={t("다크")} value="dark" />
+              <SegmentedControlItem label={t("라이트")} value="light" />
+            </SegmentedControl>
           </section>
 
-          <section className="settings-group" aria-label="서버 주소">
+          <section className="settings-group" aria-label={t("언어")}>
             <div className="settings-copy">
-              <h2>서버 주소</h2>
-              <p>비우면 기본 주소 {DEFAULT_PAIM_API_ROOT_URL}로 돌아갑니다.</p>
+              <h2>{t("언어")}</h2>
+              <p>{t("PaiM 전체 표시 언어를 선택합니다.")}</p>
+            </div>
+            <SegmentedControl
+              label={t("언어 선택")}
+              layout="fill"
+              onChange={(value) => handleLanguageChange(value as LanguageSetting)}
+              size="sm"
+              value={settings.language}
+            >
+              <SegmentedControlItem label={t("한국어")} value="ko" />
+              <SegmentedControlItem label="English" value="en" />
+            </SegmentedControl>
+          </section>
+
+          <section className="settings-group" aria-label={t("서버 주소")}>
+            <div className="settings-copy">
+              <h2>{t("서버 주소")}</h2>
+              <p>{t("비우면 기본 주소 {url}로 돌아갑니다.", { url: DEFAULT_PAIM_API_ROOT_URL })}</p>
             </div>
             <div className="settings-control-stack">
               <div className="settings-inline-control">
-                <input
-                  aria-label="PaiM 서버 주소"
-                  onChange={(event) => updateSettings({ serverUrl: event.currentTarget.value })}
+                <TextInput
+                  isLabelHidden
+                  label={t("PaiM 서버 주소")}
+                  onChange={(value) => updateSettings({ serverUrl: value })}
                   placeholder={DEFAULT_PAIM_API_ROOT_URL}
                   value={settings.serverUrl}
+                  width="100%"
                 />
-                <button
-                  disabled={serverTestState.status === "testing"}
+                <Button
+                  isLoading={serverTestState.status === "testing"}
+                  label={t("연결 테스트")}
                   onClick={() => void handleTestServerConnection()}
-                  type="button"
-                >
-                  연결 테스트
-                </button>
+                  variant="secondary"
+                />
               </div>
-              <p className="settings-status" data-kind={serverStatus === "online" ? "ok" : "error"}>
-                현재 {serverStatus === "online" ? "연결됨" : "오프라인"} · {effectiveServerUrl}
-                {serverTestState.message ? ` · ${serverTestState.message}` : ""}
+              <p className="settings-status">
+                <StatusDot
+                  label={serverStatus === "online" ? t("서버 연결됨") : t("서버 오프라인")}
+                  variant={serverStatus === "online" ? "success" : "error"}
+                />
+                {t(serverStatus === "online" ? "현재 연결됨 · {url}{message}" : "현재 오프라인 · {url}{message}", {
+                  message: serverTestState.message ? ` · ${t(serverTestState.message)}` : "",
+                  url: effectiveServerUrl,
+                })}
               </p>
             </div>
           </section>
 
-          <section className="settings-group" aria-label="완료 제안 민감도">
+          <section className="settings-group" aria-label={t("완료 제안 민감도")}>
             <div className="settings-copy">
-              <h2>완료 제안 민감도</h2>
-              <p>서버 제안은 유지하고 인박스 표시만 조절합니다.</p>
+              <h2>{t("완료 제안 민감도")}</h2>
+              <p>{t("서버 제안은 유지하고 인박스 표시만 조절합니다.")}</p>
             </div>
-            <div className="settings-segmented">
-              <button
-                data-active={settings.suggestionMin === "high" ? "true" : undefined}
-                onClick={() => updateSettings({ suggestionMin: "high" })}
-                type="button"
-              >
-                확실할 때만
-              </button>
-              <button
-                data-active={settings.suggestionMin === "medium" ? "true" : undefined}
-                onClick={() => updateSettings({ suggestionMin: "medium" })}
-                type="button"
-              >
-                추정 포함
-              </button>
-            </div>
+            <SegmentedControl
+              label={t("완료 제안 민감도 선택")}
+              layout="fill"
+              onChange={(value) =>
+                updateSettings({ suggestionMin: value as SuggestionMinConfidence })
+              }
+              size="sm"
+              value={settings.suggestionMin}
+            >
+              <SegmentedControlItem label={t("확실할 때만")} value="high" />
+              <SegmentedControlItem label={t("추정 포함")} value="medium" />
+            </SegmentedControl>
           </section>
 
-          <section className="settings-group" aria-label="마감 임박 기준">
+          <section className="settings-group" aria-label={t("마감 임박 기준")}>
             <div className="settings-copy">
-              <h2>마감 임박 기준</h2>
-              <p>델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.</p>
+              <h2>{t("마감 임박 기준")}</h2>
+              <p>{t("델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.")}</p>
             </div>
             <div className="settings-range">
-              <input
-                aria-label="마감 임박 기준"
+              <Slider
+                formatValue={(value: number) => t("{count}일", { count: value })}
+                isLabelHidden
+                label={t("마감 임박 기준")}
                 max={7}
                 min={1}
-                onChange={(event) => updateSettings({ dueSoonDays: Number(event.currentTarget.value) })}
-                type="range"
+                onChange={(value: number) => updateSettings({ dueSoonDays: value })}
                 value={settings.dueSoonDays}
+                valueDisplay="none"
+                width="100%"
               />
-              <strong>{settings.dueSoonDays}일</strong>
+              <strong>{t("{count}일", { count: settings.dueSoonDays })}</strong>
             </div>
           </section>
 
-          <section className="settings-group" aria-label="캐시 초기화">
+          <section className="settings-group" aria-label={t("캐시 초기화")}>
             <div className="settings-copy">
-              <h2>캐시 초기화</h2>
-              <p>로컬 캐시와 설정만 지웁니다. 서버 데이터(프로젝트·메모리)는 삭제되지 않습니다.</p>
+              <h2>{t("캐시 초기화")}</h2>
+              <p>{t("로컬 캐시와 설정만 지웁니다. 서버 데이터(프로젝트·메모리)는 삭제되지 않습니다.")}</p>
             </div>
-            <button
-              className="settings-danger"
-              data-confirming={isCacheResetConfirming ? "true" : undefined}
+            <Button
+              label={isCacheResetConfirming ? t("다시 눌러 초기화") : t("캐시 초기화")}
               onClick={handleClearLocalCache}
-              type="button"
-            >
-              {isCacheResetConfirming ? "다시 눌러 초기화" : "캐시 초기화"}
-            </button>
+              variant="destructive"
+            />
           </section>
 
-          <section className="settings-group" aria-label="버전">
+          <section className="settings-group" aria-label={t("버전")}>
             <div className="settings-copy">
-              <h2>버전</h2>
+              <h2>{t("버전")}</h2>
               <p>
-                현재 {appVersion}
-                {latestReleaseTag ? ` · 최신 ${latestReleaseTag}` : ""}
+                {t("현재 {version}{latest}", {
+                  latest: latestReleaseTag ? t(" · 최신 {tag}", { tag: latestReleaseTag }) : "",
+                  version: appVersion,
+                })}
               </p>
             </div>
-            <button onClick={handleOpenReleasePage} type="button">
-              릴리즈 페이지 열기
-            </button>
+            <Button
+              label={t("릴리즈 페이지 열기")}
+              onClick={handleOpenReleasePage}
+              variant="secondary"
+            />
           </section>
         </div>
       </section>
@@ -4912,48 +5043,132 @@ export function App() {
   }
 
   return (
-    <div
-      className="app-shell"
-      data-drag-active={isDragActive}
-      data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
-      data-project-panel={showProjectPanel ? "true" : "false"}
-      data-project-panel-collapsed={isProjectPanelCollapsed}
-      data-project-panel-maximized={isProjectPanelMaximized}
-      data-project-panel-resizing={isProjectPanelResizing}
-      data-project-file-tree-resizing={isProjectFileTreeResizing}
-      data-sidebar-collapsed={isSidebarCollapsed}
-      data-sidebar-resizing={isSidebarResizing}
-      onClick={() => setOpenActionMenu(null)}
-      style={appShellStyle}
-    >
-      {isWindows ? <WindowsTitlebar /> : null}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <button
+    <I18nProvider language={settings.language}>
+      <Theme theme={neutralTheme} mode={settings.theme}>
+      <div
+        className="app-shell"
+        data-drag-active={isDragActive}
+        data-language={settings.language}
+        data-main-view={mainView}
+        data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
+        data-project-panel={showProjectPanel ? "true" : "false"}
+        data-project-panel-collapsed={isProjectPanelCollapsed}
+        data-project-panel-maximized={isProjectPanelMaximized}
+        data-project-panel-resizing={isProjectPanelResizing}
+        data-project-file-tree-resizing={isProjectFileTreeResizing}
+        data-sidebar-collapsed={isSidebarCollapsed}
+        data-sidebar-resizing={isSidebarResizing}
+        onClick={() => setOpenActionMenu(null)}
+        style={appShellStyle}
+      >
+        {isWindows ? <WindowsTitlebar /> : null}
+        <div className="window-control-cluster" aria-label={t("창 및 사이드바 제어")}>
+          {isMac ? <MacTrafficLights /> : null}
+          <IconButton
             className="sidebar-toggle"
-            aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
+            icon={<PanelLeft size={17} />}
+            label={isSidebarCollapsed ? t("사이드바 펼치기") : t("사이드바 접기")}
             onClick={handleToggleSidebar}
-            title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-            type="button"
-          >
-            <PanelLeft size={17} />
-          </button>
+            tooltip={isSidebarCollapsed ? t("사이드바 펼치기") : t("사이드바 접기")}
+            variant="ghost"
+          />
         </div>
+        {showProjectPanel && selectedProject ? (
+          <div className="project-panel-control-cluster" aria-label={t("프로젝트 패널 도구")}>
+            {isProjectPanelCollapsed ? (
+              <IconButton
+                className="project-panel-rail-toggle"
+                icon={<PanelRight size={17} />}
+                label={t("프로젝트 패널 펼치기")}
+                onClick={handleToggleProjectPanel}
+                tooltip={t("프로젝트 패널 펼치기")}
+                variant="ghost"
+              />
+            ) : (
+              <>
+                <IconButton
+                  className="project-panel-toggle project-panel-maximize-toggle"
+                  icon={isProjectPanelMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                  label={t(isProjectPanelMaximized ? "{title} 패널 축소" : "{title} 패널 최대화", {
+                    title: getProjectPanelTitle(projectPanelView),
+                  })}
+                  onClick={() => setIsProjectPanelMaximized((current) => !current)}
+                  tooltip={t(isProjectPanelMaximized ? "{title} 패널 축소" : "{title} 패널 최대화", {
+                    title: getProjectPanelTitle(projectPanelView),
+                  })}
+                  variant="ghost"
+                />
+                <IconButton
+                  className="project-panel-toggle project-panel-collapse-toggle"
+                  icon={<PanelRight size={16} />}
+                  label={t("프로젝트 패널 접기")}
+                  onClick={handleToggleProjectPanel}
+                  tooltip={t("프로젝트 패널 접기")}
+                  variant="ghost"
+                />
+              </>
+            )}
+          </div>
+        ) : null}
+        <div
+          className="app-chrome"
+          aria-label={t("앱 상단 도구")}
+          onDoubleClick={handleChromeToggleMaximize}
+          onPointerDown={handleChromeDragStart}
+        >
+          {mainView === "workspace" && selectedSession ? (
+            <div className="chat-context-bar" aria-label={t("현재 채팅 정보")}>
+              <div className="chat-context-primary">
+                <span
+                  aria-label={`${selectedProject?.name ?? "PaiM"} ${t(selectedSession.title)}`}
+                  className="chat-context-item chat-context-title"
+                  title={`${selectedProject?.name ?? "PaiM"} / ${t(selectedSession.title)}`}
+                >
+                  <MessageSquare aria-hidden="true" size={14} />
+                  <span>{t(selectedSession.title)}</span>
+                </span>
+              </div>
+              <div className="chat-context-meta">
+                <span className="chat-context-meta-item" aria-label={t("자료 {count}개", { count: selectedProjectFileCount })}>
+                  <Files aria-hidden="true" size={13} />
+                  <span className="chat-context-meta-label">{t("자료")}</span>
+                  <span className="chat-context-meta-value">{t("{count}개", { count: selectedProjectFileCount })}</span>
+                </span>
+                <span
+                  aria-label={`GitHub ${getGithubPanelStateLabel(selectedProjectGithubPanelState)}`}
+                  className="chat-context-meta-item"
+                  title={`GitHub ${getGithubPanelStateLabel(selectedProjectGithubPanelState)}`}
+                >
+                  <GitBranch aria-hidden="true" size={13} />
+                  <span className="chat-context-meta-label">GitHub</span>
+                  <span
+                    aria-hidden="true"
+                    className="chat-context-status-dot"
+                    data-state={
+                      selectedProjectGithubPanelState === "connected" ? "connected" : "disconnected"
+                    }
+                  />
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <aside className="sidebar">
+          <div className="sidebar-header" />
 
-        <nav className="sidebar-nav" aria-label="주요 메뉴">
-          <button
+	        <nav className="sidebar-nav" aria-label={t("주요 메뉴")}>
+          <Button
             className="project-create-trigger"
+            icon={<FolderPlus size={18} />}
+            label={t("New Project")}
             onClick={() => createProjectFromName(createNextProjectName(projects))}
-            title="새 프로젝트"
-            type="button"
-          >
-            <FolderPlus size={18} />
-            <span>New Project</span>
-          </button>
+            tooltip={t("새 프로젝트")}
+            variant="ghost"
+          />
         </nav>
 
-        <section className="projects project-tree" aria-label="프로젝트">
-          <h2>Projects</h2>
+        <section className="projects project-tree" aria-label={t("프로젝트")}>
+          <h2>{t("프로젝트")}</h2>
           <div className="project-tree-list">
             {projects.map((project) => (
               <div
@@ -4968,79 +5183,83 @@ export function App() {
                     {renameDraft?.type === "project" && renameDraft.projectId === project.id ? (
                       <div className="project-item project-rename-editor">
                         <FolderOpen size={15} />
-                        <input
-                          aria-label="프로젝트 이름 변경"
-                          autoFocus
+                        <TextInput
                           className="rename-input"
-                          defaultValue={renameDraft.value}
-                          onBlur={(event) => commitRenameDraft(event.currentTarget.value)}
+                          hasAutoFocus
+                          isLabelHidden
+                          label={t("프로젝트 이름 변경")}
+                          onBlur={(event) => commitRenameDraft((event.target as HTMLInputElement).value)}
+                          onChange={updateRenameDraftValue}
                           onClick={(event) => event.stopPropagation()}
-                          onFocus={(event) => event.currentTarget.select()}
+                          onFocus={(event) => (event.target as HTMLInputElement).select()}
                           onKeyDown={handleRenameKeyDown}
+                          size="sm"
+                          value={renameDraft.value}
+                          width="100%"
                         />
                       </div>
                     ) : (
                       <>
-                        <button
+                        <Button
                           className="project-item"
                           data-active={project.id === selectedProjectId}
                           data-project-id={project.id}
+                          icon={<FolderOpen size={15} />}
+                          label={project.name}
                           onClick={() => handleSelectProject(project.id)}
-                          title={project.name}
-                          type="button"
+                          variant="ghost"
                         >
-                          <FolderOpen size={15} />
                           <span className="project-name">{project.name}</span>
-                        </button>
+                        </Button>
                         {project.sessions.length > 0 ? (
-                          <button
+                          <IconButton
                             aria-expanded={!collapsedProjectIdSet.has(project.id)}
-                            aria-label={`${project.name} 채팅 목록 ${
-                              collapsedProjectIdSet.has(project.id) ? "펼치기" : "접기"
-                            }`}
+                            label={t(
+                              collapsedProjectIdSet.has(project.id)
+                                ? "{name} 채팅 목록 펼치기"
+                                : "{name} 채팅 목록 접기",
+                              { name: project.name },
+                            )}
                             className="project-collapse-button"
                             data-collapsed={collapsedProjectIdSet.has(project.id)}
+                            icon={<ChevronDown size={14} />}
                             onClick={(event) => toggleProjectSessions(project.id, event)}
-                            title={
+                            tooltip={
                               collapsedProjectIdSet.has(project.id)
-                                ? `${project.name} 채팅 목록 펼치기`
-                                : `${project.name} 채팅 목록 접기`
+                                ? t("{name} 채팅 목록 펼치기", { name: project.name })
+                                : t("{name} 채팅 목록 접기", { name: project.name })
                             }
-                            type="button"
-                          >
-                            <ChevronDown size={14} />
-                          </button>
+                            variant="ghost"
+                          />
                         ) : null}
                       </>
                     )}
                   </div>
                   <div className="project-actions">
-                    <button
-                      aria-label={`${project.name}에 새 채팅 만들기`}
+                    <IconButton
                       className="project-chat-create-button"
+                      icon={<Plus size={13} />}
+                      label={t("{name}에 새 채팅 만들기", { name: project.name })}
                       onClick={(event) => {
                         event.stopPropagation();
                         handleCreateChatInProject(project.id);
                       }}
-                      title={`${project.name}에 새 채팅 만들기`}
-                      type="button"
-                    >
-                      <Plus size={13} />
-                    </button>
-                    <button
+                      tooltip={t("{name}에 새 채팅 만들기", { name: project.name })}
+                      variant="ghost"
+                    />
+                    <IconButton
                       aria-expanded={
                         openActionMenu?.type === "project" &&
                         openActionMenu.projectId === project.id
                       }
                       aria-haspopup="menu"
-                      aria-label={`${project.name} 메뉴`}
                       className="project-action-menu-button"
+                      icon={<Ellipsis size={15} />}
+                      label={t("{name} 메뉴", { name: project.name })}
                       onClick={(event) => toggleProjectActionMenu(project.id, event)}
-                      title={`${project.name} 메뉴`}
-                      type="button"
-                    >
-                      <Ellipsis size={15} />
-                    </button>
+                      tooltip={t("{name} 메뉴", { name: project.name })}
+                      variant="ghost"
+                    />
                   </div>
                 </div>
 
@@ -5059,50 +5278,56 @@ export function App() {
                         renameDraft.sessionId === session.id ? (
                           <div className="history-item history-rename-editor">
                             <MessageSquare size={13} />
-                            <input
-                              aria-label="채팅 이름 변경"
-                              autoFocus
+                            <TextInput
                               className="rename-input"
-                              defaultValue={renameDraft.value}
-                              onBlur={(event) => commitRenameDraft(event.currentTarget.value)}
+                              hasAutoFocus
+                              isLabelHidden
+                              label={t("채팅 이름 변경")}
+                              onBlur={(event) => commitRenameDraft((event.target as HTMLInputElement).value)}
+                              onChange={updateRenameDraftValue}
                               onClick={(event) => event.stopPropagation()}
-                              onFocus={(event) => event.currentTarget.select()}
+                              onFocus={(event) => (event.target as HTMLInputElement).select()}
                               onKeyDown={handleRenameKeyDown}
+                              size="sm"
+                              value={renameDraft.value}
+                              width="100%"
                             />
                           </div>
                         ) : (
-                          <button
+                          <Button
                             className="history-item"
                             data-active={
                               project.id === selectedProjectId && session.id === selectedSessionId
                             }
+                            endContent={
+                              <small className="history-age">
+                                {formatRelativeAge(session.createdAt, settings.language)}
+                              </small>
+                            }
+                            icon={<MessageSquare size={13} />}
+                            label={t(session.title)}
                             onClick={() => handleSelectSession(project.id, session.id)}
-                            type="button"
+                            variant="ghost"
                           >
-                            <MessageSquare size={13} />
-                            <span className="history-title">{session.title}</span>
-                            <small className="history-age">
-                              {formatRelativeAge(session.createdAt)}
-                            </small>
-                          </button>
+                            <span className="history-title">{t(session.title)}</span>
+                          </Button>
                         )}
-                        <button
+                        <IconButton
                           aria-expanded={
                             openActionMenu?.type === "session" &&
                             openActionMenu.projectId === project.id &&
                             openActionMenu.sessionId === session.id
                           }
                           aria-haspopup="menu"
-                          aria-label={`${session.title} 메뉴`}
                           className="history-action-menu-button"
+                          icon={<Ellipsis size={14} />}
+                          label={t("{name} 메뉴", { name: session.title })}
                           onClick={(event) =>
                             toggleSessionActionMenu(project.id, session.id, event)
                           }
-                          title={`${session.title} 메뉴`}
-                          type="button"
-                        >
-                          <Ellipsis size={14} />
-                        </button>
+                          tooltip={t("{name} 메뉴", { name: session.title })}
+                          variant="ghost"
+                        />
                       </div>
                     ))}
                   </div>
@@ -5113,23 +5338,22 @@ export function App() {
         </section>
 
         <div className="sidebar-footer">
-          <button
+          <Button
             className="sidebar-settings-button"
             data-active={mainView === "settings" ? "true" : undefined}
+            icon={<SettingsIcon size={17} />}
+            label={t("Settings")}
             onClick={() => {
               setMainView("settings");
               setOpenActionMenu(null);
             }}
-            title="설정"
-            type="button"
-          >
-            <SettingsIcon size={17} />
-            <span>Settings</span>
-          </button>
+            tooltip={t("설정")}
+            variant="ghost"
+          />
         </div>
 
         <div
-          aria-label="사이드바 크기 조절"
+          aria-label={t("사이드바 크기 조절")}
           aria-orientation="vertical"
           aria-valuemax={MAX_SIDEBAR_WIDTH}
           aria-valuemin={MIN_SIDEBAR_WIDTH}
@@ -5148,45 +5372,45 @@ export function App() {
           >
             {openActionMenu.type === "project" ? (
               <>
-                <button
+                <Button
                   data-action="rename-project"
+                  label={t("Name change")}
                   onClick={() => beginRenameProject(actionMenuProject.id)}
                   role="menuitem"
-                  type="button"
-                >
-                  Name change
-                </button>
-                <button
+                  size="sm"
+                  variant="ghost"
+                />
+                <Button
                   className="danger"
                   data-action="delete-project"
+                  label={pendingDeleteProjectId === actionMenuProject.id ? t("Delete again") : t("Delete")}
                   onClick={(event) => void handleDeleteProject(actionMenuProject.id, event)}
                   role="menuitem"
-                  type="button"
-                >
-                  {pendingDeleteProjectId === actionMenuProject.id ? "Delete again" : "Delete"}
-                </button>
+                  size="sm"
+                  variant="destructive"
+                />
               </>
             ) : actionMenuSession ? (
               <>
-                <button
+                <Button
                   data-action="rename-session"
+                  label={t("Name change")}
                   onClick={() => beginRenameSession(actionMenuProject.id, actionMenuSession.id)}
                   role="menuitem"
-                  type="button"
-                >
-                  Name change
-                </button>
-                <button
+                  size="sm"
+                  variant="ghost"
+                />
+                <Button
                   className="danger"
                   data-action="delete-session"
+                  label={t("Delete")}
                   onClick={(event) =>
                     void handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
                   }
                   role="menuitem"
-                  type="button"
-                >
-                  Delete
-                </button>
+                  size="sm"
+                  variant="destructive"
+                />
               </>
             ) : null}
           </div>
@@ -5202,50 +5426,64 @@ export function App() {
         {showNoticeStack ? (
           <div className="notice-stack" aria-live="polite">
             {serverStatus === "offline" ? (
-              <div className="notice" data-kind="offline" role="status">
-                <i aria-hidden="true" />
-                <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
-                <span className="notice-spacer" />
-                <button onClick={() => void syncProjectsWithServer(true)} type="button">
-                  다시 연결
-                </button>
-              </div>
+              <Banner
+                className="notice"
+                container="card"
+                endContent={
+                  <Button
+                    label={t("다시 연결")}
+                    onClick={() => void syncProjectsWithServer(true)}
+                    size="sm"
+                    variant="secondary"
+                  />
+                }
+                status="error"
+                title={t("PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중")}
+              />
             ) : null}
             {selectedProjectDelta ? (
-              <div className="notice" data-kind="delta" role="status">
-                <i aria-hidden="true" />
-                <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
-                <span className="notice-spacer" />
-                <div className="notice-actions">
-                  <button
+              <Banner
+                className="notice"
+                container="card"
+                endContent={
+                  <div className="notice-actions">
+                  <Button
+                    isDisabled={isSending}
+                    label={t("브리핑 받기")}
                     onClick={() => void handleRequestProjectDeltaBriefing()}
-                    type="button"
-                    disabled={isSending}
-                  >
-                    브리핑 받기
-                  </button>
-                  <button onClick={handleDismissProjectDelta} type="button">
-                    닫기
-                  </button>
-                </div>
-              </div>
+                    size="sm"
+                    variant="primary"
+                  />
+                  <Button
+                    label={t("닫기")}
+                    onClick={handleDismissProjectDelta}
+                    size="sm"
+                    variant="ghost"
+                  />
+                  </div>
+                }
+                status="info"
+                title={t("지난 확인 이후 — {summary}", {
+                  summary: formatProjectDeltaSummary(selectedProjectDelta.delta),
+                })}
+              />
             ) : null}
             {selectedProject?.serverMissing ? (
-              <div className="notice" data-kind="error" role="status">
-                <i aria-hidden="true" />
-                <span>서버에서 찾을 수 없어 로컬 캐시를 표시 중</span>
-              </div>
+              <Banner
+                className="notice"
+                container="card"
+                status="error"
+                title={t("서버에서 찾을 수 없어 로컬 캐시를 표시 중")}
+              />
             ) : null}
             {mainDemoStatus ? (
-              <div
+              <Banner
                 className="notice runtime-status"
-                data-kind={mainDemoStatusKind}
+                container="card"
                 key={statusRevision}
-                role="status"
-              >
-                <i aria-hidden="true" />
-                <span>{mainDemoStatus.message}</span>
-              </div>
+                status={mainDemoStatusKind}
+                title={t(mainDemoStatus.message)}
+              />
             ) : null}
           </div>
         ) : null}
@@ -5254,39 +5492,72 @@ export function App() {
         ) : selectedSession ? (
           <>
             {selectedSession.messages.length === 0 ? (
+              isProjectBriefingPending ? (
+                <div className="chat-empty chat-analysis-pending" aria-live="polite">
+                  <div className="analysis-progress">
+                    <Spinner aria-label={t("프로젝트 분석 중")} shade="subtle" size="md" />
+                    <h1>{t("프로젝트를 분석하고 있습니다")}</h1>
+                    <p>
+                      {t("{step} · {seconds}초", {
+                        seconds: thinkingElapsedSeconds,
+                        step: projectAnalysisPendingStep,
+                      })}
+                    </p>
+                  </div>
+                </div>
+              ) : (
               <div className="chat-empty">
                 <h1>
-                  <span className="chat-empty-project-name">{selectedProject?.name ?? "PaiM"}</span>
-                  에서 무엇을 도와드릴까요?
+                  {t("{name}에서 무엇을 도와드릴까요?", {
+                    name: selectedProject?.name ?? "PaiM",
+                  })}
                 </h1>
               </div>
+              )
             ) : (
               <div className="chat-scroll" ref={chatScrollRef}>
-                <div className="chat-project-badge">
-                  <FolderOpen aria-hidden="true" size={12} />
-                  <span>{selectedProject?.name ?? "PaiM"}</span>
-                </div>
                 <div className="conversation">
-                  {selectedSession.messages.map((message) => (
-                    <article className="message" data-role={message.role} key={message.id}>
+                  {selectedSession.messages.map((message, messageIndex) => (
+                    <article
+                      className="message"
+                      data-briefing={
+                        selectedSession.title === "Project Briefing" &&
+                        message.role === "assistant" &&
+                        messageIndex === 0
+                          ? "true"
+                          : undefined
+                      }
+                      data-role={message.role}
+                      key={message.id}
+                    >
                       <div className="message-content">
                         {message.role === "assistant" ? (
                           <div className="assistant">
                             {typeof message.thinkingSeconds === "number" ? (
                               <div className="thought-for">
-                                {message.thinkingSeconds}초 동안 생각함
+                                {t("{seconds}초 동안 생각함", {
+                                  seconds: message.thinkingSeconds,
+                                })}
                               </div>
                             ) : null}
-                            <div className="md">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                            </div>
+                            <Markdown
+                              className="md"
+                              density="compact"
+                              headingLevelStart={3}
+                            >
+                              {message.content}
+                            </Markdown>
                             {message.sources && message.sources.length > 0 ? (
-                              <div className="sources" aria-label="출처">
-                                <span className="label">출처</span>
+                              <div className="sources" aria-label={t("출처")}>
+                                <span className="label">{t("출처")}</span>
                                 {message.sources.map((source, sourceIndex) => (
-                                  <span className="chip" key={`${message.id}-${sourceIndex}`}>
-                                    {source}
-                                  </span>
+                                  <Badge
+                                    className="source-chip"
+                                    icon={<Files aria-hidden="true" size={11} />}
+                                    key={`${message.id}-${sourceIndex}`}
+                                    label={<span className="source-chip-label">{source}</span>}
+                                    variant="neutral"
+                                  />
                                 ))}
                               </div>
                             ) : null}
@@ -5300,24 +5571,24 @@ export function App() {
                         )}
                         {message.attachments && message.attachments.length > 0 ? (
                           <>
-                            <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                            <AttachmentList attachments={message.attachments} label={t("첨부 파일")} />
                             {message.role === "user" ? (
-                              <span className="attachment-scope-note">이번 질문 참고용</span>
+                              <span className="attachment-scope-note">{t("이번 질문 참고용")}</span>
                             ) : null}
                           </>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
-                        <button
+                        <IconButton
                           className="copy-button"
-                          data-copied={copiedMessageId === message.id}
+                          data-copied={copiedMessageId === message.id ? "true" : undefined}
+                          icon={<Copy size={16} />}
+                          label={copiedMessageId === message.id ? t("복사됨") : t("응답 복사")}
                           onClick={() => void handleCopy(message)}
-                          aria-label={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                          title={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                          type="button"
-                        >
-                          <Copy size={16} />
-                        </button>
+                          size="sm"
+                          tooltip={copiedMessageId === message.id ? t("복사됨") : t("응답 복사")}
+                          variant="ghost"
+                        />
                       ) : null}
                     </article>
                   ))}
@@ -5325,9 +5596,11 @@ export function App() {
                   {isSending ? (
                     <article className="message" data-role="assistant">
                       <div className="thinking" aria-live="polite">
-                        <span className="spinner" aria-hidden="true" />
+                        <Spinner aria-label={t("응답 생성 중")} shade="subtle" size="sm" />
                         <span>
-                          <span className="dots">생각 중</span> · {thinkingElapsedSeconds}초
+                          <span className="dots">{t("생각 중")}</span> · {t("{seconds}초", {
+                            seconds: thinkingElapsedSeconds,
+                          })}
                         </span>
                       </div>
                     </article>
@@ -5337,42 +5610,45 @@ export function App() {
             )}
 
             <form className="prompt" onSubmit={handleSubmit}>
-              <textarea
-                aria-label="메시지 입력"
-                onChange={(event) => setPrompt(event.target.value)}
+              <TextArea
+                className="prompt-textarea"
+                isLabelHidden
+                label={t("메시지 입력")}
+                onChange={(value) => setPrompt(value)}
                 onKeyDown={handlePromptKeyDown}
-                placeholder="Send a message"
+                placeholder={t("Send a message")}
                 ref={promptTextareaRef}
                 rows={1}
+                size="sm"
                 value={prompt}
+                width="100%"
               />
               {attachments.length > 0 ? (
                 <div className="draft-attachments">
                   <AttachmentList
                     attachments={attachments}
-                    label="전송할 첨부 파일"
+                    label={t("전송할 첨부 파일")}
                     onRemove={removeAttachment}
                   />
                 </div>
               ) : null}
               <div className="prompt-actions">
-                <button
-                  aria-label="파일 추가"
+                <IconButton
+                  icon={<Plus size={17} />}
+                  label={t("파일 추가")}
                   onClick={() => void handlePickFiles()}
-                  title="파일 추가"
-                  type="button"
-                >
-                  <Plus size={17} />
-                </button>
-                <button
-                  aria-label="메시지 보내기"
+                  tooltip={t("파일 추가")}
+                  variant="ghost"
+                />
+                <IconButton
                   className="send-button"
-                  disabled={(!prompt.trim() && attachments.length === 0) || isSending}
-                  title="메시지 보내기"
+                  icon={<ArrowUp size={16} />}
+                  isDisabled={(!prompt.trim() && attachments.length === 0) || isSending}
+                  label={t("메시지 보내기")}
+                  tooltip={t("메시지 보내기")}
                   type="submit"
-                >
-                  <ArrowUp size={16} />
-                </button>
+                  variant="primary"
+                />
               </div>
             </form>
           </>
@@ -5381,16 +5657,18 @@ export function App() {
             <section
               className="project-home"
               data-drop-zone="project-files"
-              aria-label="프로젝트 시작 화면"
+              aria-label={t("프로젝트 시작 화면")}
             >
               <div className="project-home-content">
               <div className="project-home-name-row">
-                <input
-                  aria-label="프로젝트 이름"
+                <TextInput
                   className="project-home-name"
+                  isLabelHidden
+                  label={t("프로젝트 이름")}
                   onBlur={(event) => {
+                    const currentValue = (event.target as HTMLInputElement).value;
                     const nextName =
-                      event.currentTarget.value.trim() ||
+                      currentValue.trim() ||
                       createNextProjectName(
                         projects.filter((project) => project.id !== selectedProject.id),
                       );
@@ -5402,150 +5680,167 @@ export function App() {
                       }));
                     }
                   }}
-                  onChange={(event) => {
-                    const nextName = event.currentTarget.value;
-
+                  onChange={(nextName) => {
                     updateProject(selectedProject.id, (project) => ({
                       ...project,
                       name: nextName,
                     }));
                   }}
                   data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
-                  placeholder="New Project 1"
+                  placeholder={t("New Project 1")}
                   value={selectedProject.name}
+                  width="100%"
                 />
                 <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
               </div>
-              <textarea
-                aria-label="프로젝트 설명"
+              <TextArea
                 className="project-home-description"
-                onChange={(event) => {
-                  const nextDescription = event.currentTarget.value;
-
+                isLabelHidden
+                label={t("프로젝트 설명")}
+                onChange={(nextDescription) => {
                   updateProject(selectedProject.id, (project) => ({
                     ...project,
                     description: nextDescription,
                   }));
                 }}
-                placeholder="프로젝트 설명을 적어두면 PaiM이 맥락을 잡는 데 도움이 됩니다."
+                placeholder={t("프로젝트 설명을 적어두면 PaiM이 맥락을 잡는 데 도움이 됩니다.")}
                 rows={2}
                 value={selectedProject.description ?? ""}
+                width="100%"
               />
-              <div className="project-home-divider" />
+              <Divider className="project-home-divider" />
 
-              <div className="project-home-section-title">시작하기</div>
+              <div className="project-home-section-title">{t("시작하기")}</div>
               <div className="project-home-upload-list">
-                <div className="project-home-upload-card" data-ready={selectedProjectFileCardReady}>
-                  <span className="project-home-upload-state">
-                    {selectedProjectFileCardLabel}
-                  </span>
+                <Card
+                  className="project-home-upload-card"
+                  data-ready={selectedProjectFileCardReady}
+                  padding={3}
+                >
+                  <Badge
+                    className="project-home-upload-state"
+                    label={tUploadState(selectedProjectFileCardLabel)}
+                    variant={selectedProjectFileCardReady ? "green" : "neutral"}
+                  />
                   <Files size={18} />
                   <span className="project-home-upload-copy">
-                    <strong>프로젝트 관련 파일 업로드</strong>
-                    <small>PDF, PPT, README, 회의록 같은 자료를 한 번에 추가하세요</small>
+                    <strong>{t("프로젝트 관련 파일 업로드")}</strong>
+                    <small>{t("PDF, PPT, README, 회의록 같은 자료를 한 번에 추가하세요")}</small>
                   </span>
                   <span className="project-home-upload-actions">
-                    <button onClick={() => void handleOpenProjectFiles(selectedProject.id)} type="button">
-                      {selectedProjectRootFileCount > 0 ? "추가" : "파일 선택"}
-                    </button>
-                    {selectedProjectFileCount > 0 ? (
-                      <button
+                    <Button
+                      label={selectedProjectRootFileCount > 0 ? t("추가") : t("파일 선택")}
+                      onClick={() => void handleOpenProjectFiles(selectedProject.id)}
+                      size="sm"
+                      variant={selectedProjectRootFileCount > 0 ? "secondary" : "primary"}
+                    />
+                    {selectedProjectFileCount > 0 && showProjectPanel ? (
+                      <Button
+                        label={t("자료 수정")}
                         onClick={() => {
                           setIsProjectPanelCollapsed(false);
                           openProjectPanelTool("files");
                         }}
-                        type="button"
-                      >
-                        자료 수정
-                      </button>
+                        size="sm"
+                        variant="ghost"
+                      />
                     ) : null}
                   </span>
-                </div>
-                <div className="project-home-upload-card" data-ready={selectedProjectFolderCardReady}>
-                  <span className="project-home-upload-state">
-                    {selectedProjectFolderCardLabel}
-                  </span>
+                </Card>
+                <Card
+                  className="project-home-upload-card"
+                  data-ready={selectedProjectFolderCardReady}
+                  padding={3}
+                >
+                  <Badge
+                    className="project-home-upload-state"
+                    label={tUploadState(selectedProjectFolderCardLabel)}
+                    variant={selectedProjectFolderCardReady ? "green" : "neutral"}
+                  />
                   <FolderOpen size={18} />
                   <span className="project-home-upload-copy">
-                    <strong>프로젝트 폴더 업로드</strong>
-                    <small>소스 폴더나 문서 폴더를 통째로 추가하세요</small>
+                    <strong>{t("프로젝트 폴더 업로드")}</strong>
+                    <small>{t("소스 폴더나 문서 폴더를 통째로 추가하세요")}</small>
                   </span>
                   <span className="project-home-upload-actions">
-                    <button
+                    <Button
+                      label={selectedProjectFolderCount > 0 ? t("추가") : t("폴더 선택")}
                       onClick={() => void handleOpenProjectDirectory(selectedProject.id)}
-                      type="button"
-                    >
-                      {selectedProjectFolderCount > 0 ? "추가" : "폴더 선택"}
-                    </button>
-                    {selectedProjectFileCount > 0 ? (
-                      <button
+                      size="sm"
+                      variant={selectedProjectFolderCount > 0 ? "secondary" : "primary"}
+                    />
+                    {selectedProjectFileCount > 0 && showProjectPanel ? (
+                      <Button
+                        label={t("자료 수정")}
                         onClick={() => {
                           setIsProjectPanelCollapsed(false);
                           openProjectPanelTool("files");
                         }}
-                        type="button"
-                      >
-                        자료 수정
-                      </button>
+                        size="sm"
+                        variant="ghost"
+                      />
                     ) : null}
                   </span>
-                </div>
-                <div
+                </Card>
+                <Card
                   className="project-home-upload-card"
                   data-ready={selectedProjectGithubPanelState === "connected"}
+                  padding={3}
                 >
-                  <span className="project-home-upload-state">
-                    {selectedProjectGithubPanelState === "connected" ? "완료" : "GitHub"}
-                  </span>
+                  <Badge
+                    className="project-home-upload-state"
+                    label={selectedProjectGithubPanelState === "connected" ? t("완료") : "GitHub"}
+                    variant={selectedProjectGithubPanelState === "connected" ? "green" : "neutral"}
+                  />
                   <GitBranch size={18} />
                   <span className="project-home-upload-copy">
-                    <strong>GitHub 저장소 연결</strong>
-                    <small>지금 연결하거나 나중에 프로젝트 패널에서 연결할 수 있습니다</small>
+                    <strong>{t("GitHub 저장소 연결")}</strong>
+                    <small>{t("분석 이후 프로젝트 패널에서 연결할 수 있습니다")}</small>
                   </span>
-                  <span className="project-home-upload-actions">
-                    <button
-                      onClick={() => {
-                        setIsProjectPanelCollapsed(false);
-                        openProjectPanelTool("github");
-                      }}
-                      type="button"
-                    >
-                      {getGithubPanelStateLabel(selectedProjectGithubPanelState)}
-                    </button>
-                  </span>
-                </div>
+                  {showProjectPanel ? (
+                    <span className="project-home-upload-actions">
+                      <Button
+                        label={t(getGithubPanelStateLabel(selectedProjectGithubPanelState))}
+                        onClick={() => {
+                          setIsProjectPanelCollapsed(false);
+                          openProjectPanelTool("github");
+                        }}
+                        size="sm"
+                        variant="secondary"
+                      />
+                    </span>
+                  ) : null}
+                </Card>
               </div>
 
               <div className="project-home-spacer" />
 
               <p className="project-home-note">
-                분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
+                {t("분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.")}
               </p>
               {selectedProjectHasDocumentInProgress ? (
                 <p className="project-home-action-hint" role="status">
-                  자료 처리 중 — 완료 후 분석할 수 있습니다
+                  {t("자료 처리 중 — 완료 후 분석할 수 있습니다")}
                 </p>
               ) : null}
               <div className="project-home-actions">
-                <button
+                <Button
                   className="project-home-primary"
-                  disabled={isProjectBriefingDisabled}
+                  icon={<Brain size={16} />}
+                  isDisabled={isProjectBriefingDisabled}
+                  label={isSending ? t("분석 중") : t("분석 시작")}
                   onClick={() =>
                     void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
                   }
-                  type="button"
-                >
-                  <Brain size={16} />
-                  <span>{isSending ? "분석 중" : "분석 시작"}</span>
-                </button>
-                <button
+                  variant="primary"
+                />
+                <Button
                   className="project-home-secondary"
+                  icon={<MessageSquare size={16} />}
+                  label={t("분석 없이 채팅 시작하기")}
                   onClick={() => handleCreateChatInProject(selectedProject.id)}
-                  type="button"
-                >
-                  <MessageSquare size={16} />
-                  <span>분석 없이 채팅 시작하기</span>
-                </button>
+                  variant="secondary"
+                />
               </div>
               </div>
             </section>
@@ -5558,15 +5853,14 @@ export function App() {
                 src={paimWatermark}
                 alt="PaiM AI Project Manager"
               />
-              <button
+              <Button
                 className="project-start-button"
+                icon={<FolderPlus size={16} />}
+                label={t("새 프로젝트 시작하기")}
                 onClick={() => createProjectFromName(createNextProjectName(projects))}
-                title="새 프로젝트 시작하기"
-                type="button"
-              >
-                <FolderPlus size={16} />
-                <span>새 프로젝트 시작하기</span>
-              </button>
+                tooltip={t("새 프로젝트 시작하기")}
+                variant="primary"
+              />
             </div>
           </div>
         )}
@@ -5577,22 +5871,12 @@ export function App() {
           className="project-panel"
           data-collapsed={isProjectPanelCollapsed}
           data-view={projectPanelView}
-          aria-label="프로젝트 보조 패널"
+          aria-label={t("프로젝트 보조 패널")}
         >
-          {isProjectPanelCollapsed ? (
-            <button
-              aria-label="프로젝트 패널 펼치기"
-              className="project-panel-rail-toggle"
-              onClick={handleToggleProjectPanel}
-              title="프로젝트 패널 펼치기"
-              type="button"
-            >
-              <PanelRight size={17} />
-            </button>
-          ) : (
-            <>
+	          {isProjectPanelCollapsed ? null : (
+	            <>
           <div
-            aria-label="프로젝트 패널 크기 조절"
+            aria-label={t("프로젝트 패널 크기 조절")}
             aria-orientation="vertical"
             aria-valuemax={MAX_PROJECT_PANEL_WIDTH}
             aria-valuemin={MIN_PROJECT_PANEL_WIDTH}
@@ -5601,11 +5885,11 @@ export function App() {
             onMouseDown={handleProjectPanelResizeStart}
             role="separator"
           />
-	          <div className="project-panel-topbar">
-	            {projectPanelView === "menu" ? (
-	              <span className="project-panel-kicker">도구 선택</span>
-	            ) : (
-	              <div className="project-panel-tabs">
+          <div className="project-panel-topbar">
+            {projectPanelView === "menu" ? (
+              <span className="project-panel-kicker">{t("도구 선택")}</span>
+            ) : (
+              <div className="project-panel-tabs">
 	                {projectPanelTabs.map((tab) => {
 	                  const tabLabel = getProjectPanelTabLabel(tab);
 	                  const { Icon, color } = getProjectPanelTabVisualMeta(
@@ -5615,7 +5899,7 @@ export function App() {
 
 	                  return (
 	                    <div
-	                      aria-label={`${tabLabel} 탭`}
+	                      aria-label={t("{label} 탭", { label: tabLabel })}
 	                      className="project-panel-tab"
 	                      data-active={activeProjectPanelTabId === tab.id ? "true" : undefined}
 	                      key={tab.id}
@@ -5630,112 +5914,103 @@ export function App() {
 	                      tabIndex={0}
 	                      title={tabLabel}
 	                    >
-	                      <Icon size={16} style={{ color }} />
-	                      <span>{tabLabel}</span>
-	                      <button
-	                        aria-label={`${tabLabel} 탭 닫기`}
-	                        className="project-panel-tab-close"
-	                        onClick={(event) => {
-	                          event.stopPropagation();
-	                          handleCloseProjectPanelTab(tab.id);
-	                        }}
-	                        title={`${tabLabel} 탭 닫기`}
-	                        type="button"
-	                      >
-	                        <X size={13} />
-	                      </button>
-	                    </div>
-	                  );
-	                })}
-	                <details className="project-panel-tab-add">
-	                  <summary aria-label="패널 탭 추가" title="패널 탭 추가">
-	                    <Plus size={18} />
-	                  </summary>
-	                  <div className="project-panel-tab-menu">
-		                    {PROJECT_PANEL_TOOL_VIEWS
-		                      .filter((view) => view !== "memory" || canOpenProjectMemory)
-		                      .map((view) => (
-		                        <button
-		                          key={view}
-		                          onClick={(event) => {
-		                            event.currentTarget.closest("details")?.removeAttribute("open");
-		                            openProjectPanelTool(view);
-		                          }}
-		                          type="button"
-		                        >
-		                          {getProjectPanelTitle(view)}
-		                        </button>
-		                      ))}
-	                  </div>
-	                </details>
-	              </div>
-	            )}
-            <div className="project-panel-topbar-actions">
-              {projectPanelView !== "menu" ? (
-                <button
-                  aria-label={`${getProjectPanelTitle(projectPanelView)} 패널 ${
-                    isProjectPanelMaximized ? "축소" : "최대화"
-                  }`}
-                  className="project-panel-toggle"
-                  onClick={() => setIsProjectPanelMaximized((current) => !current)}
-                  title={`${getProjectPanelTitle(projectPanelView)} 패널 ${
-                    isProjectPanelMaximized ? "축소" : "최대화"
-                  }`}
-                  type="button"
-                >
-                  {isProjectPanelMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                </button>
-              ) : null}
-              <button
-                aria-label="프로젝트 패널 접기"
-                className="project-panel-toggle"
-                onClick={handleToggleProjectPanel}
-                title="프로젝트 패널 접기"
-                type="button"
-              >
-                <PanelRight size={16} />
-              </button>
-            </div>
+		                      <Icon size={16} style={{ color }} />
+		                      <span>{tabLabel}</span>
+		                      <IconButton
+		                        className="project-panel-tab-close"
+		                        icon={<X size={13} />}
+		                        label={t("{label} 탭 닫기", { label: tabLabel })}
+		                        onClick={(event) => {
+		                          event.stopPropagation();
+		                          handleCloseProjectPanelTab(tab.id);
+		                        }}
+		                        size="sm"
+		                        tooltip={t("{label} 탭 닫기", { label: tabLabel })}
+		                        variant="ghost"
+		                      />
+		                    </div>
+		                  );
+		                })}
+	                <DropdownMenu
+	                  button={{
+	                    className: "project-panel-tab-add",
+	                    icon: <Plus size={18} />,
+	                    isIconOnly: true,
+	                    label: t("패널 탭 추가"),
+	                    size: "sm",
+	                    tooltip: t("패널 탭 추가"),
+	                    variant: "ghost",
+	                  }}
+	                  items={PROJECT_PANEL_TOOL_VIEWS
+	                    .filter((view) => view !== "memory" || canOpenProjectMemory)
+	                    .map((view) => ({
+                      label: t(getProjectPanelTitle(view)),
+	                      onClick: () => openProjectPanelTool(view),
+	                    }))}
+	                  menuWidth={132}
+	                />
+              </div>
+            )}
           </div>
 
           {projectPanelView === "menu" ? (
-	            <div className="project-panel-menu" role="list">
-	              {canOpenProjectMemory ? (
-	                <button onClick={() => openProjectPanelTool("memory")} role="listitem" type="button">
-	                  <span>
-	                    <Brain size={18} />
-	                    <span>
-	                      <strong>메모리</strong>
-	                      <small>결정·액션·이슈·리스크</small>
-	                    </span>
-	                  </span>
-	                  <ChevronRight size={16} />
-	                </button>
-	              ) : null}
-		              <button
-		                onClick={() => openProjectPanelTool("files")}
+            <div className="project-panel-menu" role="list">
+              {canOpenProjectMemory ? (
+                <Button
+                  className="project-panel-menu-item"
+                  label={t("메모리 열기")}
+                  onClick={() => openProjectPanelTool("memory")}
+                  role="listitem"
+                  variant="secondary"
+                >
+                  <span className="project-panel-menu-row">
+                    <span className="project-panel-menu-leading">
+                      <Brain className="project-panel-menu-icon" size={18} />
+                      <span className="project-panel-menu-copy">
+                        <strong>{t("메모리")}</strong>
+                        <small>{t("결정·액션·이슈·리스크")}</small>
+                      </span>
+                    </span>
+                    <ChevronRight className="project-panel-menu-chevron" size={16} />
+                  </span>
+                </Button>
+              ) : null}
+              <Button
+                className="project-panel-menu-item"
+                label={t("자료 열기")}
+                onClick={() => openProjectPanelTool("files")}
                 role="listitem"
-                type="button"
+                variant="secondary"
               >
-                <span>
-                  <Files size={18} />
-                  <span>
-                    <strong>자료</strong>
-                    <small>{selectedProjectAttachments.length}개 소스</small>
+                <span className="project-panel-menu-row">
+                  <span className="project-panel-menu-leading">
+                    <Files className="project-panel-menu-icon" size={18} />
+                    <span className="project-panel-menu-copy">
+                      <strong>{t("자료")}</strong>
+                      <small>{t("{count}개 소스", { count: selectedProjectAttachments.length })}</small>
+                    </span>
                   </span>
+                  <ChevronRight className="project-panel-menu-chevron" size={16} />
                 </span>
-                <ChevronRight size={16} />
-              </button>
-	              <button onClick={() => openProjectPanelTool("github")} role="listitem" type="button">
-                <span>
-                  <GitBranch size={18} />
-                  <span>
-                    <strong>GitHub</strong>
-                    <small>{getGithubPanelStateLabel(selectedProjectGithubPanelState)}</small>
+              </Button>
+              <Button
+                className="project-panel-menu-item"
+                label={t("GitHub 열기")}
+                onClick={() => openProjectPanelTool("github")}
+                role="listitem"
+                variant="secondary"
+              >
+                <span className="project-panel-menu-row">
+                  <span className="project-panel-menu-leading">
+                    <GitBranch className="project-panel-menu-icon" size={18} />
+                    <span className="project-panel-menu-copy">
+                      <strong>GitHub</strong>
+                      <small>{t(getGithubPanelStateLabel(selectedProjectGithubPanelState))}</small>
+                    </span>
                   </span>
+                  <ChevronRight className="project-panel-menu-chevron" size={16} />
                 </span>
-                <ChevronRight size={16} />
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -5818,6 +6093,8 @@ export function App() {
           )}
         </aside>
       ) : null}
-    </div>
+      </div>
+      </Theme>
+    </I18nProvider>
   );
 }
