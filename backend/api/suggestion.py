@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from ..db.mysql import get_connection
-from .auth import require_project_access
+from .auth import get_current_user_id, require_project_access
 
 router = APIRouter()
 
@@ -34,6 +34,7 @@ def _suggestion_response(row: dict) -> dict:
         "status": row["status"],
         "created_at": row["created_at"],
         "resolved_at": row.get("resolved_at"),
+        "resolved_by": row.get("resolved_by"),
     }
 
 
@@ -92,9 +93,9 @@ def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dic
                 )
 
             cursor.execute(
-                "UPDATE memory_suggestions SET status = %s, resolved_at = NOW()"
+                "UPDATE memory_suggestions SET status = %s, resolved_at = NOW(), resolved_by = %s"
                 " WHERE id = %s AND project_id = %s",
-                (status, suggestion_id, project_id),
+                (status, get_current_user_id(), suggestion_id, project_id),
             )
             cursor.execute(
                 "SELECT * FROM memory_suggestions WHERE id = %s AND project_id = %s",

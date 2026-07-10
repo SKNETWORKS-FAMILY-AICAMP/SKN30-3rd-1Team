@@ -202,8 +202,14 @@ AGENT_LOG.md
 claude.md
 codex.md
 ignore
+scripts
+CLAUDE.md
+README.ko.md
+.agent-workflow
+backend-agent-workflow-fixed.zip
 
 # 로컬 런타임 산출물
 data/uploads/
 .claude/
 evals/results/
+

@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS users (
-    id         INT PRIMARY KEY AUTO_INCREMENT,
-    email      VARCHAR(255) NOT NULL UNIQUE,
-    name       VARCHAR(255),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id            INT PRIMARY KEY AUTO_INCREMENT,
+    email         VARCHAR(255) NOT NULL UNIQUE,
+    name          VARCHAR(255),
+    password_hash VARCHAR(255) NULL,  -- bcrypt. NULL이면 로그인 불가(레거시/DEV row)
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -14,10 +15,11 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
-    project_id INT NOT NULL,
-    user_id    INT NOT NULL,
-    role       VARCHAR(20) NOT NULL DEFAULT 'member',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    project_id   INT NOT NULL,
+    user_id      INT NOT NULL,
+    role         VARCHAR(20) NOT NULL DEFAULT 'member',
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NULL,
     PRIMARY KEY (project_id, user_id),
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (user_id)    REFERENCES users(id)
@@ -107,8 +109,10 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
     status      VARCHAR(10) NOT NULL DEFAULT 'pending',
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     resolved_at DATETIME NULL,
+    resolved_by INT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (memory_id)  REFERENCES memory(id) ON DELETE CASCADE,
+    FOREIGN KEY (resolved_by) REFERENCES users(id),
     INDEX idx_memory_suggestions_project_status (project_id, status),
     INDEX idx_memory_suggestions_memory_status  (memory_id, status)
 );
@@ -116,10 +120,13 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id         VARCHAR(64) PRIMARY KEY,
     project_id INT NOT NULL,
+    user_id    INT NULL,  -- 세션 소유자. NULL은 마이그레이션 이전 레거시 세션(멤버 전원에게 보임)
     title      VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id)
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (user_id)    REFERENCES users(id),
+    INDEX idx_chat_sessions_project_user (project_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (

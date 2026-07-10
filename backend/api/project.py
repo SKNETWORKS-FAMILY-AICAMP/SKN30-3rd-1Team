@@ -159,7 +159,8 @@ def update_project(project_id: int, body: ProjectUpdate):
 
 @router.delete("/projects/{project_id}", status_code=204)
 def delete_project(project_id: int):
-    require_project_access(project_id, min_role="member")
+    # 프로젝트 삭제는 공유 멤버 전체의 데이터를 지우므로 owner 전용
+    require_project_access(project_id, min_role="owner")
     conn = get_connection()
     try:
         with conn.cursor() as cursor:

@@ -2335,6 +2335,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "bcrypt" },
     { name = "chromadb" },
     { name = "cryptography" },
     { name = "fastapi" },
@@ -2366,6 +2367,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic" },
+    { name = "bcrypt", specifier = ">=5.0.0" },
     { name = "chromadb" },
     { name = "cryptography" },
     { name = "fastapi" },

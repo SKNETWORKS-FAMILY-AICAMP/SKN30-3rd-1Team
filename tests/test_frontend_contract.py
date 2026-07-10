@@ -29,10 +29,18 @@ def _conn_for_session():
 
 
 def test_session_prefix_api_v1_accessible():
-    """/api/v1/projects/{id}/sessions 가 응답한다."""
-    with patch("backend.chat.router.get_db", return_value=iter([_conn_for_session()])), \
-         patch("backend.chat.router.require_project_access"):
-        resp = _client.get("/api/v1/projects/1/sessions")
+    """/api/v1/projects/{id}/sessions 가 응답한다.
+
+    get_db는 Depends()가 import 시점에 참조를 캡처하므로 patch()로는 대체되지 않음
+    → dependency_overrides 사용 (기존 patch 방식은 로컬 MySQL이 떠 있어야만 통과했음).
+    """
+    from backend.chat.router import get_db
+    app.dependency_overrides[get_db] = lambda: _conn_for_session()
+    try:
+        with patch("backend.chat.router.require_project_access"):
+            resp = _client.get("/api/v1/projects/1/sessions")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
     assert resp.status_code == 200
 
 

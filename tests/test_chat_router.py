@@ -41,13 +41,14 @@ class _FakeCursor:
             project_id = params[0]
             self._rows = [{"id": project_id}] if project_id in self.conn.projects else []
         elif sql_norm.startswith("SELECT id FROM chat_sessions WHERE id = %s AND project_id = %s"):
-            session_id, project_id = params
+            # user_id 격리 조건이 붙으면 params가 3개 (session_id, project_id, user_id)
+            session_id, project_id = params[0], params[1]
             row = self.conn.sessions.get(session_id)
             self._rows = [{"id": session_id}] if row and row["project_id"] == project_id else []
         elif sql_norm.startswith("INSERT INTO chat_sessions"):
-            session_id, project_id, title = params
+            session_id, project_id, user_id, title = params
             self.conn.sessions[session_id] = {
-                "id": session_id, "project_id": project_id, "title": title,
+                "id": session_id, "project_id": project_id, "user_id": user_id, "title": title,
                 "created_at": self.conn.now, "updated_at": self.conn.now,
             }
         elif sql_norm.startswith("SELECT * FROM chat_sessions WHERE id = %s"):
