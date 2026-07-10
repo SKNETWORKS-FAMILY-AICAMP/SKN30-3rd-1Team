@@ -78,6 +78,8 @@ def list_suggestions(project_id: int, status: str = "pending"):
 
 def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dict:
     """suggestion을 accepted/rejected로 닫고, accepted면 대상 action 완료일을 보장한다."""
+    # 상태를 변경하는 동작이므로 member 이상 권한 필요 — 타 프로젝트 무단 조작(IDOR) 방지.
+    require_project_access(project_id, min_role="member")
     conn = get_connection()
     try:
         with conn.cursor() as cursor:

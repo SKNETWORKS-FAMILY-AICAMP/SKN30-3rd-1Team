@@ -328,3 +328,51 @@ def test_session_list_filters_by_user(jwt_mode):
     sql, params = cursor.execute.call_args[0]
     assert "user_id IS NULL OR user_id" in sql
     assert params == (1, 7)
+
+
+# ── 회귀: 리뷰 findings (R-001 / R-003 / R-004) ──────────────────────────────
+
+def test_placeholder_secret_is_rejected(jwt_mode, monkeypatch):
+    """R-001: 공개 placeholder 시크릿은 미설정과 동일하게 503으로 거부된다."""
+    monkeypatch.setenv("PAIM_JWT_SECRET", "your_random_jwt_secret")
+    with pytest.raises(HTTPException) as exc:
+        create_access_token(1)
+    assert exc.value.status_code == 503
+
+
+def test_short_secret_is_rejected(jwt_mode, monkeypatch):
+    """R-001: 너무 짧은(약한) 시크릿도 503으로 거부된다."""
+    monkeypatch.setenv("PAIM_JWT_SECRET", "short")
+    with pytest.raises(HTTPException) as exc:
+        create_access_token(1)
+    assert exc.value.status_code == 503
+
+
+def test_hash_password_rejects_over_72_bytes():
+    """R-004: 72바이트 초과 비밀번호는 bcrypt 500이 아니라 400으로 거부된다."""
+    with pytest.raises(HTTPException) as exc:
+        hash_password("a" * 73)
+    assert exc.value.status_code == 400
+
+
+def test_signup_rejects_too_long_password(jwt_mode):
+    """R-004: 72바이트 초과 비밀번호 signup은 400 (500 아님)."""
+    resp = _client.post(
+        "/api/v1/auth/signup",
+        json={"email": "a@b.co", "password": "a" * 73, "name": "A"},
+    )
+    assert resp.status_code == 400
+
+
+def test_signup_rolls_back_when_secret_missing(jwt_mode, monkeypatch):
+    """R-003: 시크릿 누락 시 signup은 503이면서 계정을 commit하지 않고 rollback한다."""
+    monkeypatch.delenv("PAIM_JWT_SECRET", raising=False)
+    conn, _ = _make_conn(fetchone={"id": 7, "email": "a@b.co", "name": "A"}, lastrowid=7)
+    with patch("backend.api.auth_routes.get_connection", return_value=conn):
+        resp = _client.post(
+            "/api/v1/auth/signup",
+            json={"email": "a@b.co", "password": "password123", "name": "A"},
+        )
+    assert resp.status_code == 503
+    conn.rollback.assert_called_once()
+    conn.commit.assert_not_called()

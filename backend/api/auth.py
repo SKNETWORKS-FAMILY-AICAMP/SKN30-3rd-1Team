@@ -32,7 +32,17 @@ def _auth_mode() -> str:
 
 # ── 비밀번호 해시 ─────────────────────────────────────────────────────────────
 
+# bcrypt는 72바이트 초과 입력에서 ValueError를 던진다(멀티바이트는 24자 정도로도 초과).
+# 조용한 절단이나 500 대신 명시적 400으로 처리한다.
+_MAX_PASSWORD_BYTES = 72
+
+
 def hash_password(plain: str) -> str:
+    if len(plain.encode("utf-8")) > _MAX_PASSWORD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="비밀번호가 너무 깁니다. (UTF-8 기준 72바이트 이하)",
+        )
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
 
 
@@ -54,10 +64,29 @@ def _b64url_decode(segment: str) -> bytes:
     return base64.urlsafe_b64decode(segment + padding)
 
 
+# .env.example 등에 공개된 placeholder를 그대로 쓰면 서명키가 알려진 값이 되어
+# 누구나 토큰을 위조할 수 있다. 알려진 기본값/약한 값은 미설정과 동일하게 거부한다.
+_PLACEHOLDER_JWT_SECRETS = {
+    "your_random_jwt_secret",
+    "change_me",
+    "changeme",
+    "secret",
+    "your-secret-key",
+    "please_change_me",
+}
+_MIN_JWT_SECRET_LEN = 16
+
+
 def _jwt_secret() -> bytes:
     secret = os.getenv("PAIM_JWT_SECRET", "").strip()
     if not secret:
         raise HTTPException(status_code=503, detail="PAIM_JWT_SECRET is not configured")
+    if secret.lower() in _PLACEHOLDER_JWT_SECRETS or len(secret) < _MIN_JWT_SECRET_LEN:
+        raise HTTPException(
+            status_code=503,
+            detail="PAIM_JWT_SECRET must be a strong non-default value "
+            "(>= 16 chars, not a placeholder)",
+        )
     return secret.encode("utf-8")
 
 

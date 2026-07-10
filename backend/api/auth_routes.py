@@ -62,14 +62,19 @@ def signup(body: SignupRequest):
             except pymysql.err.IntegrityError:
                 raise HTTPException(status_code=409, detail="이미 가입된 이메일입니다.")
             user_id = cursor.lastrowid
-        conn.commit()
-        with conn.cursor() as cursor:
             cursor.execute("SELECT id, email, name FROM users WHERE id = %s", (user_id,))
             user_row = cursor.fetchone()
+        # 토큰 생성(시크릿 검증 포함)을 commit 이전에 수행 — 시크릿 누락/약함으로 503이
+        # 나더라도 계정이 남지 않도록 rollback 처리한다.
+        response = _token_response(user_row)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
-    return _token_response(user_row)
+    return response
 
 
 @router.post("/login")

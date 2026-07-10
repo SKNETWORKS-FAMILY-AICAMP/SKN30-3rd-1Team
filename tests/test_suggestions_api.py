@@ -92,3 +92,21 @@ def test_reject_suggestion_only_resolves_suggestion():
     assert resp.json()["status"] == "rejected"
     sql_calls = [call.args[0] for call in cur.execute.call_args_list]
     assert not any("UPDATE memory SET completed_at = NOW()" in sql for sql in sql_calls)
+
+
+def test_resolve_suggestion_requires_project_access():
+    """R-002: accept/reject는 require_project_access를 통과해야 한다 (타 프로젝트 IDOR 방지).
+
+    접근이 거부되면 DB 접근 전에 403으로 중단되므로 get_connection을 patch할 필요가 없다.
+    """
+    from fastapi import HTTPException
+
+    def _deny(project_id, min_role="viewer"):
+        raise HTTPException(status_code=403, detail="test: access denied")
+
+    with patch("backend.api.suggestion.require_project_access", _deny):
+        accept = _client.post("/api/v1/projects/1/suggestions/7/accept")
+        reject = _client.post("/api/v1/projects/1/suggestions/7/reject")
+
+    assert accept.status_code == 403
+    assert reject.status_code == 403
