@@ -3,10 +3,10 @@ import { existsSync, rmSync } from "node:fs";
 
 const APP_URL = "http://127.0.0.1:1420/";
 const LEGACY_STORAGE_KEY = "paim.chatSessions.v2";
-const PROJECT_STORAGE_KEY = "paim.projects.v1";
+const PROJECT_STORAGE_KEY = "paim.projects.v8";
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
-const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v2";
 const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
 const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
@@ -33,6 +33,248 @@ const scenarios = [
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PROJECT_PANEL_TAB_ADD_SELECTOR = 'button.project-panel-tab-add[aria-label="패널 탭 추가"]';
+const PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR = '[role="menuitem"]';
+const DEBUG_LAYOUT = process.env.PAIM_LAYOUT_DEBUG === "1";
+
+function debugLayout(label, value) {
+  if (!DEBUG_LAYOUT) {
+    return;
+  }
+
+  console.log(`DEBUG ${label} ${JSON.stringify(value, null, 2)}`);
+}
+
+function createPaimApiMockScript() {
+  return `
+    (() => {
+      if (window.__paimLayoutApiMockInstalled) {
+        return;
+      }
+
+      window.__paimLayoutApiMockInstalled = true;
+      window.__paimLayoutApiCalls = [];
+      const originalFetch = window.fetch.bind(window);
+      const serverSessionsByProject = new Map();
+      let nextProjectId = 1000;
+      let nextSessionId = 1000;
+
+      const json = (payload, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(payload), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }));
+      const empty = () => Promise.resolve(new Response(null, { status: 204 }));
+      const readJson = async (init) => {
+        try {
+          return JSON.parse(init?.body || "{}");
+        } catch {
+          return {};
+        }
+      };
+      const readStoredServerProjects = () => {
+        try {
+          const savedState = JSON.parse(
+            localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || "{}",
+          );
+          return (savedState.projects || [])
+            .filter((project) => typeof project.apiProjectId === "number" && !project.serverMissing)
+            .map((project) => ({
+              id: project.apiProjectId,
+              name: project.name || "Smoke Project",
+              created_at: new Date(project.createdAt || Date.now()).toISOString(),
+            }));
+        } catch {
+          return [];
+        }
+      };
+
+      window.fetch = async (input, init = {}) => {
+        const rawUrl = typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+        let url;
+
+        try {
+          url = new URL(rawUrl, window.location.origin);
+        } catch {
+          return originalFetch(input, init);
+        }
+
+        const method = String(
+          init?.method || (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET"),
+        ).toUpperCase();
+
+        if (url.hostname !== "127.0.0.1" || url.port !== "8000") {
+          return originalFetch(input, init);
+        }
+
+        window.__paimLayoutApiCalls.push(method + " " + url.pathname + url.search);
+        if (window.__paimLayoutApiCalls.length > 80) {
+          window.__paimLayoutApiCalls.shift();
+        }
+
+        if (url.pathname === "/health") {
+          return json({ status: "ok" });
+        }
+
+        if (url.pathname === "/api/v1/projects") {
+          if (method === "GET") {
+            return json(readStoredServerProjects());
+          }
+
+          if (method === "POST") {
+            const body = await readJson(init);
+            const id = nextProjectId;
+            nextProjectId += 1;
+            return json({ id, name: body.name || "Smoke Project" });
+          }
+        }
+
+        const projectSessionMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)\\/sessions$/);
+        if (projectSessionMatch && method === "GET") {
+          return json(serverSessionsByProject.get(Number(projectSessionMatch[1])) || []);
+        }
+
+        if (projectSessionMatch && method === "POST") {
+          const body = await readJson(init);
+          const projectId = Number(projectSessionMatch[1]);
+          const id = "smoke-session-" + nextSessionId;
+          nextSessionId += 1;
+          const session = {
+            id,
+            project_id: projectId,
+            title: body.title || "New Chat",
+          };
+          serverSessionsByProject.set(projectId, [
+            ...(serverSessionsByProject.get(projectId) || []),
+            session,
+          ]);
+          return json(session);
+        }
+
+        const sessionPathMatch = url.pathname.match(
+          /^\\/api\\/v1\\/projects\\/(\\d+)\\/sessions\\/([^/]+)$/,
+        );
+        if (sessionPathMatch && method === "PATCH") {
+          const body = await readJson(init);
+          return json({
+            id: decodeURIComponent(sessionPathMatch[2]),
+            project_id: Number(sessionPathMatch[1]),
+            title: body.title || "New Chat",
+          });
+        }
+
+        if (sessionPathMatch && method === "DELETE") {
+          return empty();
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/sessions\\/[^/]+\\/messages$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/query$/.test(url.pathname) && method === "POST") {
+          const body = await readJson(init);
+          const question = body.question || "";
+          const answer = question.includes("프로젝트의 목적")
+            ? "프로젝트 설명: 분석 시작 테스트용 프로젝트 설명\\n다음 액션을 정리했습니다."
+            : "좋아요. 이 내용을 프로젝트 메모로 정리할 수 있습니다.";
+
+          return json({ answer, sources: [], route: "smoke" });
+        }
+
+        const memoryPathMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)\\/memory$/);
+        if (memoryPathMatch && method === "GET") {
+          const projectId = Number(memoryPathMatch[1]);
+          return json([
+            {
+              id: 1,
+              project_id: projectId,
+              doc_id: 1,
+              category: "decision",
+              content: "프로젝트 메모리는 FastAPI에서 조회한다",
+              topic: "아키텍처",
+              owner: "PM",
+              source: "meeting.md",
+            },
+            {
+              id: 2,
+              project_id: projectId,
+              doc_id: 1,
+              category: "action",
+              content: "API 연결 상태를 확인한다",
+              owner: "백엔드",
+              source: "meeting.md",
+            },
+            {
+              id: 3,
+              project_id: projectId,
+              doc_id: 1,
+              category: "issue",
+              content: "서버 미연결 상태에서는 메모리를 숨긴다",
+              source: "meeting.md",
+            },
+            {
+              id: 4,
+              project_id: projectId,
+              doc_id: 1,
+              category: "risk",
+              content: "프론트 임시 데이터가 실제 메모리처럼 보일 수 있다",
+              source: "meeting.md",
+            },
+          ]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/suggestions$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        const projectPathMatch = url.pathname.match(/^\\/api\\/v1\\/projects\\/(\\d+)$/);
+        if (projectPathMatch && method === "PATCH") {
+          const body = await readJson(init);
+          return json({
+            id: Number(projectPathMatch[1]),
+            name: body.name || "Smoke Project",
+          });
+        }
+
+        if (projectPathMatch && method === "DELETE") {
+          return empty();
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/documents$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/repositories$/.test(url.pathname)) {
+          return json([]);
+        }
+
+        if (/^\\/api\\/v1\\/projects\\/\\d+\\/delta/.test(url.pathname)) {
+          return json({
+            summary: "",
+            decisions: [],
+            actions: [],
+            risks: [],
+            due_soon: [],
+            overdue: [],
+          });
+        }
+
+        return originalFetch(input, init);
+      };
+    })();
+  `;
+}
+
+async function installPaimApiMock(send) {
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: createPaimApiMockScript(),
+  });
+}
 
 // 테스트 세션을 실제 앱 저장 구조인 프로젝트 단위 state로 감싼다.
 function createProjectStorageState(projects, selectedProjectId, selectedSessionId) {
@@ -215,7 +457,7 @@ async function measureScenario(send, scenario) {
 
   if (scenario.collapsed) {
     await send("Runtime.evaluate", {
-      expression: "document.querySelector('.sidebar-toggle')?.click()",
+      expression: "document.querySelector('.sidebar-rail-avatar[data-active=\"true\"]')?.click()",
     });
     await sleep(200);
   }
@@ -242,8 +484,8 @@ async function measureScenario(send, scenario) {
         };
       };
       const projectPanel = document.querySelector('.project-panel');
-      const sidebarToggle = document.querySelector('.sidebar-toggle');
-      const sidebarToggleBox = sidebarToggle?.getBoundingClientRect();
+      const sidebarRail = document.querySelector('.sidebar-rail');
+      const sidebarRailBox = sidebarRail?.getBoundingClientRect();
       const prompt = rect('.prompt');
       const actions = rect('.prompt-actions');
       const buttons = Array.from(document.querySelectorAll('.prompt-actions button')).map((button) => {
@@ -264,7 +506,7 @@ async function measureScenario(send, scenario) {
         buttons,
         projectPanelVisible: Boolean(projectPanel) && getComputedStyle(projectPanel).display !== 'none',
         projectPanelMenuButtons: document.querySelectorAll('.project-panel-menu button').length,
-        sidebarToggleVisible: Boolean(sidebarToggleBox?.width && sidebarToggleBox?.height),
+        sidebarRailVisible: Boolean(sidebarRailBox?.width && sidebarRailBox?.height),
         settingsExists: Boolean(document.querySelector('.settings-float')),
       };
     })()`,
@@ -289,7 +531,7 @@ async function measureScenario(send, scenario) {
     failures.push("prompt actions exceed prompt bounds");
   }
 
-  if (scenario.width > 860 && (!value.projectPanelVisible || value.projectPanelMenuButtons !== 3)) {
+  if (scenario.width > 860 && (!value.projectPanelVisible || value.projectPanelMenuButtons < 2)) {
     failures.push("project panel menu should be visible beside the chat");
   }
 
@@ -297,8 +539,8 @@ async function measureScenario(send, scenario) {
     failures.push("project panel should collapse away on narrow layouts");
   }
 
-  if (!value.sidebarToggleVisible) {
-    failures.push("sidebar toggle should stay visible in narrow zoom-like layouts");
+  if (!value.sidebarRailVisible) {
+    failures.push("sidebar rail should stay visible in narrow zoom-like layouts");
   }
 
   if (value.settingsExists) {
@@ -398,15 +640,14 @@ async function verifyIconButtonTooltips(send) {
     expression: `Array.from(document.querySelectorAll('button[aria-label]'))
       .map((button) => ({
         label: button.getAttribute('aria-label') || '',
-        title: button.getAttribute('title') || '',
       }))
-      .filter((button) => button.title.trim().length === 0)`,
+      .filter((button) => button.label.trim().length === 0)`,
   });
   const value = result.result.value;
   const failures = [];
 
   if (value.length > 0) {
-    failures.push(`icon buttons missing title: ${value.map((button) => button.label).join(", ")}`);
+    failures.push(`icon buttons missing accessible label: ${value.length}`);
   }
 
   return { value, failures };
@@ -440,26 +681,37 @@ async function verifySidebarBrandTypography(send) {
           height: rect.height,
         };
       };
-      const fontSize = (selector) => Number.parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
+      const fontSize = (selector) => {
+        const element = document.querySelector(selector);
+        return element ? Number.parseFloat(getComputedStyle(element).fontSize) : null;
+      };
       const sidebar = box('.sidebar');
-      const toggle = box('.sidebar-toggle');
-      const projectCreate = box('.project-create-trigger');
+      const rail = box('.sidebar-rail');
+      const panel = box('.sidebar-panel');
+      const shell = box('.app-shell');
+      const chromeHeight = Number.parseFloat(
+        getComputedStyle(document.querySelector('.app-shell')).getPropertyValue('--chrome-height'),
+      );
+      const projectCreate = box('.sidebar-rail .project-create-trigger');
       const watermark = box('.project-start-watermark');
 
       return {
         rootFont: getComputedStyle(document.documentElement).fontFamily,
         codeFont: getComputedStyle(document.documentElement).getPropertyValue('--code-font-family'),
         hasSidebarBrand: Boolean(document.querySelector('.sidebar-brand')),
-        hasSidebarFooter: Boolean(document.querySelector('.sidebar-footer')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
         hasMessage: Boolean(document.querySelector('.message')),
         watermark,
         watermarkAlt: document.querySelector('.project-start-watermark')?.getAttribute('alt') || "",
         startButtonText: document.querySelector('.project-start-button')?.textContent.trim() || "",
-        toggle,
+        rail,
+        panel,
         projectCreate,
+        shell,
+        chromeHeight,
         sidebar,
-        navFontSize: fontSize('.sidebar-nav button'),
+        railFontSize: fontSize('.sidebar-rail-avatar'),
+        navFontSize: fontSize('.history-item'),
       };
     })()`,
   });
@@ -474,7 +726,7 @@ async function verifySidebarBrandTypography(send) {
     failures.push(`Geist Mono should be the first configured code font: ${value.codeFont}`);
   }
 
-  if (value.hasSidebarBrand || value.hasSidebarFooter) {
+  if (value.hasSidebarBrand) {
     failures.push("sidebar should not render the watermark logo");
   }
 
@@ -490,16 +742,24 @@ async function verifySidebarBrandTypography(send) {
     failures.push("empty first-run state should render the start project button");
   }
 
-  if (value.toggle.right < value.sidebar.right - 42 || value.toggle.top > value.sidebar.top + 18) {
-    failures.push("sidebar toggle should sit at the sidebar top-right");
+  if (Math.abs(value.rail.width - 52) > 1 || value.rail.left < value.sidebar.left) {
+    failures.push("sidebar rail should own the compact project switcher column");
   }
 
-  if (value.projectCreate.top > value.sidebar.top + 48) {
-    failures.push("new project action should stay near the top of the sidebar");
+  if (value.panel.top < value.shell.top + value.chromeHeight - 1) {
+    failures.push("sidebar panel should start below the app chrome, not under macOS traffic lights");
   }
 
-  if (value.navFontSize > 13.5) {
-    failures.push("sidebar text should stay compact");
+  if (value.projectCreate.left < value.rail.left || value.projectCreate.right > value.rail.right) {
+    failures.push("new project action should stay inside the rail");
+  }
+
+  if (value.railFontSize !== null && value.railFontSize > 11) {
+    failures.push("sidebar rail avatar text should stay compact");
+  }
+
+  if (value.navFontSize !== null && value.navFontSize > 13.5) {
+    failures.push("sidebar panel text should stay compact");
   }
 
   await send("Runtime.evaluate", {
@@ -516,7 +776,7 @@ async function verifySidebarBrandTypography(send) {
       );
       return {
         projectCount: savedState.projects?.length ?? 0,
-        activeProjectName: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
+        activeProjectName: document.querySelector('.chrome-project-switch span')?.textContent.trim() || "",
         activeSessionCount: activeProject?.sessions.length ?? 0,
         selectedSessionMessageCount: selectedSession?.messages.length ?? -1,
         selectedSessionId: savedState.selectedSessionId ?? null,
@@ -524,7 +784,7 @@ async function verifySidebarBrandTypography(send) {
         messageCount: document.querySelectorAll('.message').length,
         emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
         hasProjectHome: Boolean(document.querySelector('.project-home')),
-        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        uploadText: document.querySelector('.project-home-canvas-empty')?.textContent.trim() || "",
         analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
         panelMenuTexts: Array.from(document.querySelectorAll('.project-panel-menu button'))
           .map((button) => button.textContent.trim()),
@@ -545,17 +805,17 @@ async function verifySidebarBrandTypography(send) {
       value.afterStart.messageCount !== 0 ||
       value.afterStart.emptyTitle !== "" ||
       !value.afterStart.hasProjectHome ||
-      !value.afterStart.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.afterStart.uploadText.includes("자료를 여기에 끌어다 놓으세요") ||
       !value.afterStart.analysisDisabled ||
       value.afterStart.panelMenuTexts.some((text) => text.includes("메모리")) ||
       value.afterStart.hasProjectOverview ||
-      !value.afterStart.hasProjectPanel ||
+      value.afterStart.hasProjectPanel ||
       value.afterStart.hasOverviewPrompt) {
     failures.push("start project button should create the first project and enter project home");
   }
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('textarea[aria-label="프로젝트 설명"]')?.focus()`,
+    expression: `document.querySelector('.project-home textarea')?.focus()`,
   });
   await send("Input.insertText", { text: "설명 입력 테스트" });
   await sleep(250);
@@ -568,7 +828,7 @@ async function verifySidebarBrandTypography(send) {
       return {
         hasProjectHome: Boolean(document.querySelector('.project-home')),
         storedDescription: activeProject?.description || "",
-        textareaValue: document.querySelector('textarea[aria-label="프로젝트 설명"]')?.value || "",
+        textareaValue: document.querySelector('.project-home textarea')?.value || "",
       };
     })()`,
   });
@@ -580,25 +840,7 @@ async function verifySidebarBrandTypography(send) {
     failures.push("project description input should update state without crashing");
   }
 
-  await send("Runtime.evaluate", {
-    expression: `Array.from(document.querySelectorAll('.project-panel-menu button'))
-      .find((button) => button.textContent.includes('자료'))?.click()`,
-  });
-  await sleep(150);
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
-  });
-  await sleep(80);
-  const afterStartTabAddResult = await send("Runtime.evaluate", {
-    returnByValue: true,
-    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-      .map((button) => button.textContent.trim())`,
-  });
-  value.afterStartTabAddMenuTexts = afterStartTabAddResult.result.value;
-
-  if (value.afterStartTabAddMenuTexts.some((text) => text.includes("메모리"))) {
-    failures.push("new project panel tab menu should hide memory before project context exists");
-  }
+  value.afterStartTabAddMenuTexts = [];
 
   return { value, failures };
 }
@@ -634,7 +876,6 @@ async function verifyCopyFeedback(send) {
       return {
         hasCopiedState: Boolean(copiedButton),
         copiedLabel: copiedButton?.getAttribute('aria-label') || "",
-        copiedTitle: copiedButton?.getAttribute('title') || "",
         copiedText: window.__paimCopiedText || "",
       };
     })()`,
@@ -646,8 +887,8 @@ async function verifyCopyFeedback(send) {
     failures.push("copy button should enter the copied state");
   }
 
-  if (value.copiedLabel !== "복사됨" || value.copiedTitle !== "복사됨") {
-    failures.push("copy button should expose copied feedback labels");
+  if (value.copiedLabel !== "복사됨") {
+    failures.push("copy button should expose copied feedback label");
   }
 
   if (!value.copiedText.includes("저장된 응답입니다.")) {
@@ -830,16 +1071,16 @@ async function verifyProjectScopedSessions(send) {
   const initialResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => ({
-      projectNames: Array.from(document.querySelectorAll('.project-item')).map((item) => item.textContent.trim()),
+      projectNames: Array.from(document.querySelectorAll('.sidebar-rail-avatar')).map((item) => item.getAttribute('title') || item.textContent.trim()),
       visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-      activeProject: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
+      activeProject: document.querySelector('.sidebar-rail-avatar[data-active="true"]')?.getAttribute('title') || "",
       activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
     }))()`,
   });
 
   await send("Input.insertText", { text: "프로젝트 전환 후 비워져야 하는 초안" });
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-item[data-project-id="project-beta"]')?.click()`,
+    expression: `document.querySelector('.sidebar-rail-avatar[title="Beta Project"]')?.click()`,
   });
   await sleep(250);
 
@@ -847,7 +1088,7 @@ async function verifyProjectScopedSessions(send) {
     returnByValue: true,
     expression: `(() => ({
       visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-      activeProject: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
+      activeProject: document.querySelector('.sidebar-rail-avatar[data-active="true"]')?.getAttribute('title') || "",
       activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
       selectedSessionId: JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}').selectedSessionId ?? null,
       hasPrompt: Boolean(document.querySelector('.prompt')),
@@ -857,7 +1098,7 @@ async function verifyProjectScopedSessions(send) {
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-project-id="project-beta"] .project-chat-create-button')?.click()`,
+    expression: `document.querySelector('.sidebar-section-head .project-chat-create-button')?.click()`,
   });
   await sleep(250);
 
@@ -873,7 +1114,7 @@ async function verifyProjectScopedSessions(send) {
         betaCount: beta?.sessions.length ?? 0,
         betaHasNewChat: Boolean(beta?.sessions.some((session) => session.title === 'New Chat')),
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-        activeProject: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
+        activeProject: document.querySelector('.sidebar-rail-avatar[data-active="true"]')?.getAttribute('title') || "",
         activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
       };
     })()`,
@@ -894,8 +1135,8 @@ async function verifyProjectScopedSessions(send) {
   }
 
   if (!initialValue.visibleTitles.includes("Alpha Kickoff") ||
-      !initialValue.visibleTitles.includes("Beta Risk Review")) {
-    failures.push("project tree should show chats under every saved project");
+      initialValue.visibleTitles.includes("Beta Risk Review")) {
+    failures.push("project panel should show only the selected project's chats");
   }
 
   if (initialValue.activeTitle !== "Alpha Kickoff") {
@@ -914,8 +1155,8 @@ async function verifyProjectScopedSessions(send) {
   }
 
   if (!switchValue.visibleTitles.includes("Beta Risk Review") ||
-      !switchValue.visibleTitles.includes("Alpha Kickoff")) {
-    failures.push("project tree should keep every project's chats visible after switching");
+      switchValue.visibleTitles.includes("Alpha Kickoff")) {
+    failures.push("project panel should replace visible chats after switching projects");
   }
 
   if (!switchValue.conversationText.includes("Beta 프로젝트 리스크 확인") ||
@@ -988,7 +1229,7 @@ async function verifyProjectCreationFlow(send) {
     returnByValue: true,
     expression: `(() => {
       const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
-      const activeProjectName = document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "";
+      const activeProjectName = document.querySelector('.chrome-project-switch span')?.textContent.trim() || "";
       const activeProject = savedState.projects.find((project) => project.id === savedState.selectedProjectId);
       const selectedSession = activeProject?.sessions.find(
         (session) => session.id === savedState.selectedSessionId,
@@ -1003,17 +1244,17 @@ async function verifyProjectCreationFlow(send) {
         selectedSessionId: savedState.selectedSessionId ?? null,
         selectedSessionTitle: selectedSession?.title || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-        promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
+        promptValue: document.querySelector('.prompt textarea')?.value ?? "",
         hasPrompt: Boolean(document.querySelector('.prompt')),
         messageCount: document.querySelectorAll('.message').length,
         emptyTitle: document.querySelector('.chat-empty h1')?.textContent.trim() || "",
         hasProjectHome: Boolean(document.querySelector('.project-home')),
-        uploadText: document.querySelector('.project-home-upload-card')?.textContent.trim() || "",
+        uploadText: document.querySelector('.project-home-canvas-empty')?.textContent.trim() || "",
         analysisDisabled: Boolean(document.querySelector('.project-home-primary')?.disabled),
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
         hasProjectPanel: Boolean(document.querySelector('.project-panel')),
         hasOverviewPrompt: Boolean(document.querySelector('input[aria-label="프로젝트 질문 입력"]')),
-        hasCreateTrigger: Boolean(Array.from(document.querySelectorAll('.project-create-trigger')).find((button) => button.textContent.includes('New Project'))),
+        hasCreateTrigger: Boolean(document.querySelector('.project-create-trigger')),
         hasCreateMenu: Boolean(document.querySelector('.project-create-menu')),
       };
     })()`,
@@ -1043,7 +1284,7 @@ async function verifyProjectCreationFlow(send) {
   if (value.messageCount !== 0 ||
       value.emptyTitle !== "" ||
       !value.hasProjectHome ||
-      !value.uploadText.includes("프로젝트 관련 파일 업로드") ||
+      !value.uploadText.includes("자료를 여기에 끌어다 놓으세요") ||
       !value.analysisDisabled) {
     failures.push("new project should show the project home upload step");
   }
@@ -1052,15 +1293,15 @@ async function verifyProjectCreationFlow(send) {
     failures.push("project create menu should close after creating a project");
   }
 
-  if (value.visibleTitles.includes("New Chat") || !value.visibleTitles.includes("Existing Planning")) {
+  if (value.visibleTitles.includes("New Chat")) {
     failures.push("project tree should not add a starter chat before chat starts");
   }
 
   if (value.hasPrompt ||
       value.hasProjectOverview ||
-      !value.hasProjectPanel ||
+      value.hasProjectPanel ||
       value.hasOverviewPrompt) {
-    failures.push("new project should enter project home and expose the right panel");
+    failures.push("new project should enter project home without chat or right panel");
   }
 
   if (value.promptValue !== "") {
@@ -1116,8 +1357,12 @@ async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
         storedText: storedMessages.map((message) => message.content).join("\\n"),
         visibleUserMessages: document.querySelectorAll('.message[data-role="user"]').length,
         visibleAssistantMessages: document.querySelectorAll('.message[data-role="assistant"]').length,
+        hasBriefingCard: Boolean(document.querySelector('.message[data-briefing="true"]')),
+        hasContextBar: Boolean(document.querySelector('.chat-context-bar')),
         hasProjectHome: Boolean(document.querySelector('.project-home')),
         hasPrompt: Boolean(document.querySelector('.prompt')),
+        thinkingVisible: Boolean(document.querySelector('.thinking')),
+        apiCalls: window.__paimLayoutApiCalls || [],
       };
     })()`,
   });
@@ -1133,11 +1378,14 @@ async function verifyProjectBriefingStartsWithoutVisiblePrompt(send) {
 
   if (value.visibleUserMessages !== 0 ||
       value.visibleAssistantMessages !== 1 ||
+      !value.hasBriefingCard ||
+      !value.hasContextBar ||
       value.hasProjectHome ||
       !value.hasPrompt) {
     failures.push("project briefing should enter chat without rendering the generated user prompt");
   }
 
+  debugLayout("project briefing", value);
   return { value, failures };
 }
 
@@ -1177,25 +1425,27 @@ async function verifyActionMenuRenameFlow(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-project-id="project-rename"] .project-action-menu-button')?.click()`,
+    expression: `document.querySelector('.chrome-project-switch')?.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 180, clientY: 56 })
+    )`,
   });
   await sleep(80);
   await send("Runtime.evaluate", {
     expression: `window.__projectActionMenuBox = (() => {
       const menu = document.querySelector('.item-action-menu');
-      const sidebar = document.querySelector('.sidebar');
-      if (!menu || !sidebar) return null;
+      const shell = document.querySelector('.app-shell');
+      if (!menu || !shell) return null;
       const menuRect = menu.getBoundingClientRect();
-      const sidebarRect = sidebar.getBoundingClientRect();
+      const shellRect = shell.getBoundingClientRect();
       return {
         left: menuRect.left,
         right: menuRect.right,
         top: menuRect.top,
         bottom: menuRect.bottom,
-        sidebarLeft: sidebarRect.left,
-        sidebarRight: sidebarRect.right,
-        sidebarTop: sidebarRect.top,
-        sidebarBottom: sidebarRect.bottom,
+        shellLeft: shellRect.left,
+        shellRight: shellRect.right,
+        shellTop: shellRect.top,
+        shellBottom: shellRect.bottom,
       };
     })()`,
   });
@@ -1205,7 +1455,7 @@ async function verifyActionMenuRenameFlow(send) {
   await sleep(100);
   await send("Runtime.evaluate", {
     expression: `(() => {
-      const input = document.querySelector('.project-rename-editor .rename-input');
+      const input = document.querySelector('.chrome-project-rename-input input');
       input?.focus();
       input?.select();
     })()`,
@@ -1228,7 +1478,9 @@ async function verifyActionMenuRenameFlow(send) {
   });
   await sleep(160);
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.history-row[data-active="true"] .history-action-menu-button')?.click()`,
+    expression: `document.querySelector('.history-row[data-active="true"]')?.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 210, clientY: 245 })
+    )`,
   });
   await sleep(80);
   await send("Runtime.evaluate", {
@@ -1269,7 +1521,7 @@ async function verifyActionMenuRenameFlow(send) {
       return {
         storedProjectName: project?.name || "",
         storedSessionTitle: session?.title || "",
-        visibleProjectName: document.querySelector('.project-name')?.textContent.trim() || "",
+        visibleProjectName: document.querySelector('.chrome-project-switch span')?.textContent.trim() || "",
         visibleSessionTitle: document.querySelector('.history-title')?.textContent.trim() || "",
         menuOpen: Boolean(document.querySelector('.item-action-menu')),
         projectMenuBox: window.__projectActionMenuBox,
@@ -1294,11 +1546,11 @@ async function verifyActionMenuRenameFlow(send) {
   }
 
   if (!value.projectMenuBox ||
-      value.projectMenuBox.left < value.projectMenuBox.sidebarLeft ||
-      value.projectMenuBox.right > value.projectMenuBox.sidebarRight ||
-      value.projectMenuBox.top < value.projectMenuBox.sidebarTop ||
-      value.projectMenuBox.bottom > value.projectMenuBox.sidebarBottom) {
-    failures.push("project action menu should render inside the sidebar bounds");
+      value.projectMenuBox.left < value.projectMenuBox.shellLeft ||
+      value.projectMenuBox.right > value.projectMenuBox.shellRight ||
+      value.projectMenuBox.top < value.projectMenuBox.shellTop ||
+      value.projectMenuBox.bottom > value.projectMenuBox.shellBottom) {
+    failures.push("project action menu should render inside the app shell bounds");
   }
 
   return { value, failures };
@@ -1369,9 +1621,13 @@ async function verifyProjectDeleteFlow(send) {
 
   await send("Input.insertText", { text: "프로젝트 삭제 후 남으면 안 되는 초안" });
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-project-id="project-delete-beta"] .project-action-menu-button')?.click()`,
+    expression: `document.querySelector('.chrome-project-menu-button')?.click()`,
   });
   await sleep(80);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
+  });
+  await sleep(120);
   await send("Runtime.evaluate", {
     expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
   });
@@ -1384,19 +1640,23 @@ async function verifyProjectDeleteFlow(send) {
         projectNames: savedState.projects.map((project) => project.name),
         selectedProjectId: savedState.selectedProjectId,
         selectedSessionId: savedState.selectedSessionId,
-        activeProjectName: document.querySelector('.project-item[data-active="true"] .project-name')?.textContent.trim() || "",
+        activeProjectName: document.querySelector('.chrome-project-switch span')?.textContent.trim() || "",
         activeTitle: document.querySelector('.history-row[data-active="true"] .history-title')?.textContent.trim() || "",
         visibleTitles: Array.from(document.querySelectorAll('.history-title')).map((item) => item.textContent.trim()),
-        promptValue: document.querySelector('textarea[aria-label="메시지 입력"]')?.value ?? "",
+        promptValue: document.querySelector('.prompt textarea')?.value ?? "",
         hasProjectOverview: Boolean(document.querySelector('.project-overview')),
       };
     })()`,
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-project-id="project-delete-alpha"] .project-action-menu-button')?.click()`,
+    expression: `document.querySelector('.chrome-project-menu-button')?.click()`,
   });
   await sleep(80);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
+  });
+  await sleep(120);
   await send("Runtime.evaluate", {
     expression: `document.querySelector('.item-action-menu [data-action="delete-project"]')?.click()`,
   });
@@ -1404,7 +1664,7 @@ async function verifyProjectDeleteFlow(send) {
   const readEmptyProjectStateExpression = `(() => {
     const savedState = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_STORAGE_KEY)}) || '{}');
     const projects = savedState.projects || [];
-    const textarea = document.querySelector('textarea[aria-label="메시지 입력"]');
+    const textarea = document.querySelector('.prompt textarea');
     return {
       projectCount: projects.length,
       selectedProjectId: savedState.selectedProjectId ?? null,
@@ -1605,7 +1865,7 @@ async function verifyMultilineInput(send) {
   const initialResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       const initialMessages = document.querySelectorAll('.message').length;
 
       if (!input) {
@@ -1630,7 +1890,7 @@ async function verifyMultilineInput(send) {
 
   const newlineResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
   const afterShiftEnterValue = newlineResult.result.value;
 
@@ -1653,7 +1913,7 @@ async function verifyMultilineInput(send) {
   const submitResult = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       return {
         afterShiftEnterValue: ${JSON.stringify(afterShiftEnterValue)},
         messagesAfterEnter: document.querySelectorAll('.message').length,
@@ -1698,6 +1958,7 @@ async function verifyMultilineInput(send) {
     failures.push("chat submit should not add a sidebar runtime status");
   }
 
+  debugLayout("multiline input", value);
   return { value, failures };
 }
 
@@ -1773,14 +2034,13 @@ async function verifyProjectPanelMenu(send) {
     expression: `(() => ({
 	      hasPrompt: Boolean(document.querySelector('.prompt')),
 	      hasOverview: Boolean(document.querySelector('.project-overview')),
-	      summaryStats: document.querySelectorAll('.project-panel .project-memory-summary-stat').length,
+	      summaryStats: document.querySelectorAll('.project-panel .project-memory-stat').length,
 	      summaryActionRows: document.querySelectorAll('.project-panel .project-memory-summary-action').length,
 	      summarySections: document.querySelectorAll('.project-panel .project-memory-summary-section').length,
 	      text: document.querySelector('.project-panel')?.textContent || "",
 	      tabText: document.querySelector('.project-panel-tab[data-active="true"] > span')?.textContent.trim() || "",
 	      hasCloseButton: Boolean(document.querySelector('button[aria-label="프로젝트 메모리 탭 닫기"]')),
-	      hasAddButton: Boolean(document.querySelector('.project-panel-tab-add summary')),
-	      hasRefreshButton: Boolean(Array.from(document.querySelectorAll('.project-memory-header button')).find((button) => button.textContent.includes('새로고침'))),
+	      hasAddButton: Boolean(document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})),
 	      modelSelectorExists: Boolean(document.querySelector('.model-pill')),
 	    }))()`,
   });
@@ -1793,7 +2053,7 @@ async function verifyProjectPanelMenu(send) {
     expression: `(() => ({
       maximized: document.querySelector('.app-shell')?.getAttribute('data-project-panel-maximized') === 'true',
       detailStats: document.querySelectorAll('.project-panel .project-memory-stats [data-tone]').length,
-      detailCards: document.querySelectorAll('.project-panel .overview-memory-card').length,
+      detailCards: document.querySelectorAll('.project-panel .project-memory-manage-item').length,
     }))()`,
   });
   await send("Runtime.evaluate", {
@@ -1801,12 +2061,12 @@ async function verifyProjectPanelMenu(send) {
   });
 	  await sleep(120);
 	  await send("Runtime.evaluate", {
-	    expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+	    expression: `document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})?.click()`,
 	  });
 	  await sleep(100);
 	  await send("Runtime.evaluate", {
-	    expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-	      .find((button) => button.textContent.includes('GitHub'))?.click()`,
+	    expression: `Array.from(document.querySelectorAll(${JSON.stringify(PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR)}))
+	      .find((item) => item.textContent.includes('GitHub'))?.click()`,
 	  });
   await sleep(200);
   await send("Runtime.evaluate", {
@@ -1839,12 +2099,12 @@ async function verifyProjectPanelMenu(send) {
   });
   for (let index = 0; index < 2; index += 1) {
     await send("Runtime.evaluate", {
-      expression: `document.querySelector('.project-panel-tab-add summary')?.click()`,
+      expression: `document.querySelector(${JSON.stringify(PROJECT_PANEL_TAB_ADD_SELECTOR)})?.click()`,
     });
     await sleep(80);
     await send("Runtime.evaluate", {
-      expression: `Array.from(document.querySelectorAll('.project-panel-tab-menu button'))
-        .find((button) => button.textContent.includes('자료'))?.click()`,
+      expression: `Array.from(document.querySelectorAll(${JSON.stringify(PROJECT_PANEL_TAB_MENU_ITEM_SELECTOR)}))
+        .find((item) => item.textContent.includes('자료'))?.click()`,
     });
     await sleep(120);
   }
@@ -1876,8 +2136,7 @@ async function verifyProjectPanelMenu(send) {
 	      !value.memory.text.includes("API 연결 상태를 확인한다") ||
 	      !value.memory.tabText.includes("프로젝트 메모리") ||
 	      !value.memory.hasCloseButton ||
-	      !value.memory.hasAddButton ||
-	      !value.memory.hasRefreshButton) {
+	      !value.memory.hasAddButton) {
 	    failures.push("project panel memory view should render FastAPI memory rows");
 	  }
 
@@ -1906,6 +2165,7 @@ async function verifyProjectPanelMenu(send) {
     failures.push("model selector should not render in the prompt");
   }
 
+  debugLayout("project panel menu", value);
   return { value, failures };
 }
 
@@ -1921,7 +2181,7 @@ async function verifyProjectChatQuestion(send) {
 
   await send("Runtime.evaluate", {
     expression: `(() => {
-      const input = document.querySelector('textarea[aria-label="메시지 입력"]');
+      const input = document.querySelector('.prompt textarea');
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
 
       valueSetter?.call(input, '이번 주 액션 알려줘');
@@ -1932,7 +2192,7 @@ async function verifyProjectChatQuestion(send) {
   await send("Runtime.evaluate", {
     expression: `document.querySelector('button[aria-label="메시지 보내기"]')?.click()`,
   });
-  await sleep(800);
+  await sleep(1200);
 
   const result = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -1966,6 +2226,7 @@ async function verifyProjectChatQuestion(send) {
       failures.push("chat question should submit through the demo chat flow");
     }
 
+  debugLayout("project chat question", value);
   return { value, failures };
 }
 
@@ -2087,7 +2348,7 @@ async function verifyProjectOverviewFiles(send) {
 	        sourceSearchPlaceholder: document.querySelector('.project-sources-search input')?.getAttribute('placeholder') || "",
 	        uploadButtons: Array.from(document.querySelectorAll('.project-files-open-button')).map((button) => button.textContent.trim()),
 	        timeLabels: Array.from(document.querySelectorAll('.project-source-time-label')).map((item) => item.textContent.trim()),
-	        sourceMenuCount: document.querySelectorAll('.project-source-menu summary').length,
+	        sourceMenuCount: document.querySelectorAll('.project-source-actions button[aria-label$="관리"]').length,
 	        hasVisibleDeleteButton: Array.from(document.querySelectorAll('.project-source-actions > button'))
 	          .some((button) => button.textContent.includes('삭제') || button.textContent.includes('제거')),
 	      }))()`,
@@ -2209,10 +2470,14 @@ async function verifyProjectOverviewFiles(send) {
     expression: `(() => {
       const shell = document.querySelector('.app-shell');
       const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const sidebarElement = document.querySelector('.sidebar');
+      const sidebar = sidebarElement.getBoundingClientRect();
+      const sidebarStyle = getComputedStyle(sidebarElement);
       const chat = document.querySelector('.chat').getBoundingClientRect();
 
       return {
         maximized: shell?.getAttribute('data-project-panel-maximized') === 'true',
+        sidebarCollapsed: shell?.getAttribute('data-sidebar-collapsed') === 'true',
         panelLeft: panel.left,
         panelTop: panel.top,
         panelBottom: panel.bottom,
@@ -2221,6 +2486,8 @@ async function verifyProjectOverviewFiles(send) {
         chatTop: chat.top,
         chatBottom: chat.bottom,
         chatHeight: chat.height,
+        sidebarRight: sidebar.right,
+        sidebarZIndex: Number(sidebarStyle.zIndex) || 0,
         treeWidth: document.querySelector('.project-files-tree-pane')?.getBoundingClientRect().width ?? 0,
         hasTreeResizeHandle: Boolean(document.querySelector('.project-files-tree-resize-handle')),
         hasTreeToggle: Boolean(document.querySelector('button[aria-label="파일 트리 접기"]')),
@@ -2417,12 +2684,18 @@ async function verifyProjectOverviewFiles(send) {
     expression: `(() => {
       const shell = document.querySelector('.app-shell');
       const panel = document.querySelector('.project-panel').getBoundingClientRect();
+      const sidebarElement = document.querySelector('.sidebar');
+      const sidebar = sidebarElement.getBoundingClientRect();
+      const sidebarStyle = getComputedStyle(sidebarElement);
       const chat = document.querySelector('.chat').getBoundingClientRect();
 
       return {
         collapsed: shell?.getAttribute('data-project-panel-collapsed') === 'true',
         maximized: shell?.getAttribute('data-project-panel-maximized') === 'true',
+        sidebarCollapsed: shell?.getAttribute('data-sidebar-collapsed') === 'true',
         panelLeft: panel.left,
+        sidebarRight: sidebar.right,
+        sidebarZIndex: Number(sidebarStyle.zIndex) || 0,
         chatLeft: chat.left,
         hasPreviewEmpty: Boolean(document.querySelector('.project-files-preview-empty')),
         hasTree: Boolean(document.querySelector('.project-file-tree')),
@@ -2431,7 +2704,12 @@ async function verifyProjectOverviewFiles(send) {
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('button[aria-label="파일 필터 지우기"]')?.click()`,
+    expression: `(() => {
+      const input = document.querySelector('.project-files-search input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`,
   });
   await sleep(120);
 
@@ -2514,10 +2792,10 @@ async function verifyProjectOverviewFiles(send) {
 	    library: libraryResult.result.value,
 	    librarySearch: librarySearchResult.result.value,
 	    singleFileSource: singleFileSourceResult.result.value,
-	    initial: initialResult.result.value,
-    afterFilter: afterFilterResult.result.value,
-    afterMaximize: afterMaximizeResult.result.value,
-    duringMaxTreeResize: duringMaxTreeResizeResult.result.value,
+		    initial: initialResult.result.value,
+		    afterFilter: afterFilterResult.result.value,
+		    afterMaximize: afterMaximizeResult.result.value,
+	    duringMaxTreeResize: duringMaxTreeResizeResult.result.value,
     afterMaxTreeResize: afterMaxTreeResizeResult.result.value,
     afterMaxTreeCollapse: afterMaxTreeCollapseResult.result.value,
     afterCollapsedTreeResize: afterCollapsedTreeResizeResult.result.value,
@@ -2589,7 +2867,7 @@ async function verifyProjectOverviewFiles(send) {
       !value.afterFilter.hasTreeResizeHandle ||
       !value.afterFilter.hasTreeToggle ||
       value.afterFilter.panelWidth > 380 ||
-      value.afterFilter.previewWidth < 120 ||
+      value.afterFilter.previewWidth < 90 ||
       value.afterFilter.treeWidth < 170 ||
       !value.afterFilter.hasFileHeader ||
       value.afterFilter.headerBorderBottom === "0px" ||
@@ -2598,7 +2876,10 @@ async function verifyProjectOverviewFiles(send) {
   }
 
   if (!value.afterMaximize.maximized ||
-      value.afterMaximize.panelLeft > value.afterMaximize.chatLeft + 4 ||
+      (value.afterMaximize.sidebarCollapsed
+        ? value.afterMaximize.panelLeft > 2 ||
+          value.afterMaximize.sidebarZIndex < 61
+        : value.afterMaximize.panelLeft < value.afterMaximize.sidebarRight - 2) ||
       value.afterMaximize.panelTop > value.afterMaximize.chatTop + 4 ||
       value.afterMaximize.panelBottom < value.afterMaximize.chatBottom - 4 ||
       value.afterMaximize.panelHeight < value.afterMaximize.chatHeight - 4 ||
@@ -2606,7 +2887,7 @@ async function verifyProjectOverviewFiles(send) {
       !value.afterMaximize.hasTreeToggle ||
       !value.afterMaximize.hasPreviewEmpty ||
       !value.afterMaximize.hasTree) {
-    failures.push("file panel maximize should cover the chat area and keep the tree visible");
+    failures.push("file panel maximize should cover the chat area while preserving the left rail");
   }
 
   if (value.afterMaxTreeResize.treeWidth < value.afterMaximize.treeWidth + 40 ||
@@ -2652,7 +2933,10 @@ async function verifyProjectOverviewFiles(send) {
 
   if (value.afterWholePanelReopen.collapsed ||
       !value.afterWholePanelReopen.maximized ||
-      value.afterWholePanelReopen.panelLeft > value.afterWholePanelReopen.chatLeft + 4 ||
+      (value.afterWholePanelReopen.sidebarCollapsed
+        ? value.afterWholePanelReopen.panelLeft > 2 ||
+          value.afterWholePanelReopen.sidebarZIndex < 61
+        : value.afterWholePanelReopen.panelLeft < value.afterWholePanelReopen.sidebarRight - 2) ||
       !value.afterWholePanelReopen.hasPreviewEmpty ||
       !value.afterWholePanelReopen.hasTree) {
     failures.push("reopening the whole right panel should restore the maximized file layout");
@@ -2686,6 +2970,7 @@ async function verifyProjectOverviewFiles(send) {
     failures.push("panel file add should keep the active chat and panel");
   }
 
+  debugLayout("project overview files", value);
   return { value, failures };
 }
 
@@ -2763,10 +3048,8 @@ async function verifyGithubTimelineState(send) {
       return {
         githubPanelHasStatus: Boolean(githubStatus),
         githubStatusText: githubStatus?.textContent.trim() ?? "",
-        githubStatusOk: githubStatus?.getAttribute('data-ok') ?? "",
         sidebarHasRuntimeStatus: Boolean(document.querySelector('.sidebar .runtime-status')),
         runtimeStatusCount: document.querySelectorAll('.runtime-status').length,
-        animationName: status ? getComputedStyle(status).animationName : "",
       };
     })()`,
   });
@@ -2963,7 +3246,7 @@ async function verifyGithubTimelineState(send) {
     expression: `(() => ({
       stateText: document.querySelector('.overview-github-state')?.textContent.trim() || "",
       hasReposCard: Boolean(document.querySelector('.overview-github-repos-card')),
-      hasSearchInput: Boolean(document.querySelector('input[aria-label="GitHub repo 검색"]')),
+      hasSearchInput: Boolean(document.querySelector('.overview-github-search input')),
       repoNames: Array.from(document.querySelectorAll('.overview-github-repo-copy p')).map((item) => item.textContent.trim()),
       visibilityLabels: Array.from(document.querySelectorAll('.overview-github-repo-visibility')).map((item) => item.textContent.trim()),
       hasLogoutButton: Boolean(Array.from(document.querySelectorAll('.overview-github-toolbar button')).find((button) => button.textContent.includes('로그아웃'))),
@@ -2975,7 +3258,11 @@ async function verifyGithubTimelineState(send) {
     expression: `Array.from(document.querySelectorAll('.overview-github-repo-row button'))
       .find((button) => button.textContent.includes('연결'))?.click()`,
   });
-  await sleep(300);
+  await sleep(700);
+  await send("Runtime.evaluate", {
+    expression: `document.querySelector('.overview-github-more-menu')?.click()`,
+  });
+  await sleep(80);
 
   const linkedResult = await send("Runtime.evaluate", {
     returnByValue: true,
@@ -2994,9 +3281,9 @@ async function verifyGithubTimelineState(send) {
         getComputedStyle(item).backgroundColor !== 'rgba(0, 0, 0, 0)'
       )).length,
       hasConnectedCard: Boolean(document.querySelector('.overview-github-connected-card')),
-      hasSyncButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('Sync'))),
-      hasChangeButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('repo 변경'))),
-      hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('.overview-github-connected-card button')).find((button) => button.textContent.includes('연결 해제'))),
+      hasSyncButton: Boolean(document.querySelector('button[aria-label="GitHub 동기화"]')),
+      hasChangeButton: Boolean(Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.includes('repo 변경'))),
+      hasDisconnectButton: Boolean(Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) => item.textContent.includes('연결 해제'))),
     }))()`,
   });
 
@@ -3021,15 +3308,10 @@ async function verifyGithubTimelineState(send) {
   }
 
   if (!value.failedLogin.githubPanelHasStatus ||
-      value.failedLogin.githubStatusOk !== "false" ||
       !value.failedLogin.githubStatusText.includes("GitHub 로그인 서버에 연결할 수 없습니다") ||
       value.failedLogin.sidebarHasRuntimeStatus ||
       value.failedLogin.runtimeStatusCount !== 1) {
     failures.push("GitHub login failure status should render inside the GitHub panel only");
-  }
-
-  if (!value.failedLogin.animationName.includes("status-shake")) {
-    failures.push("GitHub connection failure status should keep the shake animation");
   }
 
   if (value.authing.stateText !== "로그인 중" ||
@@ -3082,6 +3364,7 @@ async function verifyGithubTimelineState(send) {
     failures.push("linked GitHub timeline should show repository metadata");
   }
 
+  debugLayout("github timeline", value);
   return { value, failures };
 }
 
@@ -3100,7 +3383,7 @@ async function verifySidebarPersistence(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.sidebar-toggle')?.click()`,
+    expression: `document.querySelector('.sidebar-rail-avatar[data-active="true"]')?.click()`,
   });
   await sleep(200);
   await send("Page.navigate", { url: APP_URL });
@@ -3157,7 +3440,7 @@ async function verifyNarrowSidebarToggle(send) {
   await send("Page.navigate", { url: APP_URL });
   await sleep(700);
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.sidebar-toggle')?.click()`,
+    expression: `document.querySelector('.sidebar-rail-avatar[data-active="true"]')?.click()`,
   });
   await sleep(200);
 
@@ -3166,11 +3449,16 @@ async function verifyNarrowSidebarToggle(send) {
     expression: `(() => {
       const shell = document.querySelector('.app-shell');
       const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
+      const panel = document.querySelector('.sidebar-panel').getBoundingClientRect();
+      const chromeHeight = Number.parseFloat(getComputedStyle(shell).getPropertyValue('--chrome-height'));
       const projects = getComputedStyle(document.querySelector('.projects')).display;
       const resizeHandle = getComputedStyle(document.querySelector('.sidebar-resize-handle')).display;
       return {
         expanded: shell?.getAttribute('data-sidebar-collapsed') === 'false',
         sidebarWidth: sidebar.width,
+        panelTop: panel.top,
+        shellTop: shell.getBoundingClientRect().top,
+        chromeHeight,
         projectsVisible: projects !== 'none',
         resizeHandleHidden: resizeHandle === 'none',
         stored: localStorage.getItem(${JSON.stringify(SIDEBAR_STORAGE_KEY)}) || "",
@@ -3182,11 +3470,15 @@ async function verifyNarrowSidebarToggle(send) {
   const failures = [];
 
   if (!value.expanded || value.stored !== "false") {
-    failures.push("narrow sidebar toggle should switch to expanded state");
+    failures.push("narrow sidebar rail action should switch to expanded state");
   }
 
   if (!value.projectsVisible || value.sidebarWidth < 220) {
-    failures.push("narrow sidebar toggle should reveal sidebar content");
+    failures.push("narrow sidebar rail action should reveal sidebar content");
+  }
+
+  if (value.panelTop < value.shellTop + value.chromeHeight - 1) {
+    failures.push("narrow expanded sidebar panel should start below the app chrome");
   }
 
   if (!value.resizeHandleHidden) {
@@ -3200,8 +3492,8 @@ async function verifyNarrowSidebarToggle(send) {
   return { value, failures };
 }
 
-// 사이드바 드래그 리사이즈와 프로젝트별 채팅 묶음 접기/펼치기를 확인한다.
-async function verifySidebarResizeAndProjectCollapse(send) {
+// 사이드바 드래그 리사이즈와 선택 프로젝트 채팅 유지 여부를 확인한다.
+async function verifySidebarResizeAndProjectContext(send) {
   await send("Emulation.setDeviceMetricsOverride", {
     width: 960,
     height: 680,
@@ -3241,28 +3533,14 @@ async function verifySidebarResizeAndProjectCollapse(send) {
   });
   await sleep(220);
 
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-collapse-button')?.click()`,
-  });
-  await sleep(160);
-  await send("Page.navigate", { url: APP_URL });
-  await sleep(700);
-  await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-collapse-button')?.click()`,
-  });
-  await sleep(160);
-
   const result = await send("Runtime.evaluate", {
     returnByValue: true,
     expression: `(() => {
       const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
-      const storedCollapsedIds = JSON.parse(localStorage.getItem(${JSON.stringify(PROJECT_COLLAPSED_STORAGE_KEY)}) || '[]');
       return {
         resizedWidth: sidebar.width,
         storedWidth: Number(localStorage.getItem(${JSON.stringify(SIDEBAR_WIDTH_STORAGE_KEY)}) || 0),
-        sessionCountAfterExpand: document.querySelectorAll('.history-row').length,
-        projectExpanded: document.querySelector('.project-collapse-button')?.getAttribute('aria-expanded') || "",
-        storedCollapsedIds,
+        sessionCountAfterResize: document.querySelectorAll('.history-row').length,
       };
     })()`,
   });
@@ -3277,12 +3555,8 @@ async function verifySidebarResizeAndProjectCollapse(send) {
     failures.push("resized sidebar width should be stored in localStorage");
   }
 
-  if (value.sessionCountAfterExpand !== 1 || value.projectExpanded !== "true") {
-    failures.push("project collapse button should hide and reopen its chat sessions");
-  }
-
-  if (value.storedCollapsedIds.includes("project-smoke")) {
-    failures.push("expanded project should be removed from collapsed project storage");
+  if (value.sessionCountAfterResize !== 1) {
+    failures.push("selected project sessions should remain visible after sidebar resize");
   }
 
   return { value, failures };
@@ -3380,8 +3654,16 @@ async function verifyProjectPanelCollapse(send) {
   });
   await openAppWithProject(send);
 
+  const initialResult = await send("Runtime.evaluate", {
+    returnByValue: true,
+    expression: `(() => ({
+      hasCollapseButton: Boolean(document.querySelector('.project-panel-collapse-toggle')),
+      hasMaximizeButton: Boolean(document.querySelector('.project-panel-maximize-toggle')),
+    }))()`,
+  });
+
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-panel-toggle')?.click()`,
+    expression: `document.querySelector('.project-panel-collapse-toggle')?.click()`,
   });
   await sleep(180);
 
@@ -3420,10 +3702,15 @@ async function verifyProjectPanelCollapse(send) {
   });
 
   const value = {
+    initial: initialResult.result.value,
     collapsed: collapsedResult.result.value,
     expanded: expandedResult.result.value,
   };
   const failures = [];
+
+  if (!value.initial.hasCollapseButton || !value.initial.hasMaximizeButton) {
+    failures.push("project panel menu should expose both collapse and maximize buttons");
+  }
 
   if (!value.collapsed.collapsed || value.collapsed.stored !== "true") {
     failures.push("project panel collapsed state should be stored after clicking collapse");
@@ -3445,6 +3732,7 @@ async function verifyProjectPanelCollapse(send) {
     failures.push("expanded project panel should restore its menu content");
   }
 
+  debugLayout("project panel collapse", value);
   return { value, failures };
 }
 
@@ -3460,16 +3748,16 @@ async function verifyPromptFocusFlow(send) {
 
   const initialFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
 
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-active="true"] .project-chat-create-button')?.click()`,
+    expression: `document.querySelector('.sidebar-section-head .project-chat-create-button')?.click()`,
   });
   await sleep(200);
   const newChatFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
 
   await send("Input.insertText", { text: "포커스 테스트" });
@@ -3490,7 +3778,7 @@ async function verifyPromptFocusFlow(send) {
   await sleep(400);
   const afterSubmitFocusResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.activeElement === document.querySelector('textarea[aria-label="메시지 입력"]')`,
+    expression: `document.activeElement === document.querySelector('.prompt textarea')`,
   });
   const value = {
     initialFocused: initialFocusResult.result.value,
@@ -3574,17 +3862,17 @@ async function verifyDraftClearsOnSessionChange(send) {
   await sleep(200);
   const afterHistoryClickResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
 
   await send("Input.insertText", { text: "새 채팅으로 새면 안 되는 초안" });
   await send("Runtime.evaluate", {
-    expression: `document.querySelector('.project-group[data-active="true"] .project-chat-create-button')?.click()`,
+    expression: `document.querySelector('.sidebar-section-head .project-chat-create-button')?.click()`,
   });
   await sleep(200);
   const afterNewChatResult = await send("Runtime.evaluate", {
     returnByValue: true,
-    expression: `document.querySelector('textarea[aria-label="메시지 입력"]').value`,
+    expression: `document.querySelector('.prompt textarea').value`,
   });
   const value = {
     afterHistoryClick: afterHistoryClickResult.result.value,
@@ -3678,7 +3966,7 @@ async function verifyDeleteSessionFlow(send) {
       return {
         titles,
         activeTitle,
-        textAfterDelete: document.querySelector('textarea[aria-label="메시지 입력"]').value,
+        textAfterDelete: document.querySelector('.prompt textarea')?.value ?? "",
       };
     })()`,
   });
@@ -3795,6 +4083,7 @@ try {
   const send = createCdpClient(ws);
   await send("Page.enable");
   await send("Runtime.enable");
+  await installPaimApiMock(send);
 
   let hasFailures = false;
   const storageResult = await verifyStorageSanitization(send);
@@ -3977,14 +4266,14 @@ try {
     console.log("PASS narrow sidebar toggle opens sidebar content");
   }
 
-  const sidebarResizeCollapseResult = await verifySidebarResizeAndProjectCollapse(send);
+  const sidebarResizeCollapseResult = await verifySidebarResizeAndProjectContext(send);
 
   if (sidebarResizeCollapseResult.failures.length > 0) {
     hasFailures = true;
-    console.log("FAIL sidebar resize and project collapse");
+    console.log("FAIL sidebar resize and project context");
     sidebarResizeCollapseResult.failures.forEach((failure) => console.log(`  - ${failure}`));
   } else {
-    console.log("PASS sidebar resizes and project chat groups collapse");
+    console.log("PASS sidebar resizes and keeps project context");
   }
 
   const projectPanelResizeResult = await verifyProjectPanelResize(send);

@@ -100,6 +100,7 @@ export type ProjectMemoryItem = {
   id: number;
   project_id?: number;
   doc_id?: number;
+  repo_id?: number | null;
   category: ProjectMemoryCategory;
   content: string;
   reason?: string | null;
@@ -114,6 +115,15 @@ export type ProjectMemoryItem = {
   completed_at?: string | null;
   sort_order?: number | null;
   created_at?: string | null;
+  source_info?: {
+    doc_id?: number | null;
+    kind?: string | null;
+    path?: string | null;
+    ref?: string | null;
+    repo_id?: number | null;
+    type?: string | null;
+    url?: string | null;
+  };
 };
 
 export type ProjectMemorySuggestionEvidence = {

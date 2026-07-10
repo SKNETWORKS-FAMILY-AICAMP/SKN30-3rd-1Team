@@ -1,4 +1,15 @@
 import { Check, ChevronDown, GripVertical, Pencil, Save, Trash2, X } from "lucide-react";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import type { ISODateString } from "@astryxdesign/core/Calendar";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { DateInput } from "@astryxdesign/core/DateInput";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import {
   Fragment,
   type FormEvent,
@@ -33,6 +44,10 @@ type MemoryDraft = {
   owner: string;
   dueDate: string;
 };
+
+function toISODateInputValue(value: string): ISODateString | undefined {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? (value as ISODateString) : undefined;
+}
 
 type MemoryPatchPayload = {
   content?: string;
@@ -465,9 +480,6 @@ export function ProjectMemoryPanel({
     [visibleMemorySuggestions],
   );
   const actionCompletedCount = groupedItems.action.filter(isMemoryItemCompleted).length;
-  const actionCompletionPercent = groupedItems.action.length > 0
-    ? Math.round((actionCompletedCount / groupedItems.action.length) * 100)
-    : 0;
   const totalCount = memoryItems.length;
   const showManageUi = isMaximized && canManage && typeof apiProjectId === "number";
 
@@ -933,29 +945,36 @@ export function ProjectMemoryPanel({
   ) {
     return (
       <>
-        <textarea
-          aria-label="메모리 내용"
-          onChange={(event) => onChange({ ...draft, content: event.currentTarget.value })}
+        <TextArea
+          isDisabled={disabled}
+          isLabelHidden
+          label="메모리 내용"
+          onChange={(content) => onChange({ ...draft, content })}
           placeholder="내용"
-          required
+          isRequired
           rows={3}
           value={draft.content}
-          disabled={disabled}
+          width="100%"
         />
         <div className="project-memory-form-grid">
-          <input
-            aria-label="담당자"
-            onChange={(event) => onChange({ ...draft, owner: event.currentTarget.value })}
+          <TextInput
+            isDisabled={disabled}
+            isLabelHidden
+            label="담당자"
+            onChange={(owner) => onChange({ ...draft, owner })}
             placeholder="담당자"
             value={draft.owner}
-            disabled={disabled}
+            width="100%"
           />
-          <input
-            aria-label="마감일"
-            onChange={(event) => onChange({ ...draft, dueDate: event.currentTarget.value })}
-            type="date"
-            value={draft.dueDate}
-            disabled={disabled}
+          <DateInput
+            hasClear
+            isDisabled={disabled}
+            isLabelHidden
+            label="마감일"
+            onChange={(dueDate) => onChange({ ...draft, dueDate: dueDate ?? "" })}
+            placeholder="마감일"
+            size="md"
+            value={toISODateInputValue(draft.dueDate)}
           />
         </div>
       </>
@@ -972,21 +991,23 @@ export function ProjectMemoryPanel({
       >
         {renderDraftFields(addDraft, setAddDraft, disabled)}
         <div className="project-memory-form-actions">
-          <button disabled={disabled || !addDraft.content.trim()} type="submit">
-            <Save size={13} />
-            저장
-          </button>
-          <button
-            disabled={disabled}
+          <Button
+            icon={<Save size={13} />}
+            isDisabled={disabled || !addDraft.content.trim()}
+            label="저장"
+            type="submit"
+            variant="primary"
+          />
+          <Button
+            icon={<X size={13} />}
+            isDisabled={disabled}
+            label="취소"
             onClick={() => {
               setAddingCategory(null);
               setAddDraft(createEmptyDraft());
             }}
-            type="button"
-          >
-            <X size={13} />
-            취소
-          </button>
+            variant="secondary"
+          />
         </div>
       </form>
     );
@@ -1004,7 +1025,13 @@ export function ProjectMemoryPanel({
       <div className="project-memory-action-meta project-memory-meta">
         {renderMetaParts(parts)}
         {parts.length > 0 && hasSuggestion ? <i>·</i> : null}
-        {hasSuggestion ? <span className="project-memory-suggestion-mark">완료 제안</span> : null}
+        {hasSuggestion ? (
+          <Badge
+            className="project-memory-suggestion-mark"
+            label="완료 제안"
+            variant="warning"
+          />
+        ) : null}
       </div>
     );
   }
@@ -1026,12 +1053,16 @@ export function ProjectMemoryPanel({
             const title = formatSuggestionTitle(suggestion.evidence.title);
 
             return (
-              <article className="project-memory-suggestion-card" key={suggestion.id}>
+              <Card className="project-memory-suggestion-card" key={suggestion.id} padding={2}>
                 <div className="project-memory-suggestion-copy">
                   <p className="project-memory-suggestion-title">
                     PR #{suggestion.evidence.number} “{title}”이 이 액션을 해결한 것으로 보입니다
                     {suggestion.confidence === "medium" ? (
-                      <span className="project-memory-suggestion-badge">추정</span>
+                      <Badge
+                        className="project-memory-suggestion-badge"
+                        label="추정"
+                        variant="warning"
+                      />
                     ) : null}
                   </p>
                   <p className="project-memory-suggestion-action" title={action?.content ?? ""}>
@@ -1050,24 +1081,24 @@ export function ProjectMemoryPanel({
                   ) : null}
                 </div>
                 <div className="project-memory-suggestion-actions">
-                  <button
+                  <Button
                     className="project-memory-suggestion-accept"
-                    disabled={resolving}
+                    isDisabled={resolving}
+                    label="승인"
                     onClick={() => void handleResolveSuggestion(suggestion, "accept")}
-                    type="button"
-                  >
-                    승인
-                  </button>
-                  <button
+                    size="sm"
+                    variant="primary"
+                  />
+                  <Button
                     className="project-memory-suggestion-reject"
-                    disabled={resolving}
+                    isDisabled={resolving}
+                    label="거절"
                     onClick={() => void handleResolveSuggestion(suggestion, "reject")}
-                    type="button"
-                  >
-                    거절
-                  </button>
+                    size="sm"
+                    variant="secondary"
+                  />
                 </div>
-              </article>
+              </Card>
             );
           })}
         </div>
@@ -1095,18 +1126,20 @@ export function ProjectMemoryPanel({
         >
           {renderDraftFields(editDraft, setEditDraft, saving)}
           <div className="project-memory-form-actions">
-            <button disabled={saving || !editDraft.content.trim()} type="submit">
-              <Save size={13} />
-              저장
-            </button>
-            <button
-              disabled={saving}
+            <Button
+              icon={<Save size={13} />}
+              isDisabled={saving || !editDraft.content.trim()}
+              label="저장"
+              type="submit"
+              variant="primary"
+            />
+            <Button
+              icon={<X size={13} />}
+              isDisabled={saving}
+              label="취소"
               onClick={() => setEditingItemId(null)}
-              type="button"
-            >
-              <X size={13} />
-              취소
-            </button>
+              variant="secondary"
+            />
           </div>
         </form>
       );
@@ -1128,13 +1161,14 @@ export function ProjectMemoryPanel({
         onPointerDown={canDragAction ? (event) => handleActionPointerDown(event, item) : undefined}
       >
         {isAction ? (
-          <input
-            aria-label={`${item.content} 완료`}
-            checked={completed}
+          <CheckboxInput
             className="project-memory-check-circle"
-            disabled={saving}
+            isDisabled={saving}
+            isLabelHidden
+            label={`${item.content} 완료`}
             onChange={() => void handleToggleCompleted(item)}
-            type="checkbox"
+            size="sm"
+            value={completed}
           />
         ) : (
           <span className="project-memory-bullet">·</span>
@@ -1163,25 +1197,25 @@ export function ProjectMemoryPanel({
               <GripVertical size={13} />
             </span>
           ) : null}
-          <button
-            aria-label="메모리 수정"
-            disabled={saving}
+          <IconButton
+            icon={<Pencil size={13} />}
+            isDisabled={saving}
+            label="메모리 수정"
             onClick={() => startEdit(item)}
-            title="수정"
-            type="button"
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            aria-label={pendingDeleteId === item.id ? "메모리 삭제 확인" : "메모리 삭제"}
+            size="sm"
+            tooltip="수정"
+            variant="ghost"
+          />
+          <IconButton
             data-confirming={pendingDeleteId === item.id ? "true" : undefined}
-            disabled={saving}
+            icon={pendingDeleteId === item.id ? <Check size={13} /> : <Trash2 size={13} />}
+            isDisabled={saving}
+            label={pendingDeleteId === item.id ? "메모리 삭제 확인" : "메모리 삭제"}
             onClick={() => void handleDeleteMemory(item)}
-            title={pendingDeleteId === item.id ? "삭제 확인" : "삭제"}
-            type="button"
-          >
-            {pendingDeleteId === item.id ? <Check size={13} /> : <Trash2 size={13} />}
-          </button>
+            size="sm"
+            tooltip={pendingDeleteId === item.id ? "삭제 확인" : "삭제"}
+            variant={pendingDeleteId === item.id ? "destructive" : "ghost"}
+          />
         </div>
       </div>
     );
@@ -1201,31 +1235,31 @@ export function ProjectMemoryPanel({
         className="project-memory-completed-group"
         data-open={showCompletedActions ? "true" : undefined}
       >
-        <button
+        <Button
           aria-expanded={showCompletedActions}
           className="project-memory-completed-toggle"
+          icon={<ChevronDown size={13} />}
+          label={`완료됨 ${completedActionItems.length}`}
           onClick={() => {
             setShowCompletedActions((current) => !current);
             setPendingCompletedActionDelete(false);
           }}
-          type="button"
-        >
-          <ChevronDown size={13} />
-          완료됨 {completedActionItems.length}
-        </button>
+          size="sm"
+          variant="ghost"
+        />
         {showCompletedActions ? (
           <div className="project-memory-completed-body">
             <div className="project-memory-completed-actions">
-              <button
+              <Button
                 className="project-memory-completed-delete"
                 data-confirming={pendingCompletedActionDelete ? "true" : undefined}
-                disabled={!showManageUi || isDeletingCompletedActions}
+                icon={<Trash2 size={13} />}
+                isDisabled={!showManageUi || isDeletingCompletedActions}
+                label={deleteLabel}
                 onClick={() => void handleDeleteCompletedActions()}
-                type="button"
-              >
-                <Trash2 size={13} />
-                {deleteLabel}
-              </button>
+                size="sm"
+                variant="destructive"
+              />
             </div>
             {completedActionItems.map((item) => renderMemoryItem(item, "action"))}
           </div>
@@ -1253,13 +1287,13 @@ export function ProjectMemoryPanel({
               : groupedItems[category].length}
           </small>
           <span className="project-memory-label-spacer" />
-          <button
-            disabled={isAdding || addingCategory === category}
+          <Button
+            isDisabled={isAdding || addingCategory === category}
+            label="＋ 추가"
             onClick={() => startAdd(category)}
-            type="button"
-          >
-            ＋ 추가
-          </button>
+            size="sm"
+            variant="ghost"
+          />
         </div>
         {addingCategory === category ? renderAddForm(category) : null}
         <div className="project-memory-manage-list">
@@ -1273,13 +1307,13 @@ export function ProjectMemoryPanel({
           )}
         </div>
         {category === "decision" && (hiddenDecisionCount > 0 || showAllDecisions) ? (
-          <button
+          <Button
             className="project-memory-more-button"
+            label={showAllDecisions ? "접기" : `외 ${hiddenDecisionCount}개 모두 보기`}
             onClick={() => setShowAllDecisions((current) => !current)}
-            type="button"
-          >
-            {showAllDecisions ? "접기" : `외 ${hiddenDecisionCount}개 모두 보기`}
-          </button>
+            size="sm"
+            variant="ghost"
+          />
         ) : null}
       </article>
     );
@@ -1293,12 +1327,14 @@ export function ProjectMemoryPanel({
             <strong>{groupedItems[category].length}</strong>
             <span>{MEMORY_CATEGORY_META[category].label}</span>
             {category === "action" ? (
-              <div
+              <ProgressBar
                 className="project-memory-action-progress"
-                title={`완료 ${actionCompletedCount}/${groupedItems.action.length}`}
-              >
-                <i style={{ width: `${actionCompletionPercent}%` }} />
-              </div>
+                isLabelHidden
+                label={`완료 ${actionCompletedCount}/${groupedItems.action.length}`}
+                max={groupedItems.action.length || 1}
+                value={actionCompletedCount}
+                variant="accent"
+              />
             ) : null}
           </div>
         ))}
@@ -1327,21 +1363,29 @@ export function ProjectMemoryPanel({
       {renderSuggestionInbox()}
 
       {typeof apiProjectId !== "number" ? (
-        <div className="project-memory-server-state" role="status">
-          서버 프로젝트가 연결되면 메모리를 불러옵니다.
-        </div>
+        <EmptyState
+          className="project-memory-server-state"
+          isCompact
+          title="서버 프로젝트가 연결되면 메모리를 불러옵니다."
+        />
       ) : loadState === "loading" ? (
-        <div className="project-memory-server-state" role="status">
-          서버에서 프로젝트 메모리를 불러오는 중입니다.
-        </div>
+        <EmptyState
+          className="project-memory-server-state"
+          isCompact
+          title="서버에서 프로젝트 메모리를 불러오는 중입니다."
+        />
       ) : loadState === "error" ? (
-        <div className="project-memory-server-state" data-error="true" role="status">
-          {errorMessage}
-        </div>
+        <EmptyState
+          className="project-memory-server-state"
+          isCompact
+          title={errorMessage}
+        />
       ) : totalCount === 0 && !showManageUi ? (
-        <div className="project-memory-server-state" role="status">
-          서버에 저장된 프로젝트 메모리가 없습니다.
-        </div>
+        <EmptyState
+          className="project-memory-server-state"
+          isCompact
+          title="서버에 저장된 프로젝트 메모리가 없습니다."
+        />
       ) : showManageUi ? (
         <>
           {renderStatsStrip()}
@@ -1385,13 +1429,14 @@ export function ProjectMemoryPanel({
                   key={getMemoryItemKey(item, index)}
                 >
                   {canManage && typeof apiProjectId === "number" ? (
-                    <input
-                      aria-label={`${item.content} 완료`}
-                      checked={isMemoryItemCompleted(item)}
+                    <CheckboxInput
                       className="project-memory-check-circle"
-                      disabled={isItemSaving(item.id)}
+                      isDisabled={isItemSaving(item.id)}
+                      isLabelHidden
+                      label={`${item.content} 완료`}
                       onChange={() => void handleToggleCompleted(item)}
-                      type="checkbox"
+                      size="sm"
+                      value={isMemoryItemCompleted(item)}
                     />
                   ) : (
                     <span className="project-memory-check-circle" aria-hidden="true" />

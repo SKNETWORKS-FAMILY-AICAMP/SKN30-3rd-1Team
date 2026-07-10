@@ -18,8 +18,9 @@ from .github.router import router as github_router, SessionExpiredException
 async def lifespan(app: FastAPI):
     import asyncio
     import logging
-    from .startup import recover_stale_tasks, backfill_dev_user_membership, stale_watchdog
+    from .startup import ensure_runtime_schema, recover_stale_tasks, backfill_dev_user_membership, stale_watchdog
     from .retriever.memory_vector import backfill_memory_vectors
+    ensure_runtime_schema()
     recover_stale_tasks()
     backfill_dev_user_membership()
     try:

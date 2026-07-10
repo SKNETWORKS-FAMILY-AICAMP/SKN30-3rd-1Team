@@ -1,8 +1,10 @@
 export type ThemeSetting = "system" | "dark" | "light";
+export type LanguageSetting = "ko" | "en";
 export type SuggestionMinConfidence = "high" | "medium";
 
 export type PaiMSettings = {
   theme: ThemeSetting;
+  language: LanguageSetting;
   serverUrl: string;
   suggestionMin: SuggestionMinConfidence;
   dueSoonDays: number;
@@ -13,6 +15,7 @@ export const DEFAULT_PAIM_API_ROOT_URL = "http://127.0.0.1:8000";
 
 export const DEFAULT_PAIM_SETTINGS: PaiMSettings = {
   theme: "system",
+  language: "ko",
   serverUrl: "",
   suggestionMin: "medium",
   dueSoonDays: 3,
@@ -30,6 +33,7 @@ function normalizeDueSoonDays(value: unknown) {
 export function normalizePaimSettings(value: Partial<PaiMSettings>): PaiMSettings {
   return {
     theme: value.theme === "dark" || value.theme === "light" ? value.theme : "system",
+    language: value.language === "en" ? "en" : "ko",
     serverUrl: typeof value.serverUrl === "string" ? normalizePaimServerUrl(value.serverUrl) : "",
     suggestionMin: value.suggestionMin === "high" ? "high" : "medium",
     dueSoonDays: normalizeDueSoonDays(value.dueSoonDays),
