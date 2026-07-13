@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS memory (
     updated_by       VARCHAR(10)  NULL,
     is_user_verified TINYINT(1)   NOT NULL DEFAULT 0,
     completed_at     DATETIME     NULL,
+    superseded_by    INT          NULL,
+    superseded_at    DATETIME     NULL,
     sort_order       INT          NULL,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
