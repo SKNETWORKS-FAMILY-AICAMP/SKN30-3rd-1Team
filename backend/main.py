@@ -21,13 +21,17 @@ from .github.router import router as github_router, SessionExpiredException
 async def lifespan(app: FastAPI):
     import asyncio
     import logging
-    from .api.auth import _auth_mode
+    from .api.auth import _auth_mode, validate_jwt_config
     from .startup import recover_stale_tasks, backfill_dev_user_membership, stale_watchdog
     from .retriever.memory_vector import backfill_memory_vectors
     if _auth_mode() == "dev":
         logging.getLogger(__name__).warning(
             "PAIM_AUTH_MODE=dev — JWT 검증이 꺼져 있습니다. 로컬 개발 전용이며 배포 환경에서는 사용 금지."
         )
+    else:
+        # jwt 모드: 시크릿이 없거나 약하면 여기서 기동을 중단시킨다. 그러지 않으면
+        # 서버는 뜨지만 로그인 503 / 보호 API 401로 인증 불능 상태가 된다.
+        validate_jwt_config()
     recover_stale_tasks()
     backfill_dev_user_membership()
     try:

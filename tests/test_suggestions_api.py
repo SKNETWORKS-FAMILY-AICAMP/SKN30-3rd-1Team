@@ -94,19 +94,31 @@ def test_reject_suggestion_only_resolves_suggestion():
     assert not any("UPDATE memory SET completed_at = NOW()" in sql for sql in sql_calls)
 
 
-def test_resolve_suggestion_requires_project_access():
-    """R-002: accept/reject는 require_project_access를 통과해야 한다 (타 프로젝트 IDOR 방지).
+def test_resolve_suggestion_denies_viewer():
+    """R-003: viewer는 accept/reject를 할 수 없다 (member 경계 검증).
 
-    접근이 거부되면 DB 접근 전에 403으로 중단되므로 get_connection을 patch할 필요가 없다.
+    실제 require_project_access를 통과시키고 역할 조회만 viewer로 mock한다.
+    이전 테스트는 require_project_access 호출 유무만 봐서, _resolve_suggestion이
+    기본 viewer 권한으로 회귀해도 통과하는 맹점이 있었다. 실제 역할로 검증한다.
     """
-    from fastapi import HTTPException
-
-    def _deny(project_id, min_role="viewer"):
-        raise HTTPException(status_code=403, detail="test: access denied")
-
-    with patch("backend.api.suggestion.require_project_access", _deny):
+    with patch("backend.api.auth.get_current_user_id", return_value=99), \
+         patch("backend.api.auth.get_project_role", return_value="viewer"):
         accept = _client.post("/api/v1/projects/1/suggestions/7/accept")
         reject = _client.post("/api/v1/projects/1/suggestions/7/reject")
 
     assert accept.status_code == 403
     assert reject.status_code == 403
+
+
+def test_resolve_suggestion_allows_member():
+    """R-003: member는 accept/reject가 허용된다 (viewer 거부와 대칭 확인)."""
+    row = _suggestion_row(completed_at=None)
+    updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
+    conn, _ = _make_conn(fetchone=[row, updated])
+    with patch("backend.api.auth.get_current_user_id", return_value=99), \
+         patch("backend.api.auth.get_project_role", return_value="member"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        accept = _client.post("/api/v1/projects/1/suggestions/7/accept")
+
+    assert accept.status_code == 200
+    assert accept.json()["status"] == "accepted"

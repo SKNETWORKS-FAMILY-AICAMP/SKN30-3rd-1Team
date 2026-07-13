@@ -74,20 +74,44 @@ _PLACEHOLDER_JWT_SECRETS = {
     "your-secret-key",
     "please_change_me",
 }
-_MIN_JWT_SECRET_LEN = 16
+# HS256의 서명키는 최소 256비트(=32바이트) 이상이어야 한다(RFC 7518 §3.2).
+# 문자 수가 아니라 UTF-8 바이트 수로 재므로, `secrets.token_urlsafe(32)` 같은
+# 생성 지침으로 만든 키만 통과하고 "a"*16 같은 약한 값은 거부된다.
+_MIN_JWT_SECRET_BYTES = 32
+
+
+class JWTConfigError(RuntimeError):
+    """JWT 설정이 유효하지 않을 때 서버 기동을 중단시키는 예외."""
 
 
 def _jwt_secret() -> bytes:
     secret = os.getenv("PAIM_JWT_SECRET", "").strip()
     if not secret:
         raise HTTPException(status_code=503, detail="PAIM_JWT_SECRET is not configured")
-    if secret.lower() in _PLACEHOLDER_JWT_SECRETS or len(secret) < _MIN_JWT_SECRET_LEN:
+    if (
+        secret.lower() in _PLACEHOLDER_JWT_SECRETS
+        or len(secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES
+    ):
         raise HTTPException(
             status_code=503,
             detail="PAIM_JWT_SECRET must be a strong non-default value "
-            "(>= 16 chars, not a placeholder)",
+            "(>= 32 bytes, not a placeholder — e.g. `secrets.token_urlsafe(32)`)",
         )
     return secret.encode("utf-8")
+
+
+def validate_jwt_config() -> None:
+    """jwt 모드에서 기동 시 시크릿 설정을 검증한다.
+
+    설정이 없거나 약하면 JWTConfigError를 던져 기동을 조기 중단시킨다. 이렇게
+    하지 않으면 서버와 /health는 정상 기동하는데 로그인은 503, 보호 API는 401로
+    실패해 배포 시스템이 정상으로 오판한다. dev 모드는 검증 대상이 아니다."""
+    if _auth_mode() == "dev":
+        return
+    try:
+        _jwt_secret()
+    except HTTPException as exc:
+        raise JWTConfigError(str(exc.detail)) from exc
 
 
 def create_access_token(user_id: int) -> str:
@@ -114,9 +138,12 @@ def decode_access_token(token: str) -> int:
     if len(parts) != 3:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
 
+    # _jwt_secret()은 설정 오류 시 503을 던진다. try 밖에서 먼저 호출해 그 503이
+    # 아래 광범위한 except에 잡혀 토큰 오류(401)로 은폐되지 않게 한다.
+    secret = _jwt_secret()
     signing_input = f"{parts[0]}.{parts[1]}"
     try:
-        expected = hmac.new(_jwt_secret(), signing_input.encode("ascii"), hashlib.sha256).digest()
+        expected = hmac.new(secret, signing_input.encode("ascii"), hashlib.sha256).digest()
         actual = _b64url_decode(parts[2])
     except Exception:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")

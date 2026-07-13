@@ -20,7 +20,8 @@ from backend.main import app
 
 _client = TestClient(app, raise_server_exceptions=False)
 
-_TEST_SECRET = "test-jwt-secret-for-unit-tests"
+# HS256 최소 기준(32바이트)을 만족하는 테스트용 키.
+_TEST_SECRET = "test-jwt-secret-for-unit-tests-0123456789"
 
 
 @pytest.fixture
@@ -80,7 +81,7 @@ def test_tampered_token_rejected(jwt_mode):
 
 def test_token_signed_with_other_secret_rejected(jwt_mode, monkeypatch):
     token = create_access_token(42)
-    monkeypatch.setenv("PAIM_JWT_SECRET", "a-completely-different-secret")
+    monkeypatch.setenv("PAIM_JWT_SECRET", "a-completely-different-secret-key-0123456789")
     with pytest.raises(HTTPException) as exc_info:
         decode_access_token(token)
     assert exc_info.value.status_code == 401
@@ -345,6 +346,72 @@ def test_short_secret_is_rejected(jwt_mode, monkeypatch):
     monkeypatch.setenv("PAIM_JWT_SECRET", "short")
     with pytest.raises(HTTPException) as exc:
         create_access_token(1)
+    assert exc.value.status_code == 503
+
+
+def test_secret_below_32_bytes_is_rejected(jwt_mode, monkeypatch):
+    """R-001(round2): HS256은 256비트(32바이트) 이상을 요구한다. 16바이트 키는
+    이전 문자-기준 검사(>=16자)는 통과했지만 이제 바이트-기준으로 503 거부된다."""
+    monkeypatch.setenv("PAIM_JWT_SECRET", "a" * 16)
+    with pytest.raises(HTTPException) as exc:
+        create_access_token(1)
+    assert exc.value.status_code == 503
+
+
+def test_strong_32_byte_secret_is_accepted(jwt_mode, monkeypatch):
+    """R-001(round2): 생성 지침(token_urlsafe(32))으로 만든 32바이트+ 키는 통과한다."""
+    import secrets
+
+    monkeypatch.setenv("PAIM_JWT_SECRET", secrets.token_urlsafe(32))
+    token = create_access_token(1)
+    assert decode_access_token(token) == 1
+
+
+# ── 회귀: R-002 (기동 시 JWT 설정 검증 + 설정 오류 401 은폐 방지) ─────────────
+
+def test_validate_jwt_config_raises_on_missing_secret(jwt_mode, monkeypatch):
+    """R-002: jwt 모드 기동 검증은 시크릿 누락 시 JWTConfigError로 기동을 막는다."""
+    from backend.api.auth import JWTConfigError, validate_jwt_config
+
+    monkeypatch.delenv("PAIM_JWT_SECRET", raising=False)
+    with pytest.raises(JWTConfigError):
+        validate_jwt_config()
+
+
+def test_validate_jwt_config_raises_on_weak_secret(jwt_mode, monkeypatch):
+    """R-002: placeholder/약한 시크릿도 기동 검증에서 걸러진다."""
+    from backend.api.auth import JWTConfigError, validate_jwt_config
+
+    monkeypatch.setenv("PAIM_JWT_SECRET", "a" * 16)
+    with pytest.raises(JWTConfigError):
+        validate_jwt_config()
+
+
+def test_validate_jwt_config_passes_with_strong_secret(jwt_mode):
+    """R-002: 정상 시크릿(_TEST_SECRET ≥32B)이면 기동 검증을 통과한다."""
+    from backend.api.auth import validate_jwt_config
+
+    validate_jwt_config()  # should not raise
+
+
+def test_validate_jwt_config_noop_in_dev_mode(monkeypatch):
+    """R-002: dev 모드는 기동 검증 대상이 아니다 (시크릿 없어도 통과)."""
+    from backend.api.auth import validate_jwt_config
+
+    monkeypatch.setenv("PAIM_AUTH_MODE", "dev")
+    monkeypatch.delenv("PAIM_JWT_SECRET", raising=False)
+    validate_jwt_config()  # should not raise
+
+
+def test_config_error_not_masked_as_401_on_decode(jwt_mode, monkeypatch):
+    """R-002: decode 중 시크릿 설정 오류는 401이 아니라 503으로 전파돼야 한다.
+
+    이전엔 decode_access_token의 광범위한 except가 _jwt_secret()의 503을 잡아
+    401로 은폐했다. 이제 설정 오류는 503으로 그대로 드러난다."""
+    token = create_access_token(42)  # 정상 시크릿으로 발급
+    monkeypatch.delenv("PAIM_JWT_SECRET")  # 이후 시크릿 제거 → 설정 오류
+    with pytest.raises(HTTPException) as exc:
+        decode_access_token(token)
     assert exc.value.status_code == 503
 
 
