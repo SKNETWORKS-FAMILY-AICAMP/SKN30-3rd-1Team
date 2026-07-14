@@ -55,6 +55,23 @@ def test_ingest_passes_decision_date_to_supersede():
     assert new_decisions[0]["date"] == "2024-01-05"
 
 
+def test_ingest_falls_back_to_source_date_for_supersede():
+    """F-003: 본문에서 date가 추출되지 않았으면 업로드 폼의 source date를 정규화해 넘긴다.
+    과거 문서를 뒤늦게 업로드해도 시간순서 규칙(D-3)이 무력화되지 않도록."""
+    items = [_item("decision", "2024년 방침")]  # item.date 없음
+    conn, _ = _make_conn()
+    with patch("backend.pipeline.ingestor.get_connection", return_value=conn), \
+         patch("backend.pipeline.ingestor.upsert_memory_vectors"), \
+         patch("backend.pipeline.ingestor.get_collection") as mock_coll, \
+         patch("backend.reconciler.supersede.detect_supersede") as mock_detect:
+        mock_coll.return_value.add = MagicMock()
+        ingest(project_id=1, doc_id=5, repo_id=None, items=items,
+               raw_text="", source="m.md", date="2024년 1월 5일", doc_type="meeting")
+
+    _pid, new_decisions = mock_detect.call_args.args
+    assert new_decisions[0]["date"] == "2024-01-05"
+
+
 def test_ingest_skips_supersede_when_chunk_add_fails():
     """D-2: chunk add가 실패하면 supersede 판별(제안 생성)을 실행하지 않는다.
     적재가 롤백/정리될 때 삭제될 신규 memory를 가리키는 제안이 남지 않도록 훅은 맨 마지막에 있다."""

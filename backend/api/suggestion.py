@@ -110,14 +110,21 @@ def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
         superseding_id = evidence.get("superseding_memory_id")
         if superseding_id is None:
             raise HTTPException(status_code=400, detail="Supersede evidence missing target")
-        # 대체(신) decision이 아직 같은 프로젝트에 존재하는지 트랜잭션 안에서 확인 — 제안 생성 후
-        # 삭제/재동기화로 사라졌다면 존재하지 않는 id로 기존 decision을 숨기지 않도록 거부한다.
+        # 대체(신) 항목을 트랜잭션 안에서 검증 — 제안 생성 후 상태가 바뀌었을 수 있다.
+        #   존재+project: 삭제/재동기화로 사라진 id로 기존 decision을 숨기지 않도록.
+        #   category='decision': 사용자가 대체 row를 action 등으로 수정한 경우 거부.
+        #   superseded_by IS NULL: 이미 번복된 decision은 대체자가 될 수 없다(순환 가드 —
+        #     A→B accept 후 B→A를 accept하면 둘 다 숨어 해당 주제 결정이 전멸한다).
         cursor.execute(
-            "SELECT id FROM memory WHERE id = %s AND project_id = %s",
+            "SELECT id FROM memory WHERE id = %s AND project_id = %s"
+            " AND category = 'decision' AND superseded_by IS NULL",
             (superseding_id, project_id),
         )
         if not cursor.fetchone():
-            raise HTTPException(status_code=409, detail="Superseding decision no longer exists")
+            raise HTTPException(
+                status_code=409,
+                detail="Superseding decision no longer exists or is not a live decision",
+            )
         current = row.get("memory_superseded_by")
         if current is not None:
             # 같은 대상으로 이미 처리됐으면 멱등, 다른 대상이면 충돌로 거부해

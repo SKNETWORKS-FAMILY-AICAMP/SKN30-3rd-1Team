@@ -78,7 +78,10 @@ CREATE TABLE IF NOT EXISTS memory (
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (doc_id)     REFERENCES documents(id),
-    FOREIGN KEY (repo_id)    REFERENCES repositories(id)
+    FOREIGN KEY (repo_id)    REFERENCES repositories(id),
+    -- self-FK: 대체(신) decision 삭제 시 포인터를 자동 해제해 구 decision을 복귀시킨다(v8).
+    CONSTRAINT fk_memory_superseded_by
+        FOREIGN KEY (superseded_by) REFERENCES memory(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS memory_sources (

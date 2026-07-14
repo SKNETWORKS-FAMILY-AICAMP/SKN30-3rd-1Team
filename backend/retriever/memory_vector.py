@@ -119,14 +119,21 @@ def delete_memory_vector(memory_id: int) -> None:
 
 
 def cleanup_orphan_memory_vectors() -> int:
-    """MySQL에 없는 project_id/memory_id를 가리키는 memory 벡터를 삭제한다."""
+    """MySQL 기준으로 유효하지 않은 memory 벡터를 삭제한다.
+
+    삭제 대상: MySQL에 없는 project_id/memory_id를 가리키는 벡터(고아), 그리고
+    superseded된 memory의 벡터. 후자는 accept 시점의 delete_memory_vector(best-effort)가
+    실패했거나 과거 백필이 되살린 경우를 매 시작마다 수렴시킨다(자기치유).
+    """
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT id FROM projects")
             project_ids = {row["id"] for row in cursor.fetchall()}
-            cursor.execute("SELECT id FROM memory")
-            memory_ids = {row["id"] for row in cursor.fetchall()}
+            cursor.execute("SELECT id, superseded_by FROM memory")
+            rows = cursor.fetchall()
+            memory_ids = {row["id"] for row in rows}
+            superseded_ids = {row["id"] for row in rows if row["superseded_by"] is not None}
     finally:
         conn.close()
 
@@ -137,7 +144,11 @@ def cleanup_orphan_memory_vectors() -> int:
         metadata = metadata or {}
         if not (str(vector_id).startswith("memory:") or metadata.get("item_type") == "memory"):
             continue
-        if metadata.get("project_id") not in project_ids or metadata.get("memory_id") not in memory_ids:
+        if (
+            metadata.get("project_id") not in project_ids
+            or metadata.get("memory_id") not in memory_ids
+            or metadata.get("memory_id") in superseded_ids
+        ):
             delete_ids.append(vector_id)
 
     if delete_ids:
@@ -146,13 +157,18 @@ def cleanup_orphan_memory_vectors() -> int:
 
 
 def backfill_memory_vectors() -> int:
-    """아직 ChromaDB에 없는 기존 memory row만 1회 백필한다."""
+    """아직 ChromaDB에 없는 기존 memory row만 1회 백필한다.
+
+    superseded row는 색인하지 않는다 — accept가 지운 벡터를 재시작이 되살려
+    후보 top-N을 비활성 벡터로 채우는 것을 막는다. 대체 decision 삭제로 복귀한
+    (superseded_by가 NULL로 돌아온) row는 여기서 벡터도 함께 복원된다.
+    """
     cleanup_orphan_memory_vectors()
 
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM memory ORDER BY id ASC")
+            cursor.execute("SELECT * FROM memory WHERE superseded_by IS NULL ORDER BY id ASC")
             rows = cursor.fetchall()
     finally:
         conn.close()

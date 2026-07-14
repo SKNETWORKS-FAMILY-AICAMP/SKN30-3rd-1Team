@@ -110,6 +110,28 @@ def test_accept_supersede_missing_superseding_decision_is_409():
     assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
 
 
+def test_accept_supersede_existence_check_requires_live_decision():
+    """F-004+순환 가드: 대체(신) 항목 검증 SELECT는 category='decision'과
+    superseded_by IS NULL 조건을 포함해야 한다 — 제안 생성 후 category가 바뀐 row나
+    이미 번복된 decision(A→B 후 B→A 순환)으로 정상 결정을 숨기지 못하도록."""
+    row = _supersede_row(superseded_by=None)
+    updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
+    conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.retriever.memory_vector.delete_memory_vector"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 200
+    existence_checks = [
+        call.args[0] for call in cur.execute.call_args_list
+        if call.args[0].strip().startswith("SELECT id FROM memory WHERE id")
+    ]
+    assert len(existence_checks) == 1
+    assert "category = 'decision'" in existence_checks[0]
+    assert "superseded_by IS NULL" in existence_checks[0]
+
+
 def test_accept_supersede_conflict_when_superseded_by_other():
     """C-2: 대상 decision이 이미 다른 decision으로 번복돼 있으면 409로 거부(이력 불일치 방지)."""
     row = _supersede_row(superseded_by=7)  # evidence는 42를 가리키지만 이미 7로 번복됨
