@@ -1,11 +1,14 @@
 # 추출된 MemoryItem 목록을 MySQL(구조화)과 ChromaDB(벡터) 두 저장소에 적재하는 모듈.
 # MySQL은 카테고리별 검색, ChromaDB는 의미 유사도 검색에 사용.
+import logging
 import re
 from typing import List, Optional
 from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
 from ..retriever.memory_vector import upsert_memory_vectors
+
+logger = logging.getLogger(__name__)
 
 # ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
 _NO_ID = -1
@@ -195,6 +198,21 @@ def ingest(
         conn.close()
 
     upsert_memory_vectors(memory_rows)
+
+    # 계층2 supersede 판별: 이번에 적재된 신규 decision이 기존 decision을 번복하는지
+    # LLM으로 판정해 pending 제안을 만든다. 적재 성공을 막지 않도록 best-effort로 격리하고,
+    # 신규 decision이 없으면 호출 자체를 생략한다.
+    new_decisions = [
+        {"id": r["id"], "content": r["content"], "topic": r["topic"], "reason": r["reason"]}
+        for r in memory_rows
+        if r["category"] == "decision"
+    ]
+    if new_decisions:
+        try:
+            from ..reconciler.supersede import detect_supersede
+            detect_supersede(project_id, new_decisions)
+        except Exception:
+            logger.warning("supersede 판별 실패(적재는 유지) project_id=%s", project_id, exc_info=True)
 
     if not chunks:
         return

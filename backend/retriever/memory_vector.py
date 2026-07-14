@@ -1,5 +1,5 @@
 """memory 행을 ChromaDB에 보조 인덱싱한다."""
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List, Optional, Set
 
 from ..db.chroma import get_collection
 from ..db.mysql import get_connection
@@ -65,6 +65,48 @@ def upsert_memory_vectors(rows: Iterable[Dict]) -> int:
         metadatas=[_metadata(row) for row in rows],
     )
     return len(rows)
+
+
+def find_similar_memories(
+    project_id: int,
+    text: str,
+    category: Optional[str] = None,
+    n_results: int = 5,
+    exclude_ids: Optional[Set[int]] = None,
+) -> List[int]:
+    """의미 유사한 memory 후보의 memory_id 목록을 ChromaDB에서 조회한다.
+
+    supersede 판별의 후보 recall에 사용. 같은 project·item_type=memory 범위에서
+    category까지 좁혀 검색하고, exclude_ids(자기 자신 등)는 제외한 memory_id를 반환한다.
+    """
+    if not (text or "").strip():
+        return []
+
+    conditions: List[Dict] = [{"project_id": project_id}, {"item_type": "memory"}]
+    if category:
+        conditions.append({"category": category})
+    where = conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+    results = get_collection().query(
+        query_texts=[text],
+        where=where,
+        n_results=n_results,
+    )
+    metas = (results.get("metadatas") or [[]])[0]
+
+    exclude = exclude_ids or set()
+    ids: List[int] = []
+    seen: Set[int] = set()
+    for meta in metas:
+        mid = (meta or {}).get("memory_id")
+        if mid is None:
+            continue
+        mid = int(mid)
+        if mid in exclude or mid in seen:
+            continue
+        seen.add(mid)
+        ids.append(mid)
+    return ids
 
 
 def delete_memory_vector(memory_id: int) -> None:

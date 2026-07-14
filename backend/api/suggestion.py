@@ -38,17 +38,33 @@ def _suggestion_response(row: dict) -> dict:
     }
 
 
+# suggestion.kind별로 대상 memory가 가져야 하는 category — accept 시 잘못된 대상 방지.
+_KIND_TARGET_CATEGORY = {
+    "complete_action": "action",
+    "supersede": "decision",
+}
+
+
 def _suggestion_or_404(cursor, project_id: int, suggestion_id: int) -> dict:
-    """프로젝트에 속한 suggestion과 대상 action을 함께 조회한다."""
+    """프로젝트에 속한 suggestion과 대상 memory 상태를 함께 조회한다.
+
+    kind에 따라 대상 memory의 category가 달라지므로(action/decision) category 필터는
+    SQL이 아니라 조회 후 kind 기준으로 검증한다.
+    """
     cursor.execute(
-        "SELECT s.*, m.completed_at AS memory_completed_at"
+        "SELECT s.*, m.category AS memory_category,"
+        " m.completed_at AS memory_completed_at,"
+        " m.superseded_by AS memory_superseded_by"
         " FROM memory_suggestions s"
         " JOIN memory m ON m.id = s.memory_id AND m.project_id = s.project_id"
-        " WHERE s.id = %s AND s.project_id = %s AND m.category = 'action'",
+        " WHERE s.id = %s AND s.project_id = %s",
         (suggestion_id, project_id),
     )
     row = cursor.fetchone()
     if not row:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+    expected = _KIND_TARGET_CATEGORY.get(row["kind"])
+    if expected is not None and row.get("memory_category") != expected:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     return row
 
@@ -76,8 +92,39 @@ def list_suggestions(project_id: int, status: str = "pending"):
         conn.close()
 
 
+def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
+    """accept 시 suggestion.kind에 따라 대상 memory에 효과를 반영한다.
+
+    - complete_action: 미완료 action이면 completed_at=NOW().
+    - supersede: 아직 살아있는 decision이면 superseded_by=evidence.superseding_memory_id,
+      superseded_at=NOW() 설정(계층1 필터가 이때부터 실효).
+    """
+    kind = row["kind"]
+    if kind == "supersede":
+        if row.get("memory_superseded_by") is not None:
+            return
+        evidence = _decode_evidence(row["evidence"]) or {}
+        superseding_id = evidence.get("superseding_memory_id")
+        if superseding_id is None:
+            raise HTTPException(status_code=400, detail="Supersede evidence missing target")
+        cursor.execute(
+            "UPDATE memory SET superseded_by = %s, superseded_at = NOW(), updated_by = 'user'"
+            " WHERE id = %s AND project_id = %s",
+            (superseding_id, row["memory_id"], project_id),
+        )
+        return
+
+    # 기본(complete_action): 미완료 action 완료 처리.
+    if not row.get("memory_completed_at"):
+        cursor.execute(
+            "UPDATE memory SET completed_at = NOW(), updated_by = 'user'"
+            " WHERE id = %s AND project_id = %s",
+            (row["memory_id"], project_id),
+        )
+
+
 def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dict:
-    """suggestion을 accepted/rejected로 닫고, accepted면 대상 action 완료일을 보장한다."""
+    """suggestion을 accepted/rejected로 닫고, accepted면 kind별 효과를 대상 memory에 반영한다."""
     # 상태를 변경하는 동작이므로 member 이상 권한 필요 — 타 프로젝트 무단 조작(IDOR) 방지.
     require_project_access(project_id, min_role="member")
     conn = get_connection()
@@ -87,12 +134,8 @@ def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dic
             if row["status"] != "pending":
                 raise HTTPException(status_code=400, detail="Suggestion already resolved")
 
-            if status == "accepted" and not row.get("memory_completed_at"):
-                cursor.execute(
-                    "UPDATE memory SET completed_at = NOW(), updated_by = 'user'"
-                    " WHERE id = %s AND project_id = %s",
-                    (row["memory_id"], project_id),
-                )
+            if status == "accepted":
+                _apply_accepted_effect(cursor, project_id, row)
 
             cursor.execute(
                 "UPDATE memory_suggestions SET status = %s, resolved_at = NOW(), resolved_by = %s"

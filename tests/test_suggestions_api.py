@@ -32,8 +32,72 @@ def _suggestion_row(status="pending", completed_at=None):
         "status": status,
         "created_at": "2026-07-02 10:00:00",
         "resolved_at": None,
+        "memory_category": "action",
         "memory_completed_at": completed_at,
     }
+
+
+def _supersede_row(status="pending", superseded_by=None, memory_category="decision"):
+    return {
+        "id": 8,
+        "project_id": 1,
+        "memory_id": 10,
+        "kind": "supersede",
+        "evidence": '{"type":"supersede","superseding_memory_id":42}',
+        "rationale": "새 결정이 기존 배포 방침을 대체합니다.",
+        "confidence": "high",
+        "status": status,
+        "created_at": "2026-07-02 10:00:00",
+        "resolved_at": None,
+        "memory_category": memory_category,
+        "memory_completed_at": None,
+        "memory_superseded_by": superseded_by,
+    }
+
+
+def test_accept_supersede_sets_superseded_by_from_evidence():
+    """POST accept(supersede) — 대상 decision에 superseded_by/superseded_at 설정."""
+    row = _supersede_row(superseded_by=None)
+    updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
+    conn, cur = _make_conn(fetchone=[row, updated])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "accepted"
+    supersede_updates = [
+        call for call in cur.execute.call_args_list
+        if "UPDATE memory SET superseded_by = %s" in call.args[0]
+    ]
+    assert len(supersede_updates) == 1
+    # 첫 파라미터가 evidence의 superseding_memory_id(42)
+    assert supersede_updates[0].args[1][0] == 42
+
+
+def test_accept_supersede_already_superseded_is_noop_on_memory():
+    """이미 superseded된 decision이면 memory는 다시 건드리지 않는다."""
+    row = _supersede_row(superseded_by=42)
+    updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
+    conn, cur = _make_conn(fetchone=[row, updated])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 200
+    sql_calls = [call.args[0] for call in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
+
+
+def test_supersede_suggestion_targeting_wrong_category_is_404():
+    """supersede 대상 memory가 decision이 아니면 404(잘못된 대상 방지)."""
+    row = _supersede_row(memory_category="action")
+    conn, _ = _make_conn(fetchone=[row])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 404
 
 
 def test_list_pending_suggestions_returns_evidence_and_rationale():
