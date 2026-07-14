@@ -56,6 +56,11 @@ class _Cursor:
                          "memory_category": m["category"],
                          "memory_completed_at": m["completed_at"],
                          "memory_superseded_by": m["superseded_by"]}
+        elif sql.strip().startswith("SELECT id FROM memory WHERE id"):
+            # D-1: 대체(신) decision 존재 확인
+            mid, pid = params
+            m = self.db.memory.get(mid)
+            self._one = {"id": mid} if (m and m["project_id"] == pid) else None
         elif "UPDATE memory SET superseded_by" in sql:
             superseding_id, memory_id, _pid = params
             m = self.db.memory[memory_id]
@@ -131,6 +136,7 @@ def test_accept_supersede_then_layer1_search_excludes_old_decision():
 
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.api.suggestion.get_current_user_id", return_value=99), \
+         patch("backend.retriever.memory_vector.delete_memory_vector"), \
          patch("backend.api.suggestion.get_connection", return_value=_Conn(db)):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
     assert resp.status_code == 200

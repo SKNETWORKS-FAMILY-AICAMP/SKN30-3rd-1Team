@@ -1,9 +1,12 @@
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException
 
 from ..db.mysql import get_connection
 from .auth import get_current_user_id, require_project_access
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -107,6 +110,14 @@ def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
         superseding_id = evidence.get("superseding_memory_id")
         if superseding_id is None:
             raise HTTPException(status_code=400, detail="Supersede evidence missing target")
+        # 대체(신) decision이 아직 같은 프로젝트에 존재하는지 트랜잭션 안에서 확인 — 제안 생성 후
+        # 삭제/재동기화로 사라졌다면 존재하지 않는 id로 기존 decision을 숨기지 않도록 거부한다.
+        cursor.execute(
+            "SELECT id FROM memory WHERE id = %s AND project_id = %s",
+            (superseding_id, project_id),
+        )
+        if not cursor.fetchone():
+            raise HTTPException(status_code=409, detail="Superseding decision no longer exists")
         current = row.get("memory_superseded_by")
         if current is not None:
             # 같은 대상으로 이미 처리됐으면 멱등, 다른 대상이면 충돌로 거부해
@@ -167,6 +178,17 @@ def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dic
         raise
     finally:
         conn.close()
+
+    # supersede accept가 확정되면 번복된 decision의 벡터를 제거해 벡터 상태를 MySQL과 동기화한다.
+    # 그러지 않으면 비활성(superseded) 벡터가 이후 supersede 후보 검색의 top-N 슬롯을 계속 차지해
+    # 유효 후보를 밀어낼 수 있다(commit 이후 best-effort — 실패해도 accept 결과는 유지).
+    if status == "accepted" and row["kind"] == "supersede":
+        try:
+            from ..retriever.memory_vector import delete_memory_vector
+            delete_memory_vector(row["memory_id"])
+        except Exception:
+            logger.warning("superseded 벡터 삭제 실패 memory_id=%s", row["memory_id"], exc_info=True)
+
     return _suggestion_response(updated)
 
 

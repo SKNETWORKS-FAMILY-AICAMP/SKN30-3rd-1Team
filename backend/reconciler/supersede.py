@@ -38,6 +38,8 @@ SUPERSEDE_SYSTEM_PROMPT = """당신은 문서 적재 직후 실행되는 PaiM Su
 - 각 매칭에 rationale을 한 문장 한국어로 작성하라.
 - memory_id는 '번복당하는 기존 결정', superseding_memory_id는 '번복하는 새 결정'이다.
 - 입력에 없는 id를 만들지 마라. superseding_memory_id는 신규 결정 목록에만, memory_id는 기존 결정 목록에만 있어야 한다.
+- 시간 순서: 번복은 '더 나중의 결정이 더 이른 결정을 대체'하는 것이다. 신규 결정의 date가 기존 결정의
+  date보다 앞서면(=과거 문서를 뒤늦게 적재한 경우) supersede로 보고하지 마라. date가 없으면 내용으로만 신중히 판단하라.
 """
 
 _PROMPT = ChatPromptTemplate.from_messages(
@@ -60,6 +62,7 @@ class NewDecision(BaseModel):
     content: str
     topic: Optional[str] = None
     reason: Optional[str] = None
+    date: Optional[str] = None
 
 
 class ExistingDecision(BaseModel):

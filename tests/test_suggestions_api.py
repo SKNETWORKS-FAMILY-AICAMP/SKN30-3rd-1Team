@@ -55,12 +55,17 @@ def _supersede_row(status="pending", superseded_by=None, memory_category="decisi
     }
 
 
+# D-1: supersede accept는 _suggestion_or_404 뒤에 대체 decision 존재 확인 fetchone을 1회 더 한다.
+_EXISTS = {"id": 42}  # 대체(신) decision이 존재함을 나타내는 행
+
+
 def test_accept_supersede_sets_superseded_by_from_evidence():
-    """POST accept(supersede) — 대상 decision에 superseded_by/superseded_at 설정."""
+    """POST accept(supersede) — 대상 decision에 superseded_by/superseded_at 설정 + 벡터 동기화."""
     row = _supersede_row(superseded_by=None)
     updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
-    conn, cur = _make_conn(fetchone=[row, updated])
+    conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
     with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.retriever.memory_vector.delete_memory_vector") as mock_del, \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
 
@@ -73,14 +78,17 @@ def test_accept_supersede_sets_superseded_by_from_evidence():
     assert len(supersede_updates) == 1
     # 첫 파라미터가 evidence의 superseding_memory_id(42)
     assert supersede_updates[0].args[1][0] == 42
+    # D-4: 번복된 decision(10) 벡터를 제거해 후보 슬롯 소모 방지
+    mock_del.assert_called_once_with(10)
 
 
 def test_accept_supersede_already_superseded_is_noop_on_memory():
     """이미 superseded된 decision이면 memory는 다시 건드리지 않는다."""
     row = _supersede_row(superseded_by=42)
     updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
-    conn, cur = _make_conn(fetchone=[row, updated])
+    conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
     with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.retriever.memory_vector.delete_memory_vector"), \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
 
@@ -89,10 +97,23 @@ def test_accept_supersede_already_superseded_is_noop_on_memory():
     assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
 
 
+def test_accept_supersede_missing_superseding_decision_is_409():
+    """D-1: 대체(신) decision이 이미 삭제됐으면 409 — 존재하지 않는 id로 숨기지 않는다."""
+    row = _supersede_row(superseded_by=None)
+    conn, cur = _make_conn(fetchone=[row, None])  # 존재 확인이 None
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 409
+    sql_calls = [call.args[0] for call in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
+
+
 def test_accept_supersede_conflict_when_superseded_by_other():
     """C-2: 대상 decision이 이미 다른 decision으로 번복돼 있으면 409로 거부(이력 불일치 방지)."""
     row = _supersede_row(superseded_by=7)  # evidence는 42를 가리키지만 이미 7로 번복됨
-    conn, cur = _make_conn(fetchone=[row])
+    conn, cur = _make_conn(fetchone=[row, _EXISTS])
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
@@ -105,7 +126,7 @@ def test_accept_supersede_conflict_when_superseded_by_other():
 def test_accept_supersede_conflict_on_lost_race():
     """C-2: 조건부 UPDATE가 0행이면(경합으로 먼저 설정됨) 409로 거부한다."""
     row = _supersede_row(superseded_by=None)
-    conn, cur = _make_conn(fetchone=[row])
+    conn, cur = _make_conn(fetchone=[row, _EXISTS])
     cur.rowcount = 0  # WHERE superseded_by IS NULL 이 아무 행도 못 맞춤
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.api.suggestion.get_connection", return_value=conn):
