@@ -462,6 +462,19 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            # category를 decision 밖으로 바꾸는 변경은, 이 row를 대체자(superseded_by)로
+            # 참조하는 결정이 있으면 거부 — accept 시점 검증(살아있는 decision만 대체자 허용)이
+            # 사후 PATCH로 무력화되어 비decision이 결정을 숨기는 상태를 만들지 않도록.
+            if fields.get("category") not in (None, "decision"):
+                cursor.execute(
+                    "SELECT 1 FROM memory WHERE superseded_by = %s AND project_id = %s LIMIT 1",
+                    (memory_id, project_id),
+                )
+                if cursor.fetchone():
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Cannot change category: this decision supersedes another decision",
+                    )
             cursor.execute(
                 f"UPDATE memory SET {set_clause} WHERE id = %s AND project_id = %s",
                 values,
@@ -472,7 +485,12 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
             row = cursor.fetchone()
-        _upsert_memory_vector_best_effort(row)
+        if row and row.get("superseded_by") is not None:
+            # superseded(숨겨진) memory의 벡터는 upsert로 부활시키지 않는다 — accept가
+            # 삭제한 상태를 유지해 비활성 벡터가 후보/RAG top-N을 차지하지 못하게 한다.
+            _delete_memory_vector_best_effort(memory_id)
+        else:
+            _upsert_memory_vector_best_effort(row)
         return row
     finally:
         conn.close()

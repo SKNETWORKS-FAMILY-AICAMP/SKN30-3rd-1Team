@@ -35,3 +35,9 @@ DELIMITER ;
 
 CALL paiM_migrate_v8();
 DROP PROCEDURE IF EXISTS paiM_migrate_v8;
+
+-- 현재 유효한(번복되지 않은) memory만 보는 뷰. "superseded_by IS NULL 필터를 붙여라"라는
+-- 규약을 사람 기억 대신 FROM절에 내장한다 — 유효 항목만 봐야 하는 집계/요약 raw SQL은
+-- memory 대신 active_memory를 읽는다. (CREATE OR REPLACE라 재실행 안전)
+CREATE OR REPLACE VIEW active_memory AS
+SELECT * FROM memory WHERE superseded_by IS NULL;

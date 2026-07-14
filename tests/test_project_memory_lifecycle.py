@@ -67,6 +67,8 @@ def test_regenerate_project_memory_summarizes_remaining_memory(monkeypatch):
 
     sql_calls = [call.args[0] for call in upsert_cursor.execute.call_args_list]
     assert any("ON DUPLICATE KEY UPDATE summary" in sql for sql in sql_calls)
+    # G-001: 요약 재료는 active_memory 뷰에서 읽는다 — superseded 결정이 요약에 들어가지 않도록
+    assert "FROM active_memory" in select_cursor.execute.call_args.args[0]
 
 
 def test_cleanup_orphan_memory_vectors_removes_missing_project_or_memory(monkeypatch):

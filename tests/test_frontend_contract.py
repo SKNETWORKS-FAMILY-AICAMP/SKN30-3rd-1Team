@@ -254,6 +254,62 @@ def test_memory_patch_sort_order_allows_int_and_null_without_verifying():
     assert "is_user_verified" not in update_call.args[0]
 
 
+def test_memory_patch_category_change_rejected_when_row_supersedes_another():
+    """G-002: 다른 결정을 번복 중인(superseded_by로 참조되는) decision의 category를
+    decision 밖으로 바꾸면 409 — 비decision이 결정을 숨기는 상태를 사후 PATCH로 만들 수 없다."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.rowcount = 1
+    cur.fetchone.return_value = {"1": 1}  # 참조 존재 확인 SELECT가 행을 돌려줌
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/42", json={"category": "action"})
+
+    assert resp.status_code == 409
+    sqls = [c.args[0] for c in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET" in s for s in sqls)
+
+
+def test_memory_patch_category_change_allowed_when_not_referenced():
+    """G-002 보완: 참조되지 않은 row의 category 변경은 기존대로 허용."""
+    row = {
+        "id": 42, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": None, "sort_order": None,
+    }
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.rowcount = 1
+    cur.fetchone.side_effect = [None, row]  # 참조 없음 → 최종 SELECT
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/42", json={"category": "action"})
+
+    assert resp.status_code == 200
+    sqls = [c.args[0] for c in cur.execute.call_args_list]
+    assert any("UPDATE memory SET" in s for s in sqls)
+
+
+def test_memory_patch_superseded_row_deletes_vector_instead_of_upsert():
+    """G-003: superseded(숨겨진) memory를 PATCH해도 벡터를 upsert로 부활시키지 않고
+    삭제 상태를 유지한다 — 비활성 벡터가 후보/RAG top-N을 차지하지 못하도록."""
+    row = {
+        "id": 10, "project_id": 1, "category": "decision", "content": "옛 결정",
+        "completed_at": None, "sort_order": None, "superseded_by": 42,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort") as mock_upsert, \
+         patch("backend.api.upload._delete_memory_vector_best_effort") as mock_delete, \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"content": "옛 결정(수정)"})
+
+    assert resp.status_code == 200
+    mock_delete.assert_called_once_with(10)
+    mock_upsert.assert_not_called()
+
+
 def test_memory_patch_due_date_sets_value_and_marks_verified():
     """PATCH due_date=YYYY-MM-DD — 마감일 저장 + 사용자 검증 마킹."""
     row = {

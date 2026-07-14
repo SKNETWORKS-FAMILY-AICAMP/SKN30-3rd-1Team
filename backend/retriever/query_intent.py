@@ -230,14 +230,16 @@ def _fetch_overview_context(project_id: int) -> Dict:
         with conn.cursor() as cursor:
             cursor.execute("SELECT summary FROM project_memory WHERE project_id = %s", (project_id,))
             project_memory = cursor.fetchone() or {}
+            # 조망형 집계는 active_memory 뷰를 읽는다 — 번복(superseded)된 결정이
+            # 통계·목록에 섞여 승인으로 숨긴 결정을 다시 노출하지 않도록.
             cursor.execute(
-                "SELECT category, COUNT(*) AS count FROM memory WHERE project_id = %s GROUP BY category",
+                "SELECT category, COUNT(*) AS count FROM active_memory WHERE project_id = %s GROUP BY category",
                 (project_id,),
             )
             stats = cursor.fetchall()
             cursor.execute(
                 "SELECT id, category, content, owner, due_date, completed_at, source"
-                " FROM memory"
+                " FROM active_memory"
                 " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
                 " ORDER BY (due_date IS NULL), due_date ASC, created_at DESC"
                 " LIMIT 8",
@@ -246,7 +248,7 @@ def _fetch_overview_context(project_id: int) -> Dict:
             open_actions = cursor.fetchall()
             cursor.execute(
                 "SELECT id, category, content, owner, due_date, completed_at, source"
-                " FROM memory"
+                " FROM active_memory"
                 " WHERE project_id = %s AND category = 'action' AND completed_at IS NOT NULL"
                 " ORDER BY completed_at DESC"
                 " LIMIT 5",

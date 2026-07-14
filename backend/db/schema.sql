@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS memory (
         FOREIGN KEY (superseded_by) REFERENCES memory(id) ON DELETE SET NULL
 );
 
+-- 현재 유효한(번복되지 않은) memory만 보는 뷰(v8). 유효 항목만 봐야 하는 집계/요약
+-- raw SQL은 memory 대신 이 뷰를 읽어 superseded 필터 누락을 구조적으로 방지한다.
+CREATE OR REPLACE VIEW active_memory AS
+SELECT * FROM memory WHERE superseded_by IS NULL;
+
 CREATE TABLE IF NOT EXISTS memory_sources (
     id          INT PRIMARY KEY AUTO_INCREMENT,
     memory_id   INT NOT NULL,

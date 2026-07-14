@@ -118,3 +118,21 @@ def test_memory_search_completed_filter_sql():
     assert "m.category = %s" in sql
     assert "m.completed_at IS NULL" in sql
     assert params == [1, "action"]
+
+
+def test_fetch_overview_context_reads_active_memory():
+    """G-001: 조망형 집계(통계·액션 목록)는 active_memory 뷰를 읽는다 —
+    번복(superseded)된 결정이 통계·목록에 섞여 다시 노출되지 않도록."""
+    conn, cursor = _make_conn()
+    cursor.fetchone.return_value = {"summary": "요약"}
+
+    with patch("backend.retriever.query_intent.get_connection", return_value=conn):
+        ctx = query_intent._fetch_overview_context(1)
+
+    assert ctx["project_memory"] == "요약"
+    memory_sqls = [
+        c.args[0] for c in cursor.execute.call_args_list
+        if "FROM memory" in c.args[0] or "FROM active_memory" in c.args[0]
+    ]
+    assert len(memory_sqls) == 3  # 통계 COUNT + 미완료/완료 액션 목록
+    assert all("FROM active_memory" in sql for sql in memory_sqls)

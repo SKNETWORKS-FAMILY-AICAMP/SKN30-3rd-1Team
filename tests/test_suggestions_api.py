@@ -66,6 +66,7 @@ def test_accept_supersede_sets_superseded_by_from_evidence():
     conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.retriever.memory_vector.delete_memory_vector") as mock_del, \
+         patch("backend.graph.refresh_project_memory_after_delete") as mock_refresh, \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
 
@@ -80,6 +81,8 @@ def test_accept_supersede_sets_superseded_by_from_evidence():
     assert supersede_updates[0].args[1][0] == 42
     # D-4: 번복된 decision(10) 벡터를 제거해 후보 슬롯 소모 방지
     mock_del.assert_called_once_with(10)
+    # G-001: 조망형 답변이 읽는 프로젝트 요약 캐시를 재생성해 숨긴 결정이 남지 않게 함
+    mock_refresh.assert_called_once_with(1)
 
 
 def test_accept_supersede_already_superseded_is_noop_on_memory():
@@ -89,6 +92,7 @@ def test_accept_supersede_already_superseded_is_noop_on_memory():
     conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.retriever.memory_vector.delete_memory_vector"), \
+         patch("backend.graph.refresh_project_memory_after_delete"), \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
 
@@ -119,6 +123,7 @@ def test_accept_supersede_existence_check_requires_live_decision():
     conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
     with patch("backend.api.suggestion.require_project_access"), \
          patch("backend.retriever.memory_vector.delete_memory_vector"), \
+         patch("backend.graph.refresh_project_memory_after_delete"), \
          patch("backend.api.suggestion.get_connection", return_value=conn):
         resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
 
