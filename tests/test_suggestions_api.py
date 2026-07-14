@@ -89,6 +89,44 @@ def test_accept_supersede_already_superseded_is_noop_on_memory():
     assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
 
 
+def test_accept_supersede_conflict_when_superseded_by_other():
+    """C-2: 대상 decision이 이미 다른 decision으로 번복돼 있으면 409로 거부(이력 불일치 방지)."""
+    row = _supersede_row(superseded_by=7)  # evidence는 42를 가리키지만 이미 7로 번복됨
+    conn, cur = _make_conn(fetchone=[row])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 409
+    sql_calls = [call.args[0] for call in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET superseded_by" in sql for sql in sql_calls)
+
+
+def test_accept_supersede_conflict_on_lost_race():
+    """C-2: 조건부 UPDATE가 0행이면(경합으로 먼저 설정됨) 409로 거부한다."""
+    row = _supersede_row(superseded_by=None)
+    conn, cur = _make_conn(fetchone=[row])
+    cur.rowcount = 0  # WHERE superseded_by IS NULL 이 아무 행도 못 맞춤
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 409
+
+
+def test_accept_unknown_kind_is_rejected():
+    """C-3: 지원하지 않는 kind는 400으로 거부 — 기본 분기로 흘러 completed_at을 설정하지 않는다."""
+    row = {**_supersede_row(), "kind": "frobnicate"}
+    conn, cur = _make_conn(fetchone=[row])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 400
+    sql_calls = [call.args[0] for call in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET" in sql for sql in sql_calls)
+
+
 def test_supersede_suggestion_targeting_wrong_category_is_404():
     """supersede 대상 memory가 decision이 아니면 404(잘못된 대상 방지)."""
     row = _supersede_row(memory_category="action")

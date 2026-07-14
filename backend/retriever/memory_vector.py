@@ -82,9 +82,15 @@ def find_similar_memories(
     if not (text or "").strip():
         return []
 
+    exclude = exclude_ids or set()
+
     conditions: List[Dict] = [{"project_id": project_id}, {"item_type": "memory"}]
     if category:
         conditions.append({"category": category})
+    # 제외 대상을 쿼리 단계에서 걸러 top-N 슬롯을 소모하지 않게 한다. 사후 필터로만 제외하면
+    # 방금 upsert한 신규 decision(자기 자신)이 상위 결과를 차지해 실제 기존 후보가 밀려날 수 있다.
+    if exclude:
+        conditions.append({"memory_id": {"$nin": sorted(exclude)}})
     where = conditions[0] if len(conditions) == 1 else {"$and": conditions}
 
     results = get_collection().query(
@@ -93,8 +99,6 @@ def find_similar_memories(
         n_results=n_results,
     )
     metas = (results.get("metadatas") or [[]])[0]
-
-    exclude = exclude_ids or set()
     ids: List[int] = []
     seen: Set[int] = set()
     for meta in metas:

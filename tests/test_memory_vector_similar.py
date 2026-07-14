@@ -54,6 +54,14 @@ def test_find_similar_builds_and_where_with_category():
     assert coll.n_results == 4
 
 
+def test_find_similar_excludes_via_query_nin():
+    """C-1: exclude_ids를 ChromaDB where($nin)에 넣어 top-N 슬롯을 소모하지 않게 한다."""
+    coll, cm = _patch_collection([])
+    with cm:
+        memory_vector.find_similar_memories(1, "내용", category="decision", exclude_ids={5, 3})
+    assert {"memory_id": {"$nin": [3, 5]}} in coll.where["$and"]
+
+
 def test_find_similar_without_category_uses_two_conditions():
     """category 미지정이면 project_id·item_type만으로 검색한다."""
     coll, cm = _patch_collection([])

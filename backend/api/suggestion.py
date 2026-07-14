@@ -98,29 +98,43 @@ def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
     - complete_action: 미완료 action이면 completed_at=NOW().
     - supersede: 아직 살아있는 decision이면 superseded_by=evidence.superseding_memory_id,
       superseded_at=NOW() 설정(계층1 필터가 이때부터 실효).
+    지원하지 않는 kind는 명시적으로 거부한다 — 알 수 없는 kind가 기본 분기로 흘러
+    엉뚱한 대상에 completed_at을 설정하는 것을 막는다.
     """
     kind = row["kind"]
     if kind == "supersede":
-        if row.get("memory_superseded_by") is not None:
-            return
         evidence = _decode_evidence(row["evidence"]) or {}
         superseding_id = evidence.get("superseding_memory_id")
         if superseding_id is None:
             raise HTTPException(status_code=400, detail="Supersede evidence missing target")
+        current = row.get("memory_superseded_by")
+        if current is not None:
+            # 같은 대상으로 이미 처리됐으면 멱등, 다른 대상이면 충돌로 거부해
+            # API 승인 이력과 실제 superseded_by 불일치를 방지한다.
+            if int(current) == int(superseding_id):
+                return
+            raise HTTPException(status_code=409, detail="Decision already superseded by another decision")
+        # 조건부 UPDATE + rowcount 확인: 읽은 뒤 다른 요청이 먼저 설정한 경합도 충돌로 거부.
         cursor.execute(
             "UPDATE memory SET superseded_by = %s, superseded_at = NOW(), updated_by = 'user'"
-            " WHERE id = %s AND project_id = %s",
+            " WHERE id = %s AND project_id = %s AND superseded_by IS NULL",
             (superseding_id, row["memory_id"], project_id),
         )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=409, detail="Decision already superseded by another decision")
         return
 
-    # 기본(complete_action): 미완료 action 완료 처리.
-    if not row.get("memory_completed_at"):
-        cursor.execute(
-            "UPDATE memory SET completed_at = NOW(), updated_by = 'user'"
-            " WHERE id = %s AND project_id = %s",
-            (row["memory_id"], project_id),
-        )
+    if kind == "complete_action":
+        # 미완료 action 완료 처리.
+        if not row.get("memory_completed_at"):
+            cursor.execute(
+                "UPDATE memory SET completed_at = NOW(), updated_by = 'user'"
+                " WHERE id = %s AND project_id = %s",
+                (row["memory_id"], project_id),
+            )
+        return
+
+    raise HTTPException(status_code=400, detail="Unsupported suggestion kind")
 
 
 def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dict:

@@ -40,9 +40,11 @@ class _Cursor:
         self.db = db
         self._one = None
         self._all = []
+        self.rowcount = 0
 
     def execute(self, sql, params=None):
         params = params or []
+        self.rowcount = 0
         if "FROM memory_suggestions s" in sql and "JOIN memory m" in sql:
             sid = params[0]
             s = self.db.suggestion.get(sid)
@@ -56,8 +58,12 @@ class _Cursor:
                          "memory_superseded_by": m["superseded_by"]}
         elif "UPDATE memory SET superseded_by" in sql:
             superseding_id, memory_id, _pid = params
-            self.db.memory[memory_id]["superseded_by"] = superseding_id
-            self.db.memory[memory_id]["superseded_at"] = "2026-07-02 11:00:00"
+            m = self.db.memory[memory_id]
+            # WHERE ... superseded_by IS NULL 조건부 UPDATE를 반영
+            if m["superseded_by"] is None:
+                m["superseded_by"] = superseding_id
+                m["superseded_at"] = "2026-07-02 11:00:00"
+                self.rowcount = 1
         elif "UPDATE memory_suggestions SET status" in sql:
             status, resolved_by, sid, _pid = params
             self.db.suggestion[sid].update(status=status, resolved_by=resolved_by,
