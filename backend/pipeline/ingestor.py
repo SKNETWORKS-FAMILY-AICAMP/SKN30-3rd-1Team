@@ -155,7 +155,10 @@ def ingest(
     try:
         with conn.cursor() as cursor:
             for item in items:
-                item_date = _normalize_date(item.date)
+                # 본문에서 date가 추출되지 않았으면 업로드 폼의 source date를 폴백으로 저장한다.
+                # LLM 입력만이 아니라 행 자체에 보존해야, 이 항목이 미래 적재의 supersede
+                # 후보가 될 때 시간순서 검증(과거 문서가 최신 결정을 번복 못 함)이 유지된다.
+                item_date = _normalize_date(item.date) or _normalize_date(date)
                 completed_sql, completed_params = _completed_at_sql(item, item_date, date)
                 cursor.execute(
                     f"""
@@ -237,11 +240,10 @@ def ingest(
     # chunk add 실패로 적재가 롤백/정리될 때 삭제될 신규 memory를 가리키는 제안이 남지 않게 한다.
     # 적재 성공을 막지 않도록 best-effort로 격리하고, 신규 decision이 없으면 호출 자체를 생략한다.
     # 판정 정확도를 위해 신규 decision의 date도 함께 넘긴다(시간 순서 검증용).
-    # 본문에서 date가 추출되지 않았으면 업로드 폼의 source date를 폴백으로 사용한다
-    # (completed_date와 동일 패턴) — 과거 문서 뒤늦은 적재 시 시간순서 규칙이 무력화되지 않도록.
+    # source date 폴백은 INSERT 시점에 행 자체에 적용되므로 r["date"]에 이미 반영돼 있다.
     new_decisions = [
         {"id": r["id"], "content": r["content"], "topic": r["topic"],
-         "reason": r["reason"], "date": r["date"] or _normalize_date(date)}
+         "reason": r["reason"], "date": r["date"]}
         for r in memory_rows
         if r["category"] == "decision"
     ]

@@ -73,10 +73,15 @@ def _suggestion_or_404(cursor, project_id: int, suggestion_id: int) -> dict:
 
 
 @router.get("/projects/{project_id}/suggestions")
-def list_suggestions(project_id: int, status: str = "pending"):
+def list_suggestions(project_id: int, status: str = "pending", kind: str = "complete_action"):
     require_project_access(project_id)
     if status not in _STATUSES:
         raise HTTPException(status_code=400, detail="Invalid suggestion status")
+    # kind 기본값은 complete_action — supersede kind를 모르는 기존 클라이언트(데스크톱)가
+    # evidence.title 없는 항목을 받아 렌더링이 죽지 않도록 구 계약을 보존한다.
+    # supersede를 아는 클라이언트는 ?kind=supersede 또는 ?kind=all로 opt-in 조회한다.
+    if kind != "all" and kind not in _KIND_TARGET_CATEGORY:
+        raise HTTPException(status_code=400, detail="Invalid suggestion kind")
 
     conn = get_connection()
     try:
@@ -84,12 +89,15 @@ def list_suggestions(project_id: int, status: str = "pending"):
             cursor.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
             if not cursor.fetchone():
                 raise HTTPException(status_code=404, detail="Project not found")
-            cursor.execute(
+            sql = (
                 "SELECT * FROM memory_suggestions"
                 " WHERE project_id = %s AND status = %s"
-                " ORDER BY created_at DESC",
-                (project_id, status),
             )
+            params = [project_id, status]
+            if kind != "all":
+                sql += " AND kind = %s"
+                params.append(kind)
+            cursor.execute(sql + " ORDER BY created_at DESC", params)
             return [_suggestion_response(row) for row in cursor.fetchall()]
     finally:
         conn.close()
@@ -169,11 +177,17 @@ def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dic
             if status == "accepted":
                 _apply_accepted_effect(cursor, project_id, row)
 
+            # 조건부 UPDATE + rowcount 확인: 초기 pending 검사 후 다른 요청이 먼저
+            # 해소했을 수 있다. 나중 요청이 확정된 상태를 덮어쓰면(예: accept가
+            # superseded_by를 커밋한 뒤 reject가 status만 rejected로 변경) 효과와
+            # 기록이 어긋나므로 409로 거부한다.
             cursor.execute(
                 "UPDATE memory_suggestions SET status = %s, resolved_at = NOW(), resolved_by = %s"
-                " WHERE id = %s AND project_id = %s",
+                " WHERE id = %s AND project_id = %s AND status = 'pending'",
                 (status, get_current_user_id(), suggestion_id, project_id),
             )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=409, detail="Suggestion already resolved")
             cursor.execute(
                 "SELECT * FROM memory_suggestions WHERE id = %s AND project_id = %s",
                 (suggestion_id, project_id),

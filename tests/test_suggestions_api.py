@@ -199,6 +199,87 @@ def test_list_pending_suggestions_returns_evidence_and_rationale():
     assert body[0]["rationale"] == "PR #20이 FastAPI 연동 작업을 구현했습니다."
 
 
+def test_list_suggestions_defaults_to_complete_action_kind():
+    """H-001: kind 파라미터 없는 기존 클라이언트에는 complete_action만 반환한다.
+    supersede evidence에는 title이 없어 구 데스크톱이 evidence.title.trim()에서
+    죽으므로, 새 kind는 기본 목록에 섞이지 않아야 한다."""
+    conn, cur = _make_conn(fetchone=[{"id": 1}], fetchall=[_suggestion_row()])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/1/suggestions")
+
+    assert resp.status_code == 200
+    sql, params = cur.execute.call_args.args  # 마지막 execute = 목록 SELECT
+    assert "AND kind = %s" in sql
+    assert params[-1] == "complete_action"
+
+
+def test_list_suggestions_kind_supersede_opt_in():
+    """H-001: supersede를 아는 클라이언트는 ?kind=supersede로 opt-in 조회한다."""
+    conn, cur = _make_conn(fetchone=[{"id": 1}], fetchall=[])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/1/suggestions?kind=supersede")
+
+    assert resp.status_code == 200
+    sql, params = cur.execute.call_args.args
+    assert "AND kind = %s" in sql
+    assert params[-1] == "supersede"
+
+
+def test_list_suggestions_kind_all_returns_every_kind():
+    """H-001: ?kind=all은 kind 필터 없이 전체를 반환한다."""
+    conn, cur = _make_conn(fetchone=[{"id": 1}], fetchall=[])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/1/suggestions?kind=all")
+
+    assert resp.status_code == 200
+    sql = cur.execute.call_args.args[0]
+    assert "AND kind = %s" not in sql
+
+
+def test_list_suggestions_unknown_kind_is_400():
+    """H-001: 알 수 없는 kind는 400 — 오타가 빈 목록으로 위장하지 않는다."""
+    with patch("backend.api.suggestion.require_project_access"):
+        resp = _client.get("/api/v1/projects/1/suggestions?kind=frobnicate")
+
+    assert resp.status_code == 400
+
+
+def test_resolve_suggestion_update_is_conditional_on_pending():
+    """H-003: 해소 UPDATE는 status='pending' 조건부다 — 동시 accept/reject 경쟁에서
+    나중 요청이 확정된 상태를 덮어쓰지(효과·기록 불일치) 못하도록."""
+    row = _suggestion_row(completed_at=None)
+    updated = {**row, "status": "rejected", "resolved_at": "2026-07-02 11:00:00"}
+    conn, cur = _make_conn(fetchone=[row, updated])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/7/reject")
+
+    assert resp.status_code == 200
+    update_sqls = [
+        c.args[0] for c in cur.execute.call_args_list
+        if "UPDATE memory_suggestions SET status" in c.args[0]
+    ]
+    assert len(update_sqls) == 1
+    assert "AND status = 'pending'" in update_sqls[0]
+
+
+def test_resolve_suggestion_lost_race_is_409():
+    """H-003: 조건부 UPDATE가 0행이면(다른 요청이 먼저 해소) 409로 거부하고 롤백한다."""
+    row = _suggestion_row(completed_at=None)
+    conn, cur = _make_conn(fetchone=[row])
+    cur.rowcount = 0  # 초기 검사 후 다른 요청이 먼저 해소한 경합 상황
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/7/reject")
+
+    assert resp.status_code == 409
+    assert conn.rollback.called
+    assert not conn.commit.called
+
+
 def test_accept_suggestion_completes_open_action_and_resolves_suggestion():
     """POST accept — 미완료 action은 completed_at=NOW(), suggestion은 accepted."""
     row = _suggestion_row(completed_at=None)

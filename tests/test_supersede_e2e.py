@@ -87,8 +87,14 @@ class _Cursor:
                 self.rowcount = 1
         elif "UPDATE memory_suggestions SET status" in sql:
             status, resolved_by, sid, _pid = params
-            self.db.suggestion[sid].update(status=status, resolved_by=resolved_by,
-                                           resolved_at="2026-07-02 11:00:00")
+            s = self.db.suggestion[sid]
+            # H-003: WHERE ... status = 'pending' 조건부 UPDATE를 반영 —
+            # 이미 해소된 제안은 덮어쓰지 못하고 rowcount 0으로 남는다.
+            if "status = 'pending'" in sql and s["status"] != "pending":
+                return
+            s.update(status=status, resolved_by=resolved_by,
+                     resolved_at="2026-07-02 11:00:00")
+            self.rowcount = 1
         elif "SELECT * FROM memory_suggestions WHERE id" in sql:
             self._one = dict(self.db.suggestion[params[0]])
         elif "FROM memory m" in sql and "LEFT JOIN memory_sources" in sql:
