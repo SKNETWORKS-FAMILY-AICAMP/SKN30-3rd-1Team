@@ -1,7 +1,7 @@
 """startup recovery: stale processing/syncing 작업 failed 전환 + dev user backfill 테스트."""
 from unittest.mock import patch, MagicMock
 
-from backend.startup import recover_stale_tasks, backfill_dev_user_membership
+from backend.startup import ensure_schema_v8, recover_stale_tasks, backfill_dev_user_membership
 
 
 def _make_conn():
@@ -11,6 +11,41 @@ def _make_conn():
     conn.cursor.return_value.__enter__.return_value = cursor
     conn.cursor.return_value.__exit__.return_value = False
     return conn, cursor
+
+
+def test_ensure_schema_v8_adds_fk_and_view_when_missing():
+    """I-001: FK가 없는 기존 DB에서 dangling 정리 → FK 추가 → 뷰 생성 순으로 실행된다.
+    initdb.d는 기존 볼륨에서 재실행되지 않으므로 시작 시 보증이 유일한 자동 경로."""
+    conn, cursor = _make_conn()
+    cursor.fetchone.return_value = None  # FK 없음
+    with patch("backend.startup.get_connection", return_value=conn):
+        ensure_schema_v8()
+
+    sql_calls = [c.args[0] for c in cursor.execute.call_args_list]
+    dangling_idx = next(i for i, s in enumerate(sql_calls) if "SET m.superseded_by = NULL" in s)
+    alter_idx = next(i for i, s in enumerate(sql_calls) if "ADD CONSTRAINT fk_memory_superseded_by" in s)
+    assert dangling_idx < alter_idx  # FK를 걸기 전에 dangling 포인터를 해제(해당 decision 복귀)
+    assert any("CREATE OR REPLACE VIEW active_memory" in s for s in sql_calls)
+    conn.commit.assert_called_once()
+
+
+def test_ensure_schema_v8_skips_alter_when_fk_exists():
+    """I-001: FK가 이미 있으면 ALTER는 생략하되 뷰는 매번 보증한다(정의 드리프트 자기치유)."""
+    conn, cursor = _make_conn()
+    cursor.fetchone.return_value = {"1": 1}  # FK 존재
+    with patch("backend.startup.get_connection", return_value=conn):
+        ensure_schema_v8()
+
+    sql_calls = [c.args[0] for c in cursor.execute.call_args_list]
+    assert not any("ADD CONSTRAINT" in s for s in sql_calls)
+    assert not any("SET m.superseded_by = NULL" in s for s in sql_calls)
+    assert any("CREATE OR REPLACE VIEW active_memory" in s for s in sql_calls)
+
+
+def test_ensure_schema_v8_failure_does_not_block_startup():
+    """I-001: 스키마 보증이 실패해도 예외를 전파하지 않는다(best-effort, 기동 유지)."""
+    with patch("backend.startup.get_connection", side_effect=RuntimeError("DB down")):
+        ensure_schema_v8()  # 예외가 나면 테스트 실패
 
 
 def test_stale_docs_and_repos_updated():

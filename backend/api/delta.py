@@ -93,12 +93,18 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
         if row["category"] in new_memory:
             new_memory[row["category"]] = int(row["cnt"])
 
+    # 레거시 필드 pending_suggestions는 GET /suggestions 기본 목록(kind=complete_action)과
+    # 의미를 맞춰 complete_action만 센다 — kind를 모르는 구 클라이언트가 "제안 N건" 배너를
+    # 띄우고 빈 인박스를 여는 유령 카운트 방지. 전체는 pending_suggestions_by_kind로 제공
+    # (신규 필드 추가라 구 클라이언트에 무해).
     cursor.execute(
-        "SELECT COUNT(*) AS cnt FROM memory_suggestions"
-        " WHERE project_id = %s AND status = 'pending' AND created_at > %s",
+        "SELECT kind, COUNT(*) AS cnt FROM memory_suggestions"
+        " WHERE project_id = %s AND status = 'pending' AND created_at > %s"
+        " GROUP BY kind",
         (project_id, since_sql),
     )
-    pending_suggestions = int((cursor.fetchone() or {}).get("cnt") or 0)
+    pending_by_kind = {row["kind"]: int(row["cnt"]) for row in cursor.fetchall()}
+    pending_suggestions = pending_by_kind.get("complete_action", 0)
 
     cursor.execute(
         "SELECT COUNT(*) AS cnt FROM memory"
@@ -131,6 +137,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     return {
         "new_memory": new_memory,
         "pending_suggestions": pending_suggestions,
+        "pending_suggestions_by_kind": pending_by_kind,
         "completed_actions": completed_actions,
         "due_soon": due_soon,
         "overdue": overdue,

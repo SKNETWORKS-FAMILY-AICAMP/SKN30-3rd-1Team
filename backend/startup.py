@@ -10,6 +10,53 @@ _STALE_DOC_ERROR = "Background task interrupted or stale after server restart."
 _STALE_REPO_ERROR = "Repository sync interrupted or stale after server restart."
 
 
+def ensure_schema_v8() -> None:
+    """migrate_v8(self-FK + active_memory 뷰)을 앱 시작 시 idempotent하게 보증한다.
+
+    docker initdb.d는 비어 있지 않은 mysql_data 볼륨에서 재실행되지 않으므로,
+    기존 DB는 수동 마이그레이션 없이는 v8을 받지 못한다. active_memory 뷰가 없으면
+    조망형 API·요약 재생성이 즉시 실패(500)하는 hard-dependency라 수동 절차에
+    의존할 수 없다 — information_schema로 존재를 확인하고 없을 때만 생성한다.
+    """
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS"
+                    " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'memory'"
+                    " AND CONSTRAINT_NAME = 'fk_memory_superseded_by'"
+                    " AND CONSTRAINT_TYPE = 'FOREIGN KEY'"
+                )
+                if not cursor.fetchone():
+                    # FK 추가 전에 이미 dangling인 포인터를 해제해 해당 decision을 복귀시킨다.
+                    cursor.execute(
+                        "UPDATE memory m"
+                        " LEFT JOIN (SELECT id FROM memory) live ON live.id = m.superseded_by"
+                        " SET m.superseded_by = NULL, m.superseded_at = NULL"
+                        " WHERE m.superseded_by IS NOT NULL AND live.id IS NULL"
+                    )
+                    cursor.execute(
+                        "ALTER TABLE memory ADD CONSTRAINT fk_memory_superseded_by"
+                        " FOREIGN KEY (superseded_by) REFERENCES memory(id) ON DELETE SET NULL"
+                    )
+                    logger.info("v8 스키마 보증: fk_memory_superseded_by 추가")
+                # 뷰는 CREATE OR REPLACE라 매 기동 시 실행해도 안전 — 정의 드리프트도 자기치유.
+                cursor.execute(
+                    "CREATE OR REPLACE VIEW active_memory AS"
+                    " SELECT * FROM memory WHERE superseded_by IS NULL"
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.error(
+            "v8 스키마 보증 실패 — 앱은 계속 기동됩니다"
+            " (active_memory 조회·supersede 복귀가 동작하지 않을 수 있음)",
+            exc_info=True,
+        )
+
+
 def backfill_dev_user_membership() -> None:
     """DEV_USER_ID가 설정된 경우, project_members row가 없는 기존 프로젝트에 owner 멤버십을 보장.
 
