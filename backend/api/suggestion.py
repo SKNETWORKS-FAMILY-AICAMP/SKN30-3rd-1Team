@@ -1,6 +1,7 @@
 import json
 import logging
 
+import pymysql
 from fastapi import APIRouter, HTTPException
 
 from ..db.mysql import get_connection
@@ -123,9 +124,13 @@ def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
         #   category='decision': 사용자가 대체 row를 action 등으로 수정한 경우 거부.
         #   superseded_by IS NULL: 이미 번복된 decision은 대체자가 될 수 없다(순환 가드 —
         #     A→B accept 후 B→A를 accept하면 둘 다 숨어 해당 주제 결정이 전멸한다).
+        #   FOR UPDATE: 상호(A→B·B→A) 제안 동시 승인 시 두 검증이 모두 상대를
+        #     활성으로 읽고 각자 다른 행을 갱신해 순환이 완성되는 TOCTOU를 차단 —
+        #     행 잠금으로 한쪽이 상대 커밋을 대기한 뒤 superseded 상태를 보고 409.
         cursor.execute(
             "SELECT id FROM memory WHERE id = %s AND project_id = %s"
-            " AND category = 'decision' AND superseded_by IS NULL",
+            " AND category = 'decision' AND superseded_by IS NULL"
+            " FOR UPDATE",
             (superseding_id, project_id),
         )
         if not cursor.fetchone():
@@ -194,6 +199,13 @@ def _resolve_suggestion(project_id: int, suggestion_id: int, status: str) -> dic
             )
             updated = cursor.fetchone() or {**row, "status": status}
         conn.commit()
+    except pymysql.err.OperationalError as exc:
+        conn.rollback()
+        # 교차 잠금 데드락(1213): 상호 supersede 동시 승인 등에서 InnoDB가 한쪽
+        # 트랜잭션을 중단시킨 경우 — 서버 오류가 아니라 경합 충돌로 응답한다.
+        if exc.args and exc.args[0] == 1213:
+            raise HTTPException(status_code=409, detail="Concurrent suggestion resolution conflict")
+        raise
     except Exception:
         conn.rollback()
         raise

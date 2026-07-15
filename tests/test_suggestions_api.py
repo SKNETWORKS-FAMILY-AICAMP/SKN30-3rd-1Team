@@ -162,6 +162,46 @@ def test_accept_supersede_conflict_on_lost_race():
     assert resp.status_code == 409
 
 
+def test_accept_supersede_validation_locks_superseding_row():
+    """L-002: 대체(신) decision 검증 SELECT는 FOR UPDATE로 행을 잠근다 —
+    상호(A→B·B→A) 제안 동시 승인 시 두 검증이 모두 상대를 활성으로 읽고
+    순환(두 결정 전멸)이 완성되는 TOCTOU를 차단한다."""
+    row = _supersede_row(superseded_by=None)
+    updated = {**row, "status": "accepted", "resolved_at": "2026-07-02 11:00:00"}
+    conn, cur = _make_conn(fetchone=[row, _EXISTS, updated])
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.retriever.memory_vector.delete_memory_vector"), \
+         patch("backend.graph.refresh_project_memory_after_delete"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 200
+    check_sql = next(
+        c.args[0] for c in cur.execute.call_args_list
+        if c.args[0].strip().startswith("SELECT id FROM memory WHERE id")
+    )
+    assert "FOR UPDATE" in check_sql
+
+
+def test_resolve_deadlock_maps_to_409():
+    """L-002: 교차 잠금 데드락(1213)으로 InnoDB가 트랜잭션을 중단시키면
+    500이 아니라 409(경합 충돌)로 응답하고 롤백한다."""
+    import pymysql
+    row = _supersede_row(superseded_by=None)
+    conn, cur = _make_conn(fetchone=[row])
+    cur.execute.side_effect = [
+        None,  # _suggestion_or_404 SELECT
+        pymysql.err.OperationalError(1213, "Deadlock found when trying to get lock"),
+    ]
+    with patch("backend.api.suggestion.require_project_access"), \
+         patch("backend.api.suggestion.get_connection", return_value=conn):
+        resp = _client.post("/api/v1/projects/1/suggestions/8/accept")
+
+    assert resp.status_code == 409
+    assert conn.rollback.called
+    assert not conn.commit.called
+
+
 def test_accept_unknown_kind_is_rejected():
     """C-3: 지원하지 않는 kind는 400으로 거부 — 기본 분기로 흘러 completed_at을 설정하지 않는다."""
     row = {**_supersede_row(), "kind": "frobnicate"}
