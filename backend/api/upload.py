@@ -488,16 +488,22 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
                         status_code=409,
                         detail="Cannot change category: this decision is superseded by another decision",
                     )
-                # 이 row를 대상으로 한 pending supersede 제안은 자동 reject — 대상이
-                # decision이 아니게 되면 accept/reject 모두 404가 되어 영구 미해소로
-                # 남는다. 사람이 확정한 상태(superseded_by)는 위에서 409로 지키지만,
-                # LLM의 추측(pending 제안)은 사용자의 재분류에 양보한다.
+            # 의미 필드(category/content/topic/reason/date)가 바뀌면 이 row가
+            # 대상(memory_id)이든 대체자(evidence.superseding_memory_id)든 관련된
+            # pending supersede 제안을 자동 reject한다. 제안의 LLM 판정은 생성 시점
+            # 내용 기준이라 사용자가 결정을 수정하면 근거가 낡고, 특히 대상의
+            # category 이탈은 accept/reject 모두 404인 영구 미해소(zombie)를 만든다.
+            # 사람이 확정한 상태(superseded_by)는 위 409로 지키고,
+            # LLM의 추측(pending 제안)은 사용자의 수정에 양보한다.
+            if any(raw_fields.get(k) is not None
+                   for k in ("category", "content", "topic", "reason", "date")):
                 cursor.execute(
                     "UPDATE memory_suggestions"
                     " SET status = 'rejected', resolved_at = NOW(), resolved_by = %s"
-                    " WHERE memory_id = %s AND project_id = %s"
-                    " AND kind = 'supersede' AND status = 'pending'",
-                    (get_current_user_id(), memory_id, project_id),
+                    " WHERE project_id = %s AND kind = 'supersede' AND status = 'pending'"
+                    " AND (memory_id = %s OR CAST(JSON_UNQUOTE(JSON_EXTRACT("
+                    "evidence, '$.superseding_memory_id')) AS UNSIGNED) = %s)",
+                    (get_current_user_id(), project_id, memory_id, memory_id),
                 )
             cursor.execute(
                 f"UPDATE memory SET {set_clause} WHERE id = %s AND project_id = %s",

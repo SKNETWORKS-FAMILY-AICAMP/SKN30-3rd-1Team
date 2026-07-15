@@ -82,8 +82,10 @@ def _action_rows(rows: list[dict]) -> list[dict]:
 
 def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 3) -> dict:
     """LLM 없이 SQL 집계만으로 델타 배너 데이터를 만든다."""
+    # K-002: 델타의 memory 조회는 전부 active_memory 뷰를 읽는다 — since 이후 생성됐다가
+    # 이미 번복(supersede)된 결정이 신규 건수·브리핑 입력에 재노출되지 않도록.
     cursor.execute(
-        "SELECT category, COUNT(*) AS cnt FROM memory"
+        "SELECT category, COUNT(*) AS cnt FROM active_memory"
         " WHERE project_id = %s AND created_at > %s"
         " GROUP BY category",
         (project_id, since_sql),
@@ -107,7 +109,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     pending_suggestions = pending_by_kind.get("complete_action", 0)
 
     cursor.execute(
-        "SELECT COUNT(*) AS cnt FROM memory"
+        "SELECT COUNT(*) AS cnt FROM active_memory"
         " WHERE project_id = %s AND category = 'action'"
         " AND completed_at IS NOT NULL AND completed_at > %s",
         (project_id, since_sql),
@@ -115,7 +117,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     completed_actions = int((cursor.fetchone() or {}).get("cnt") or 0)
 
     cursor.execute(
-        "SELECT id, content, owner, due_date FROM memory"
+        "SELECT id, content, owner, due_date FROM active_memory"
         " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
         " AND due_date IS NOT NULL"
         " AND due_date >= CURDATE()"
@@ -126,7 +128,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     due_soon = _action_rows(cursor.fetchall())
 
     cursor.execute(
-        "SELECT id, content, owner, due_date FROM memory"
+        "SELECT id, content, owner, due_date FROM active_memory"
         " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
         " AND due_date IS NOT NULL AND due_date < CURDATE()"
         " ORDER BY due_date ASC, id ASC",
@@ -149,7 +151,7 @@ def _load_new_memory_items(cursor, project_id: int, since_sql: str) -> list[dict
     cursor.execute(
         "SELECT id, category, content, reason, topic, owner, date, due_date,"
         " source, created_by, completed_at, created_at"
-        " FROM memory WHERE project_id = %s AND created_at > %s"
+        " FROM active_memory WHERE project_id = %s AND created_at > %s"
         " ORDER BY created_at ASC, id ASC",
         (project_id, since_sql),
     )

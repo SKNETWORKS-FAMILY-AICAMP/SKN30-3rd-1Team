@@ -335,7 +335,49 @@ def test_memory_patch_category_change_auto_rejects_pending_supersede_suggestions
     sql, params = auto_rejects[0].args
     assert "status = 'rejected'" in sql
     assert "kind = 'supersede'" in sql and "status = 'pending'" in sql
-    assert params[1:] == (42, 1)  # memory_id, project_id
+    # K-001: 대상(memory_id)뿐 아니라 대체자(evidence)로 등장하는 제안도 함께 정리
+    assert "memory_id = %s" in sql and "superseding_memory_id" in sql
+    assert params[1:] == (1, 42, 42)  # project_id, memory_id(대상), memory_id(대체자)
+
+
+def test_memory_patch_content_change_auto_rejects_pending_supersede_suggestions():
+    """K-001: 의미 필드(content 등) 수정도 관련 pending supersede 제안을 자동 reject —
+    제안의 LLM 판정은 생성 시점 내용 기준이라, 결정을 다른 방침으로 고친 뒤
+    낡은 제안을 accept해 기존 결정이 숨겨지는 것을 방지한다."""
+    row = {
+        "id": 42, "project_id": 1, "category": "decision", "content": "새 방침",
+        "completed_at": None, "sort_order": None,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/42", json={"content": "전혀 다른 방침"})
+
+    assert resp.status_code == 200
+    auto_rejects = [
+        c for c in cur.execute.call_args_list
+        if "UPDATE memory_suggestions" in c.args[0]
+    ]
+    assert len(auto_rejects) == 1
+    assert auto_rejects[0].args[1][1:] == (1, 42, 42)
+
+
+def test_memory_patch_owner_change_keeps_pending_supersede_suggestions():
+    """K-001 보완: 의미와 무관한 필드(owner 등)만 바꾸면 제안을 정리하지 않는다."""
+    row = {
+        "id": 42, "project_id": 1, "category": "decision", "content": "방침",
+        "completed_at": None, "sort_order": None,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/42", json={"owner": "박제섭"})
+
+    assert resp.status_code == 200
+    sqls = [c.args[0] for c in cur.execute.call_args_list]
+    assert not any("UPDATE memory_suggestions" in s for s in sqls)
 
 
 def test_memory_patch_superseded_row_deletes_vector_instead_of_upsert():

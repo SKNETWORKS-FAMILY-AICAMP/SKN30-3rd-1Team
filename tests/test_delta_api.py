@@ -73,6 +73,64 @@ def test_delta_supersede_only_pending_is_zero_for_legacy_field():
     assert body["pending_suggestions_by_kind"] == {"supersede": 3}
 
 
+def test_delta_reads_active_memory_only():
+    """K-002: 델타의 memory 조회(신규 집계·완료 집계·due_soon·overdue)는 전부
+    active_memory 뷰를 읽는다 — since 이후 생성됐다가 번복된 결정이
+    신규 건수에 재노출되지 않도록."""
+    conn, cursor = _make_conn(
+        fetchone=[{"id": 1}, {"cnt": 0}],
+        fetchall=[[], [], [], []],
+    )
+
+    with patch("backend.api.delta.require_project_access"), \
+         patch("backend.api.delta.get_connection", return_value=conn):
+        resp = _client.get("/api/v1/projects/1/delta?since=2026-07-01T00:00:00Z")
+
+    assert resp.status_code == 200
+    memory_sqls = [
+        c.args[0] for c in cursor.execute.call_args_list
+        if ("FROM memory" in c.args[0] or "FROM active_memory" in c.args[0])
+        and "memory_suggestions" not in c.args[0]
+    ]
+    assert len(memory_sqls) == 4  # 신규 집계 + 완료 집계 + due_soon + overdue
+    assert all("FROM active_memory" in sql for sql in memory_sqls)
+
+
+def test_delta_briefing_items_read_active_memory():
+    """K-002: 브리핑 LLM 입력용 신규 memory 항목 조회도 active_memory를 읽는다 —
+    숨겨진 결정이 브리핑 텍스트에 상충 방침으로 등장하지 않도록."""
+    conn, cursor = _make_conn(
+        fetchone=[{"id": 1}, {"cnt": 0}],
+        fetchall=[
+            [{"category": "decision", "cnt": 1}],  # 변화 있음 → 브리핑 생성 경로
+            [], [], [],
+            [{"id": 5, "category": "decision", "content": "새 방침", "reason": None,
+              "topic": None, "owner": None, "date": None, "due_date": None,
+              "source": "m.md", "created_by": None, "completed_at": None,
+              "created_at": "2026-07-02 10:00:00"}],
+        ],
+    )
+    fake_chain = MagicMock()
+    fake_chain.invoke.return_value = "브리핑"
+
+    with patch("backend.api.delta.require_project_access"), \
+         patch("backend.api.delta.get_connection", return_value=conn), \
+         patch("backend.api.delta._get_delta_briefing_chain", return_value=fake_chain):
+        resp = _client.post(
+            "/api/v1/projects/1/briefing/delta",
+            json={"since": "2026-07-01T00:00:00Z"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["answer"] == "브리핑"
+    item_sqls = [
+        c.args[0] for c in cursor.execute.call_args_list
+        if "ORDER BY created_at ASC" in c.args[0]
+    ]
+    assert len(item_sqls) == 1
+    assert "FROM active_memory" in item_sqls[0]
+
+
 def test_delta_briefing_no_changes_skips_llm():
     """POST briefing/delta — 변화가 없으면 LLM 없이 고정 응답을 반환한다."""
     conn, _ = _make_conn(
