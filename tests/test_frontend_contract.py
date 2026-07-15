@@ -272,7 +272,7 @@ def test_memory_patch_category_change_rejected_when_row_supersedes_another():
 
 
 def test_memory_patch_category_change_allowed_when_not_referenced():
-    """G-002 보완: 참조되지 않은 row의 category 변경은 기존대로 허용."""
+    """G-002 보완: 참조되지도, 번복되지도 않은 row의 category 변경은 기존대로 허용."""
     row = {
         "id": 42, "project_id": 1, "category": "action", "content": "do it",
         "completed_at": None, "sort_order": None,
@@ -280,7 +280,8 @@ def test_memory_patch_category_change_allowed_when_not_referenced():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
     cur.rowcount = 1
-    cur.fetchone.side_effect = [None, row]  # 참조 없음 → 최종 SELECT
+    # 참조 없음 → 자신도 번복 안 됨(J-001) → 최종 SELECT
+    cur.fetchone.side_effect = [None, {"superseded_by": None}, row]
     with patch("backend.api.upload.require_project_access"), \
          patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
@@ -289,6 +290,52 @@ def test_memory_patch_category_change_allowed_when_not_referenced():
     assert resp.status_code == 200
     sqls = [c.args[0] for c in cur.execute.call_args_list]
     assert any("UPDATE memory SET" in s for s in sqls)
+
+
+def test_memory_patch_category_change_rejected_when_row_is_superseded():
+    """J-001: 이미 번복된(superseded_by 설정) decision의 category를 decision 밖으로
+    바꾸면 409 — 허용하면 새 category의 항목이 active_memory에서 계속 숨겨진 채 남는다."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.rowcount = 1
+    cur.fetchone.side_effect = [None, {"superseded_by": 42}]  # 참조 없음 → 자신이 번복됨
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/10", json={"category": "action"})
+
+    assert resp.status_code == 409
+    sqls = [c.args[0] for c in cur.execute.call_args_list]
+    assert not any("UPDATE memory SET" in s for s in sqls)
+
+
+def test_memory_patch_category_change_auto_rejects_pending_supersede_suggestions():
+    """J-001: 대상 memory의 category가 decision 밖으로 바뀌면 그 row를 대상으로 한
+    pending supersede 제안을 자동 reject한다 — 방치하면 _suggestion_or_404의 category
+    검사로 accept/reject 모두 404가 되어 영구 미해소(zombie)로 남는다."""
+    row = {
+        "id": 42, "project_id": 1, "category": "action", "content": "do it",
+        "completed_at": None, "sort_order": None,
+    }
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.rowcount = 1
+    cur.fetchone.side_effect = [None, {"superseded_by": None}, row]
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload._upsert_memory_vector_best_effort"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch("/api/v1/projects/1/memory/42", json={"category": "action"})
+
+    assert resp.status_code == 200
+    auto_rejects = [
+        c for c in cur.execute.call_args_list
+        if "UPDATE memory_suggestions" in c.args[0]
+    ]
+    assert len(auto_rejects) == 1
+    sql, params = auto_rejects[0].args
+    assert "status = 'rejected'" in sql
+    assert "kind = 'supersede'" in sql and "status = 'pending'" in sql
+    assert params[1:] == (42, 1)  # memory_id, project_id
 
 
 def test_memory_patch_superseded_row_deletes_vector_instead_of_upsert():

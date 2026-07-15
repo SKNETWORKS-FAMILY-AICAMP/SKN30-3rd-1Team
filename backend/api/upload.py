@@ -12,7 +12,7 @@ from ..pipeline.ingestor import ingest
 from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
 from ..storage import save_file, delete_file, safe_upload_name
 from ..graph import refresh_project_memory_after_delete, update_project_memory
-from .auth import require_project_access
+from .auth import get_current_user_id, require_project_access
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -475,6 +475,30 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
                         status_code=409,
                         detail="Cannot change category: this decision supersedes another decision",
                     )
+                # 이 row 자신이 이미 번복된(superseded) decision이면 category 이탈 거부 —
+                # 사람이 승인한 supersede 관계는 decision→decision이어야 하며, 허용하면
+                # 새 category의 항목이 active_memory에서 계속 숨겨진 채 남는다.
+                cursor.execute(
+                    "SELECT superseded_by FROM memory WHERE id = %s AND project_id = %s",
+                    (memory_id, project_id),
+                )
+                current = cursor.fetchone()
+                if current and current.get("superseded_by") is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Cannot change category: this decision is superseded by another decision",
+                    )
+                # 이 row를 대상으로 한 pending supersede 제안은 자동 reject — 대상이
+                # decision이 아니게 되면 accept/reject 모두 404가 되어 영구 미해소로
+                # 남는다. 사람이 확정한 상태(superseded_by)는 위에서 409로 지키지만,
+                # LLM의 추측(pending 제안)은 사용자의 재분류에 양보한다.
+                cursor.execute(
+                    "UPDATE memory_suggestions"
+                    " SET status = 'rejected', resolved_at = NOW(), resolved_by = %s"
+                    " WHERE memory_id = %s AND project_id = %s"
+                    " AND kind = 'supersede' AND status = 'pending'",
+                    (get_current_user_id(), memory_id, project_id),
+                )
             cursor.execute(
                 f"UPDATE memory SET {set_clause} WHERE id = %s AND project_id = %s",
                 values,

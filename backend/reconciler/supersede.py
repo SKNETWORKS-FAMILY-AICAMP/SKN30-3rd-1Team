@@ -239,10 +239,16 @@ def _insert_supersede_suggestions(
     matches: list[SupersedeMatch],
     new_ids: set[int],
     candidate_ids: set[int],
+    new_dates: Optional[dict] = None,
+    candidate_dates: Optional[dict] = None,
 ) -> int:
     """supersede 매칭을 pending suggestion으로 저장한다.
     같은 (memory_id, superseding_memory_id) pending 증거는 중복 생성하지 않는다.
+    시간순서 규칙(과거 결정이 미래 결정을 번복 못 함)은 프롬프트에만 맡기지 않고
+    양쪽 날짜가 있으면 여기서 결정론적으로 강제한다.
     """
+    new_dates = new_dates or {}
+    candidate_dates = candidate_dates or {}
     created = 0
     conn = get_connection()
     try:
@@ -254,6 +260,17 @@ def _insert_supersede_suggestions(
                     or match.memory_id == match.superseding_memory_id
                 ):
                     logger.warning("supersede invalid match skipped: %s", match.model_dump())
+                    continue
+                new_date = new_dates.get(match.superseding_memory_id)
+                old_date = candidate_dates.get(match.memory_id)
+                # 날짜 역전 차단: 신규(대체) decision이 기존 후보보다 과거 날짜면
+                # LLM이 매칭을 반환해도 저장하지 않는다 — 과거 문서를 뒤늦게 적재했을 때
+                # 최신 결정이 숨겨지는 것을 방지. (YYYY-MM-DD 문자열은 사전순 = 시간순)
+                if new_date and old_date and str(new_date)[:10] < str(old_date)[:10]:
+                    logger.warning(
+                        "supersede date-inverted match skipped: new=%s(%s) old=%s(%s)",
+                        match.superseding_memory_id, new_date, match.memory_id, old_date,
+                    )
                     continue
                 evidence = {
                     "type": "supersede",
@@ -327,6 +344,8 @@ def detect_supersede(project_id: int, new_decisions: list[dict]) -> dict:
         result.matches,
         new_ids,
         {int(c["id"]) for c in candidates},
+        new_dates={int(d["id"]): d.get("date") for d in news},
+        candidate_dates={int(c["id"]): c.get("date") for c in candidates},
     )
     return {
         "new_decisions": len(news),

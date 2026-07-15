@@ -114,6 +114,50 @@ def test_insert_skips_invalid_and_self_matches():
     assert created == 1
 
 
+def test_insert_skips_date_inverted_matches():
+    """J-002: 신규(대체) decision 날짜가 기존 후보보다 과거인 매칭은 LLM이 반환해도
+    저장하지 않는다 — 과거 문서 뒤늦은 적재가 최신 결정을 숨기지 못하도록
+    시간순서 규칙을 프롬프트가 아니라 코드에서 강제한다."""
+    conn, cursor = _make_conn(rowcount=1)
+    matches = [
+        SupersedeMatch(memory_id=10, superseding_memory_id=99, rationale="역전", confidence="high"),
+        SupersedeMatch(memory_id=11, superseding_memory_id=99, rationale="정순", confidence="high"),
+        SupersedeMatch(memory_id=12, superseding_memory_id=99, rationale="같은 날", confidence="high"),
+        SupersedeMatch(memory_id=13, superseding_memory_id=99, rationale="날짜 없음", confidence="high"),
+    ]
+    with patch("backend.reconciler.supersede.get_connection", return_value=conn):
+        created = supersede._insert_supersede_suggestions(
+            1, matches, new_ids={99}, candidate_ids={10, 11, 12, 13},
+            new_dates={99: "2024-01-05"},
+            candidate_dates={10: "2025-03-01", 11: "2023-12-31", 12: "2024-01-05", 13: None},
+        )
+    inserted_targets = [
+        c.args[1][1] for c in cursor.execute.call_args_list
+        if "INSERT INTO memory_suggestions" in c.args[0]
+    ]
+    # 역전(10)만 제외 — 정순(11)·같은 날(12)·날짜 결측(13)은 저장
+    assert inserted_targets == [11, 12, 13]
+    assert created == 3
+
+
+def test_detect_supersede_passes_dates_to_insert_validation():
+    """J-002: detect_supersede가 신규·후보의 date를 저장 검증에 전달한다."""
+    matches = [SupersedeMatch(memory_id=10, superseding_memory_id=99, rationale="역전", confidence="high")]
+    with patch.object(supersede, "find_similar_memories", return_value=[10]), \
+         patch.object(supersede, "_fetch_candidate_decisions",
+                      return_value=[{"id": 10, "content": "기존 결정", "date": "2025-03-01"}]), \
+         patch.object(supersede, "run_supersede",
+                      return_value=supersede.SupersedeResult(matches=matches)), \
+         patch.object(supersede, "_insert_supersede_suggestions", return_value=0) as mock_insert:
+        supersede.detect_supersede(
+            1, [{"id": 99, "content": "과거 결정", "topic": None, "reason": None, "date": "2024-01-05"}]
+        )
+
+    kwargs = mock_insert.call_args.kwargs
+    assert kwargs["new_dates"] == {99: "2024-01-05"}
+    assert kwargs["candidate_dates"] == {10: "2025-03-01"}
+
+
 def test_insert_dedup_uses_not_exists_on_superseding_id():
     """중복 방지: (memory_id, superseding_memory_id) pending 존재 시 NOT EXISTS로 재생성 안 함."""
     conn, cursor = _make_conn(rowcount=0)  # NOT EXISTS로 아무 행도 안 들어감
