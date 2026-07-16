@@ -1,8 +1,9 @@
 # 백엔드 변경 총정리 — main 대비 develop/hyseo
 
-- 작성: 2026-07-15 / 범위: `main(eee53bf)` → `develop/hyseo(8d40248)`
-- 규모: **16커밋, 48파일, +5,072 / -145**, 테스트 203 → **259**
-- 워크플로: `.agent-workflow` 기반 TASK-001~003, 전부 검증자 PASS + 최종 승인 완료
+- 작성: 2026-07-15, 갱신: 2026-07-16 / 범위: `main(eee53bf)` → `develop/hyseo(81e4bd6)`
+- 규모: **18커밋, 51파일**, 테스트 203 → **262**
+- 워크플로: `.agent-workflow` 기반 TASK-001~003(검증자 PASS + 최종 승인 완료),
+  TASK-005(PR #49 백엔드 통합 — 리뷰 0건 + 실기동 스모크 통과)
 
 ## 한눈에 보기
 
@@ -21,6 +22,8 @@ main 이후의 백엔드 작업은 크게 **두 덩어리**다:
 | `9c8426d` `f34a0ad` | TASK-002 | supersede 계층1: migrate_v7 + 조회 필터 (+회귀 테스트) |
 | `3d0638c` | TASK-003 | supersede 계층2 본체: LLM 판별 + 제안 생성 |
 | `bd8c815`~`8d40248` (8개) | TASK-003 | 리뷰 round 2~9 해결 — 아래 "계층2 보강" 참조 |
+| `95b2044` | 문서 | 이 문서 + 프론트 핸드오버 2편 |
+| `81e4bd6` | TASK-005 | PR #49 백엔드 통합: `ensure_runtime_schema` 시작 시 보증 |
 
 ## 영역별 변경
 
@@ -77,13 +80,29 @@ main 이후의 백엔드 작업은 크게 **두 덩어리**다:
 - **델타 정합**(`delta.py`) — `pending_suggestions`는 complete_action만(배너=인박스),
   전체는 신규 `pending_suggestions_by_kind`, 집계·브리핑은 active_memory.
 
-### E. 인프라·설정
+### E. 런타임 스키마 보증 (TASK-005 — PR #49 백엔드 통합)
+
+- **`backend/startup.py`** — `ensure_runtime_schema()`(PR #49 유래):
+  `memory_sources`·`project_memory` 테이블과 `documents.progress_done/
+  progress_total` 컬럼을 시작 시 idempotent 보증. **기존 mysql_data 볼륨
+  사용자는 기동만 하면 자동 보정** — 수동 마이그레이션 불필요.
+- **`backend/main.py`** — lifespan에서 `ensure_runtime_schema()` →
+  `ensure_schema_v8()` 순 실행(기반 테이블·컬럼 → FK·뷰).
+- #49 원본과의 차이: 예외 전파 대신 **best-effort**(실패해도 기동 유지) —
+  브랜치의 startup 보증 정책과 일관.
+- **효과: PR #49와의 백엔드 충돌 소멸** — #49 작성자는 `backend/main.py`,
+  `backend/startup.py`, `tests/test_startup_recovery.py` 3개 파일을 PR에서
+  제외하면 desktop 전용 PR이 된다(조율 완료).
+- 검증: 단위 3건(mock) + 실 MySQL 스모크(구버전 스키마에서 생성 경로·컬럼
+  위치·멱등 재실행·전체 lifespan 기동·/health 200 확인).
+
+### F. 인프라·설정
 
 - **`docker-compose.yml`** — migrate_v6~v8 initdb.d 마운트 추가.
 - **`.env.example`·`.gitignore(.example)`·`pyproject.toml`·`uv.lock`** — 인증
   관련 설정·의존성 소폭.
 
-### F. 테스트 (+56개, 신규 파일 8)
+### G. 테스트 (+59개, 신규 파일 8)
 
 - 신규: `test_auth_jwt`, `test_mysql_search_supersede`, `test_supersede`,
   `test_supersede_e2e`(accept→계층1 필터 end-to-end), `test_memory_vector_similar`,
@@ -111,6 +130,8 @@ main 이후의 백엔드 작업은 크게 **두 덩어리**다:
 
 ## 다음 단계
 
-1. push + 프론트에 핸드오버 문서 공유 (병렬 착수)
-2. 계층3(TASK-004 후보): 검색이 superseded 정보를 활용(RRF/주석)
-3. 계층4: 골든 평가로 회귀 감지
+1. push → **main 병합**(PR) + 프론트에 핸드오버 문서 공유
+2. #49 작성자의 백엔드 3파일 제외 확인 → #49는 desktop 전용으로 병합
+3. 계층3(TASK-004, plan v6 승인 대기): 검색이 superseded 정보를 활용
+   (이력 체인 + 주석 + recency RRF)
+4. 계층4: 골든 평가로 회귀 감지
