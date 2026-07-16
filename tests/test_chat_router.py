@@ -41,13 +41,20 @@ class _FakeCursor:
             project_id = params[0]
             self._rows = [{"id": project_id}] if project_id in self.conn.projects else []
         elif sql_norm.startswith("SELECT id FROM chat_sessions WHERE id = %s AND project_id = %s"):
-            session_id, project_id = params
+            # user_id 격리 조건이 붙으면 params가 3개 (session_id, project_id, user_id)
+            session_id, project_id = params[0], params[1]
             row = self.conn.sessions.get(session_id)
-            self._rows = [{"id": session_id}] if row and row["project_id"] == project_id else []
+            match = bool(row and row["project_id"] == project_id)
+            # 소유자 격리 조건 (user_id IS NULL OR user_id = %s)을 실제로 반영:
+            # user_id 인자가 있으면 레거시(NULL) 또는 본인 세션만 매칭시킨다.
+            if match and len(params) >= 3:
+                owner = row.get("user_id")
+                match = owner is None or owner == params[2]
+            self._rows = [{"id": session_id}] if match else []
         elif sql_norm.startswith("INSERT INTO chat_sessions"):
-            session_id, project_id, title = params
+            session_id, project_id, user_id, title = params
             self.conn.sessions[session_id] = {
-                "id": session_id, "project_id": project_id, "title": title,
+                "id": session_id, "project_id": project_id, "user_id": user_id, "title": title,
                 "created_at": self.conn.now, "updated_at": self.conn.now,
             }
         elif sql_norm.startswith("SELECT * FROM chat_sessions WHERE id = %s"):
@@ -354,3 +361,28 @@ def test_session_store_allows_correct_project_id(fake_conn):
 
     store.save_or_update_summary(session_id, summary_text="요약", source_message_id=msg_id)
     assert session_id in fake_conn.summaries
+
+
+def test_session_owner_isolation_returns_404_for_other_user(fake_conn, monkeypatch):
+    """R-006: 같은 프로젝트라도 다른 사용자가 소유한 세션(user_id 다름)은 404여야 한다.
+
+    소유자 격리 조건 (user_id IS NULL OR user_id = %s)이 실제로 동작하는지 검증한다.
+    """
+    import backend.chat.router as chat_router
+    from backend.chat.router import (
+        create_chat_session, _verify_session_ownership, SessionCreateRequest,
+    )
+
+    # 사용자 A(id=1)가 세션 생성 → chat_sessions.user_id = 1
+    monkeypatch.setattr(chat_router, "get_current_user_id", lambda: 1)
+    session_id = create_chat_session(1, SessionCreateRequest(title="a-owned"), db=fake_conn)["id"]
+    assert fake_conn.sessions[session_id]["user_id"] == 1
+
+    # 소유자 A는 접근 가능 (예외 없음)
+    _verify_session_ownership(fake_conn.cursor(), 1, session_id)
+
+    # 타 사용자 B(id=2)는 같은 프로젝트여도 404
+    monkeypatch.setattr(chat_router, "get_current_user_id", lambda: 2)
+    with pytest.raises(HTTPException) as exc:
+        _verify_session_ownership(fake_conn.cursor(), 1, session_id)
+    assert exc.value.status_code == 404

@@ -1,8 +1,9 @@
 CREATE TABLE IF NOT EXISTS users (
-    id         INT PRIMARY KEY AUTO_INCREMENT,
-    email      VARCHAR(255) NOT NULL UNIQUE,
-    name       VARCHAR(255),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id            INT PRIMARY KEY AUTO_INCREMENT,
+    email         VARCHAR(255) NOT NULL UNIQUE,
+    name          VARCHAR(255),
+    password_hash VARCHAR(255) NULL,  -- bcrypt. NULL이면 로그인 불가(레거시/DEV row)
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -14,10 +15,11 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
-    project_id INT NOT NULL,
-    user_id    INT NOT NULL,
-    role       VARCHAR(20) NOT NULL DEFAULT 'member',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    project_id   INT NOT NULL,
+    user_id      INT NOT NULL,
+    role         VARCHAR(20) NOT NULL DEFAULT 'member',
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NULL,
     PRIMARY KEY (project_id, user_id),
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (user_id)    REFERENCES users(id)
@@ -70,12 +72,22 @@ CREATE TABLE IF NOT EXISTS memory (
     updated_by       VARCHAR(10)  NULL,
     is_user_verified TINYINT(1)   NOT NULL DEFAULT 0,
     completed_at     DATETIME     NULL,
+    superseded_by    INT          NULL,
+    superseded_at    DATETIME     NULL,
     sort_order       INT          NULL,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (doc_id)     REFERENCES documents(id),
-    FOREIGN KEY (repo_id)    REFERENCES repositories(id)
+    FOREIGN KEY (repo_id)    REFERENCES repositories(id),
+    -- self-FK: 대체(신) decision 삭제 시 포인터를 자동 해제해 구 decision을 복귀시킨다(v8).
+    CONSTRAINT fk_memory_superseded_by
+        FOREIGN KEY (superseded_by) REFERENCES memory(id) ON DELETE SET NULL
 );
+
+-- 현재 유효한(번복되지 않은) memory만 보는 뷰(v8). 유효 항목만 봐야 하는 집계/요약
+-- raw SQL은 memory 대신 이 뷰를 읽어 superseded 필터 누락을 구조적으로 방지한다.
+CREATE OR REPLACE VIEW active_memory AS
+SELECT * FROM memory WHERE superseded_by IS NULL;
 
 CREATE TABLE IF NOT EXISTS memory_sources (
     id          INT PRIMARY KEY AUTO_INCREMENT,
@@ -107,8 +119,10 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
     status      VARCHAR(10) NOT NULL DEFAULT 'pending',
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     resolved_at DATETIME NULL,
+    resolved_by INT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     FOREIGN KEY (memory_id)  REFERENCES memory(id) ON DELETE CASCADE,
+    FOREIGN KEY (resolved_by) REFERENCES users(id),
     INDEX idx_memory_suggestions_project_status (project_id, status),
     INDEX idx_memory_suggestions_memory_status  (memory_id, status)
 );
@@ -116,10 +130,13 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id         VARCHAR(64) PRIMARY KEY,
     project_id INT NOT NULL,
+    user_id    INT NULL,  -- 세션 소유자. NULL은 마이그레이션 이전 레거시 세션(멤버 전원에게 보임)
     title      VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id)
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (user_id)    REFERENCES users(id),
+    INDEX idx_chat_sessions_project_user (project_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (

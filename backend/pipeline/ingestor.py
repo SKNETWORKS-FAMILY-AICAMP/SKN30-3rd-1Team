@@ -1,11 +1,14 @@
 # 추출된 MemoryItem 목록을 MySQL(구조화)과 ChromaDB(벡터) 두 저장소에 적재하는 모듈.
 # MySQL은 카테고리별 검색, ChromaDB는 의미 유사도 검색에 사용.
+import logging
 import re
 from typing import List, Optional
 from .models import MemoryItem
 from ..db.mysql import get_connection
 from ..db.chroma import get_collection
 from ..retriever.memory_vector import upsert_memory_vectors
+
+logger = logging.getLogger(__name__)
 
 # ChromaDB metadata 값은 str/int/float/bool만 허용 — None 대신 이 값 사용
 _NO_ID = -1
@@ -152,7 +155,10 @@ def ingest(
     try:
         with conn.cursor() as cursor:
             for item in items:
-                item_date = _normalize_date(item.date)
+                # 본문에서 date가 추출되지 않았으면 업로드 폼의 source date를 폴백으로 저장한다.
+                # LLM 입력만이 아니라 행 자체에 보존해야, 이 항목이 미래 적재의 supersede
+                # 후보가 될 때 시간순서 검증(과거 문서가 최신 결정을 번복 못 함)이 유지된다.
+                item_date = _normalize_date(item.date) or _normalize_date(date)
                 completed_sql, completed_params = _completed_at_sql(item, item_date, date)
                 cursor.execute(
                     f"""
@@ -196,37 +202,54 @@ def ingest(
 
     upsert_memory_vectors(memory_rows)
 
-    if not chunks:
-        return
+    if chunks:
+        # 같은 repo 안에서 commits.txt·README.md·issues.txt 등이 각자 청크를 가지므로
+        # source 이름을 해시해 청크 ID 앞부분을 다르게 만들어 ChromaDB ID 충돌 방지
+        import hashlib
+        src_hash = hashlib.md5(source.encode()).hexdigest()[:6]
+        if repo_id is not None:
+            chunk_prefix = f"repo{repo_id}_{src_hash}"
+        elif doc_id is not None:
+            chunk_prefix = f"doc{doc_id}"
+        else:
+            chunk_prefix = src_hash
 
-    # 같은 repo 안에서 commits.txt·README.md·issues.txt 등이 각자 청크를 가지므로
-    # source 이름을 해시해 청크 ID 앞부분을 다르게 만들어 ChromaDB ID 충돌 방지
-    import hashlib
-    src_hash = hashlib.md5(source.encode()).hexdigest()[:6]
-    if repo_id is not None:
-        chunk_prefix = f"repo{repo_id}_{src_hash}"
-    elif doc_id is not None:
-        chunk_prefix = f"doc{doc_id}"
-    else:
-        chunk_prefix = src_hash
+        sm = source_metadata or {}
+        collection = get_collection()
+        collection.add(
+            ids=[f"{chunk_prefix}_chunk{i}" for i in range(len(chunks))],
+            documents=chunks,
+            metadatas=[{
+                "project_id":  project_id,
+                "doc_id":      doc_id if doc_id is not None else _NO_ID,
+                "repo_id":     repo_id if repo_id is not None else _NO_ID,
+                "source":      source,
+                "item_type":   "document",
+                "date":        date or "",
+                "doc_type":    doc_type,
+                "source_kind": sm.get("source_kind", ""),
+                "source_type": sm.get("source_type", ""),
+                "source_path": sm.get("source_path", ""),
+                "source_ref":  sm.get("source_ref", ""),
+                "source_url":  sm.get("source_url", ""),
+            } for _ in chunks],
+        )
 
-    sm = source_metadata or {}
-    collection = get_collection()
-    collection.add(
-        ids=[f"{chunk_prefix}_chunk{i}" for i in range(len(chunks))],
-        documents=chunks,
-        metadatas=[{
-            "project_id":  project_id,
-            "doc_id":      doc_id if doc_id is not None else _NO_ID,
-            "repo_id":     repo_id if repo_id is not None else _NO_ID,
-            "source":      source,
-            "item_type":   "document",
-            "date":        date or "",
-            "doc_type":    doc_type,
-            "source_kind": sm.get("source_kind", ""),
-            "source_type": sm.get("source_type", ""),
-            "source_path": sm.get("source_path", ""),
-            "source_ref":  sm.get("source_ref", ""),
-            "source_url":  sm.get("source_url", ""),
-        } for _ in chunks],
-    )
+    # 계층2 supersede 판별: 이번에 적재된 신규 decision이 기존 decision을 번복하는지 LLM으로 판정해
+    # pending 제안을 만든다. **모든 적재 단계(벡터 upsert + chunk add)가 성공한 뒤**에 실행해,
+    # chunk add 실패로 적재가 롤백/정리될 때 삭제될 신규 memory를 가리키는 제안이 남지 않게 한다.
+    # 적재 성공을 막지 않도록 best-effort로 격리하고, 신규 decision이 없으면 호출 자체를 생략한다.
+    # 판정 정확도를 위해 신규 decision의 date도 함께 넘긴다(시간 순서 검증용).
+    # source date 폴백은 INSERT 시점에 행 자체에 적용되므로 r["date"]에 이미 반영돼 있다.
+    new_decisions = [
+        {"id": r["id"], "content": r["content"], "topic": r["topic"],
+         "reason": r["reason"], "date": r["date"]}
+        for r in memory_rows
+        if r["category"] == "decision"
+    ]
+    if new_decisions:
+        try:
+            from ..reconciler.supersede import detect_supersede
+            detect_supersede(project_id, new_decisions)
+        except Exception:
+            logger.warning("supersede 판별 실패(적재는 유지) project_id=%s", project_id, exc_info=True)

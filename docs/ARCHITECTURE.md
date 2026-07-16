@@ -1,0 +1,350 @@
+# PaiM 시스템 아키텍처
+
+> 갱신: 2026-07-04 · 대상 브랜치: `main`
+>
+> 이 문서는 현재 저장소의 실제 디렉토리/코드 구조를 기준으로 작성되었습니다. `README.md`의 구조 설명이 이 문서와 다르다면 이 문서(코드 기준)를 우선하세요.
+
+## 1. 개요
+
+PaiM은 회의록·문서와 GitHub 저장소 활동을 하나의 "살아있는 프로젝트 메모리"로 통합하는 LLM 기반 AI 프로젝트 매니저입니다.
+
+- **입력**: 회의록(.md/.txt/.pdf) 업로드, GitHub repo 연결
+- **처리**: LLM이 결정(decision)·액션(action)·이슈(issue)·리스크(risk)로 구조화 추출 → MySQL + ChromaDB에 이중 저장
+- **관찰**: repo sync 시 머지된 PR과 열린 액션을 LangGraph 기반 Reconciler가 대조해 완료 제안 생성 (승인은 항상 사람)
+- **질의**: 질문 의도(조회/조망/탐색)에 따라 SQL 직조회 / 요약 직접 응답 / 하이브리드 RAG 중 하나로 라우팅
+- **UI**: Tauri + React 데스크톱 앱 (macOS/Windows), Streamlit 프로토타입 UI는 레거시로 유지
+
+```
+                         ┌─────────────────────────┐
+                         │   Desktop App (Tauri)   │
+                         │   React 19 + TS UI      │
+                         └────────────┬─────────────┘
+                                      │ HTTP (127.0.0.1:8000)
+                                      ▼
+                         ┌─────────────────────────┐
+                         │      FastAPI Backend     │
+                         │  api / chat / github 라우터│
+                         └──┬───────┬───────┬───────┘
+                            │       │       │
+                 ┌──────────┘       │       └──────────┐
+                 ▼                  ▼                  ▼
+     ┌────────────────────┐ ┌──────────────┐ ┌──────────────────┐
+     │ pipeline (추출/적재) │ │ retriever    │ │ reconciler        │
+     │ extractor·ingestor  │ │ 의도 라우팅·   │ │ PR↔액션 대조 그래프 │
+     └─────────┬───────────┘ │ 하이브리드 RAG │ └─────────┬──────────┘
+               │             └──────┬───────┘           │
+               ▼                    ▼                    ▼
+     ┌────────────────┐   ┌────────────────┐   ┌────────────────────┐
+     │  MySQL (구조화)  │   │ ChromaDB (벡터) │   │ GitHub App (REST)  │
+     └────────────────┘   └────────────────┘   └────────────────────┘
+                                      ▲
+                                      │
+                        ┌─────────────┴─────────────┐
+                        │  llm/ (OpenAI·Claude·      │
+                        │  Google·Local 팩토리)        │
+                        └─────────────────────────────┘
+```
+
+## 2. 저장소 레이아웃 (주석 포함)
+
+```text
+.
+├── .github/workflows/
+│   └── release.yml                  # 태그 push(v*) 시 macOS/Windows 데스크톱 설치본 자동 빌드·릴리즈
+│
+├── backend/                         # FastAPI 백엔드 (Python, LangChain/LangGraph)
+│   ├── main.py                      # FastAPI 앱 진입점 — 라우터 등록, CORS, lifespan(기동 시 복구 작업)
+│   ├── graph.py                     # LangGraph 오케스트레이션 — 적재 그래프 + 질의 그래프(검증/재검색 루프)
+│   ├── startup.py                   # 서버 재시작 시 stale 문서/repo 작업 복구, watchdog
+│   ├── storage.py                   # 업로드 파일 저장 추상화 (로컬 FS 기본, S3 등 교체 대비)
+│   │
+│   ├── api/                         # REST 엔드포인트 (prefix: /api/v1)
+│   │   ├── auth.py                  # 개발용 임시 인증 (DEV_USER_ID 기반, 4차 로드맵에서 정식 로그인으로 대체 예정)
+│   │   ├── project.py               # 프로젝트 CRUD
+│   │   ├── upload.py                # 문서 업로드/삭제 + 프로젝트 메모리(memory) CRUD
+│   │   ├── repository.py            # GitHub repo 연결/조회/삭제 + sync 트리거
+│   │   ├── suggestion.py            # Reconciler가 만든 완료 제안 조회/승인/거절
+│   │   ├── delta.py                 # "지난 확인 이후" 델타 브리핑 조회/생성
+│   │   └── query.py                 # Q&A 질의 엔드포인트 (+첨부파일 임시 컨텍스트)
+│   │
+│   ├── chat/                        # 세션형 대화 (암호화 대화 이력)
+│   │   ├── router.py                # /projects/{id}/sessions — 세션 CRUD, 세션 내 질의
+│   │   ├── session_store.py         # 세션·메시지 암호화 저장/조회
+│   │   └── context_builder.py       # tiktoken 기반 프롬프트 컨텍스트 조립(토큰 예산 관리)
+│   │
+│   ├── pipeline/                    # 문서 → 구조화 메모리 변환
+│   │   ├── extractor.py             # LLM 추출 — 소스 타입(회의록/README/커밋/이슈-PR)별 지침 분기, 청크 분할·중복 제거
+│   │   ├── ingestor.py              # 추출 결과를 MySQL(구조화) + ChromaDB(벡터) 이중 적재
+│   │   └── models.py                # MemoryItem 등 파이프라인 Pydantic 모델
+│   │
+│   ├── reconciler/                  # 머지 PR ↔ 열린 액션 완료 제안
+│   │   └── pr_actions.py            # LangGraph 배치 매칭 — 워터마크 기반 증분 처리, high/medium 확신 + 근거만 제안
+│   │
+│   ├── retriever/                   # 질의 라우팅 및 검색
+│   │   ├── query_intent.py          # 질문 의도(조회/조망/탐색) 분기 진입점
+│   │   ├── classifier.py            # 키워드 기반 mysql/chroma/both 경로 규칙 분류기
+│   │   ├── mysql_search.py          # 조회형 질문 → 필터 추출 → SQL 직조회 (정답 보장)
+│   │   ├── chroma_search.py         # 탐색형 질문 → 벡터 유사도 검색
+│   │   ├── qa_engine.py             # 하이브리드 RAG — BM25(한국어 형태소)+dense RRF 융합, LangChain 체인
+│   │   └── memory_vector.py         # memory 테이블 행을 ChromaDB에 보조 인덱싱(백필 포함)
+│   │
+│   ├── llm/                         # LLM 프로바이더 추상화 (fast/quality 티어링)
+│   │   ├── base.py                  # BaseLLMClient 인터페이스
+│   │   ├── factory.py               # 구조화 추출용 클라이언트 팩토리 (OpenAI/Claude/Google SDK 직접 래핑)
+│   │   ├── chat_model_factory.py    # 자유대화·RAG용 LangChain BaseChatModel 팩토리 (openai/claude/google/local)
+│   │   ├── openai_client.py         # OpenAI 구조화 추출 클라이언트
+│   │   ├── claude_client.py         # Anthropic(Claude) 구조화 추출 클라이언트
+│   │   └── google_client.py         # Google Gemini 구조화 추출 클라이언트 (중첩 스키마 미지원으로 Q&A만)
+│   │
+│   ├── github/                      # GitHub App 연동
+│   │   └── router.py                # /github/app — 설치(install) 세션, OAuth 콜백, repo preview, JWT 서명
+│   │
+│   ├── security/
+│   │   └── session_crypto.py        # AES-256-GCM 세션 대화 암호화/복호화 (SESSION_MEMORY_KEY)
+│   │
+│   ├── db/                          # 저장소 연결 및 스키마
+│   │   ├── mysql.py                 # PyMySQL 커넥션 헬퍼
+│   │   ├── chroma.py                # ChromaDB 클라이언트 (OpenAI 임베딩 전용 컬렉션, cosine space)
+│   │   ├── schema.sql               # 최초 스키마 — users/projects/documents/repositories/memory/... 12개 테이블
+│   │   ├── migrate_v2.sql           # 문서 처리 상태·진행률 컬럼 추가 (idempotent)
+│   │   ├── migrate_v3.sql           # 액션 완료(completed_at)·정렬(sort_order) 컬럼 추가
+│   │   ├── migrate_v4.sql           # 액션 마감일(due_date) 컬럼 추가
+│   │   └── migrate_v5.sql           # PR 워터마크 + memory_suggestions(완료 제안 인박스) 테이블 추가
+│   │
+│   └── test/                        # ⚠ pytest 스위트 아님 — RAG 검색 품질 수동 평가 스크립트
+│       ├── rag_eval.py              # RAGAS 기반 하이브리드 검색 평가 (리트리버 파라미터 튜닝용, 환경변수로 실행)
+│       ├── rag_eval_langsmith.py    # LangSmith 연동 평가 실행
+│       └── rag_eval_*.csv           # 평가 실행 결과 스냅샷
+│
+├── tests/                           # pytest 자동화 테스트 스위트 (CI/로컬 `pytest` 대상)
+│   └── test_*.py                    # API·인증·암호화·Reconciler·QA 라우팅 등 단위/통합 테스트
+│
+├── evals/                           # 청킹 품질 평가 (golden fixture 기반, RAG 검색과 별개로 "추출 전 분할 단계"를 검증)
+│   ├── eval_chunking.py             # 실행: `python -m evals.eval_chunking`
+│   └── fixtures/*.md, *.golden.json # 문서 유형별(짧은 회의록/표 위주 등) 정답 청크 세트
+│
+├── data/samples/                    # 수동 업로드 데모/실험용 샘플 회의록 (코드에서 참조되지 않음)
+├── meeting_notes/                   # tests/test_frontend_contract.py 가 사용하는 고정 테스트 fixture 회의록
+│
+├── desktop/                         # 데스크톱 앱 (Tauri 2 + React 19 + TypeScript) — 공식 사용자 UI
+│   ├── src/                         # React 프론트엔드
+│   │   ├── main.tsx                 # React 진입점
+│   │   ├── App.tsx                  # 최상위 앱 셸 — 프로젝트 목록/선택, 채팅, 레이아웃 오케스트레이션 (최대 규모 파일)
+│   │   ├── ProjectMemoryPanel.tsx   # 우측 프로젝트 메모리 패널 — 결정/액션/이슈/리스크 뷰, 델타 브리핑
+│   │   ├── GithubPanel.tsx          # GitHub repo 연결·동기화 상태·완료 제안 인박스 UI
+│   │   ├── projectFiles.tsx         # 문서 업로드/목록/드래그 첨부 UI
+│   │   ├── paimApi.ts               # 백엔드 REST 클라이언트
+│   │   ├── github.ts                # GitHub App 연동 API 클라이언트
+│   │   ├── settings.ts              # 로컬 설정(서버 주소 등) 저장/조회
+│   │   ├── format.ts                # 상대 시간 등 표시 포맷 유틸
+│   │   └── types.ts                 # 공용 타입 정의
+│   ├── src-tauri/                   # Tauri 2 Rust 런타임 셸
+│   │   ├── src/main.rs, lib.rs      # 네이티브 앱 진입점 — 윈도우/트레이 구성
+│   │   ├── tauri.conf.json          # 앱 메타데이터·번들 설정
+│   │   └── capabilities/, icons/    # 권한 capability 정의, 앱 아이콘
+│   ├── assets/                      # 앱 아이콘(app_icon), README용 스크린샷(readme), 기타(github)
+│   ├── scripts/                     # 빌드 스모크 테스트 스크립트 (레이아웃/오프라인 번들)
+│   └── .env.production              # 공개 빌드 설정 (OAuth client ID 등)
+│
+├── frontend/                        # ⚠ 레거시 — Streamlit 프로토타입 UI (초기 검증용, README·로드맵에는 미반영)
+│   │                                 #   공식 사용자 UI는 desktop/(Tauri)이며 이 폴더는 대체되었습니다.
+│   ├── app.py                       # Streamlit 진입점 — 사이드바 프로젝트 선택 + 페이지 네비게이션
+│   ├── views/                       # 업로드/대시보드/채팅/타임라인 페이지
+│   └── components/                  # 메모리 카드, 타임라인 등 재사용 위젯
+│
+├── docs/                            # 프로젝트 문서
+│   ├── API_명세서.md, .html         # FastAPI 엔드포인트 명세
+│   └── ARCHITECTURE.md, .html       # (본 문서) 시스템 아키텍처
+│
+├── docker-compose.yml                # MySQL 컨테이너 (schema.sql 자동 적용)
+├── start-paim.bat                    # Windows 원클릭 실행 (Docker·백엔드·앱 자동 기동)
+├── pyproject.toml / uv.lock          # Python 패키지·의존성 (uv)
+└── requirements.txt                  # pip 호환용 의존성 목록
+```
+
+## 3. 백엔드 아키텍처
+
+### 3.1 요청 진입 및 부트스트랩 (`backend/main.py`)
+
+- FastAPI 앱을 생성하고 `api/*`, `chat/router`, `github/router`를 `/api/v1` prefix로 등록합니다 (`github/router`는 자체 `/github/app` prefix 사용).
+- CORS는 데스크톱 앱의 Tauri origin(`tauri://localhost` 등)만 허용합니다.
+- `lifespan`에서 서버 기동 시: 중단된 문서/repo 작업 복구(`startup.recover_stale_tasks`), 레거시 프로젝트 멤버십 백필, ChromaDB 벡터 백필을 실행하고 백그라운드 `stale_watchdog` 태스크를 띄웁니다.
+- 백엔드는 `127.0.0.1`에만 바인딩 — LAN 노출 없이 로컬 우선으로 동작합니다.
+
+### 3.2 API 레이어 (`backend/api/`, `backend/chat/router.py`, `backend/github/router.py`)
+
+| 모듈 | 라우트 예시 | 역할 |
+| --- | --- | --- |
+| `project.py` | `POST/GET/PATCH/DELETE /projects` | 프로젝트 CRUD |
+| `upload.py` | `POST /projects/{id}/documents`, `.../memory` | 문서 업로드, 메모리(결정/액션/이슈/리스크) CRUD |
+| `repository.py` | `POST /projects/{id}/repositories`, `.../sync` | GitHub repo 연결, 동기화 트리거 |
+| `suggestion.py` | `.../suggestions/{id}/accept|reject` | 완료 제안 승인/거절 (상태 변경은 항상 사람) |
+| `delta.py` | `GET/POST /projects/{id}/delta`, `.../briefing/delta` | 델타 브리핑 |
+| `query.py` | `POST /projects/{id}/query`, `.../git` | 1회성 Q&A 질의 (첨부파일 임시 컨텍스트 지원) |
+| `chat/router.py` | `/projects/{id}/sessions/...` | 세션 CRUD, 세션 내 질의(`.../{session_id}/query`) — 암호화 대화 이력 |
+| `github/router.py` | `/github/app/sessions`, `/callback` | GitHub App 설치 플로우, JWT 서명, repo preview |
+| `auth.py` | — | 개발용 임시 사용자 인증 (`DEV_USER_ID`) |
+
+### 3.3 pipeline — 기억 만들기
+
+```
+문서/repo 콘텐츠 → extractor.extract()
+                     │  소스 타입별 지침 분기:
+                     │   회의록 → 결정/액션(담당자)/이슈/리스크
+                     │   README → 로드맵/TODO만 액션, 설치 안내문 제외
+                     │   커밋 → 완료 상태 액션 또는 결정
+                     │   열린 이슈/PR → 현재 문제·진행 중 작업
+                     │  (대용량 문서는 문단 경계로 청크 분할 후 병합·중복 제거)
+                     ▼
+                  ingestor.ingest()
+                     │  MySQL(memory 테이블, 구조화) 저장
+                     └→ ChromaDB(벡터, 의미 검색) 저장
+```
+
+### 3.4 reconciler — 기억이 스스로 갱신
+
+`pr_actions.py`가 LangGraph 그래프(`build_reconciler_graph`)로 머지된 PR과 열린 액션을 배치 대조합니다.
+
+- 저장소별 `last_reconciled_pr` 워터마크로 증분 처리(이미 본 PR 재검사 방지)
+- LLM 매칭은 `high`/`medium` 확신 + 한 줄 근거가 있을 때만 제안 생성 — 애매하면 보고하지 않음(정확도 > 재현율)
+- 제안은 `memory_suggestions` 테이블에 삽입되며, 사람이 `suggestion.py`의 accept/reject로 확정할 때만 `memory.completed_at`이 갱신됨
+
+### 3.5 retriever — 기억에 묻기 (의도 라우터)
+
+`query_intent.py`가 진입점이며 질문을 3가지 경로로 분기합니다.
+
+| 경로 | 판단 | 처리 |
+| --- | --- | --- |
+| 조회형 | `classifier.py` 키워드 규칙 → mysql | `mysql_search.py`: 필터 추출 → SQL 직조회 → 결정론 템플릿 (정답 보장) |
+| 조망형 | 전체 요약 요청 | project_memory 응축 요약을 검색 없이 직접 컨텍스트로 사용 |
+| 탐색형 | chroma / both | `qa_engine.py`: 멀티쿼리 재표현 → BM25(한국어 형태소, kiwipiepy) + dense(OpenAI 임베딩) RRF 융합 → 출처 있는 LLM 답변 |
+
+`memory_vector.py`는 `memory` 테이블 행이 생성/수정될 때 ChromaDB에도 보조 인덱싱해 탐색형 검색이 구조화 데이터도 커버하도록 합니다.
+
+### 3.6 graph.py — LangGraph 오케스트레이션
+
+State(TypedDict)를 노드 간 계약으로 고정하고, 노드는 `pipeline`/`retriever`의 로직을 재사용하는 얇은 래퍼로 구성됩니다.
+
+- **적재 그래프**: 문서 → [저장] → [메모리] → END
+- **질의 그래프**: 질문 → [섹션(stub)] → [Q&A] → [검증] → (부족 시 재검색 루프, `MAX_RETRY=1`) → [계획 제안] → [검증] → (부족 시 재기획 루프) → [응답] → END — 계획 생성이 실패해도 답변 자체는 유지되는 best-effort 설계
+
+### 3.7 chat — 암호화 세션 대화
+
+- `session_store.py`: 세션·메시지를 `security/session_crypto.py`(AES-256-GCM, `SESSION_MEMORY_KEY`)로 암호화 저장
+- `context_builder.py`: tiktoken으로 토큰 수를 계산해 시스템 프롬프트+요약+최근 메시지를 토큰 예산 안에서 조립
+
+### 3.8 llm — 프로바이더 추상화
+
+두 개의 별도 팩토리가 존재합니다 (용도가 다름):
+
+- `factory.py` (`get_llm_client`): 구조화 추출 전용, Anthropic/OpenAI/Google SDK를 직접 래핑 (`ClaudeClient`/`OpenAIClient`/`GoogleClient`)
+- `chat_model_factory.py` (`get_chat_model`): 자유 대화형 Q&A/RAG용 LangChain `BaseChatModel` 반환, `LLM_PROVIDER` 환경변수로 openai/claude/google/local 선택, `tier="fast"|"quality"` 티어링 지원 (local은 Ollama/vLLM 등 OpenAI 호환 서버)
+
+Google Gemini는 중첩 스키마 구조화 출력을 지원하지 않아 구조화 추출에는 사용하지 않고 Q&A에만 사용합니다.
+
+### 3.9 github — GitHub App 연동
+
+`github/router.py`가 GitHub App 설치(install) 세션 발급, OAuth 콜백, JWT 서명, repo preview를 처리합니다. 설치 세션은 현재 인메모리(`_sessions` dict)로 관리되며, 코드 주석상 다중 워커/정식 사용자 인증 도입 시 DB/Redis로 이전 예정입니다.
+
+### 3.10 db — 저장소
+
+- `mysql.py`: PyMySQL 커넥션 헬퍼
+- `chroma.py`: OpenAI 임베딩 전용 별도 컬렉션 사용(cosine space) — 기본 chromadb 임베딩(384-dim, L2)과 분리
+- `schema.sql`: 최초 스키마 — `users`, `projects`, `project_members`, `documents`, `repositories`, `memory`, `memory_sources`, `memory_suggestions`, `chat_sessions`, `chat_messages`, `chat_summaries`, `project_memory` (12개 테이블)
+- `migrate_v2~v5.sql`: 문서 처리 상태 컬럼 → 액션 완료/정렬 컬럼 → 마감일 컬럼 → PR 워터마크+완료 제안 인박스 순으로 idempotent 마이그레이션 적용 (컨테이너 기동 시 자동 실행)
+
+## 4. 데스크톱 아키텍처 (`desktop/`)
+
+Tauri 2(Rust 셸) 위에 React 19 + TypeScript로 구성된 공식 사용자 UI입니다.
+
+- `App.tsx`가 최상위 앱 셸로 프로젝트 선택, 채팅, 레이아웃을 오케스트레이션하는 최대 규모 컴포넌트(약 5,800줄)이며, `ProjectMemoryPanel.tsx`(메모리/브리핑), `GithubPanel.tsx`(repo 연동/제안 인박스), `projectFiles.tsx`(문서 업로드)가 주요 기능 패널로 분리되어 있습니다.
+- `paimApi.ts`/`github.ts`가 백엔드 REST 호출을 캡슐화하고, `settings.ts`가 서버 주소 등 로컬 설정을 관리합니다.
+- `src-tauri/`는 네이티브 윈도우/트레이/권한(capabilities)을 구성하는 Rust 셸로, 실제 비즈니스 로직은 담지 않습니다.
+- CI(`.github/workflows/release.yml`)가 태그 push 시 이 앱을 macOS/Windows용으로 빌드해 릴리즈합니다.
+
+## 5. 레거시: `frontend/` (Streamlit)
+
+`frontend/`는 Streamlit 기반 초기 프로토타입 UI입니다. 현재 README·로드맵 어디에도 언급되지 않으며 공식 사용자 UI는 `desktop/`(Tauri)로 대체되었습니다. `pyproject.toml`의 `tool.hatch.build.targets.wheel.packages`에는 여전히 포함되어 패키징되고 있고, `tests/test_frontend_contract.py`가 `meeting_notes/` fixture로 계약 테스트를 유지하고 있어 완전히 죽은 코드는 아니지만, 신규 기능 개발은 `desktop/`을 기준으로 이루어집니다.
+
+## 6. 테스트·평가 자산
+
+세 디렉토리가 목적이 다른 테스트/평가 도구입니다.
+
+| 디렉토리 | 목적 | 실행 방식 |
+| --- | --- | --- |
+| `tests/` | pytest 자동화 스위트 (API, 인증, 암호화, Reconciler, QA 라우팅 등) | `pytest` |
+| `backend/test/` | RAGAS 기반 하이브리드 검색(리트리버) 품질 수동 평가 — 파라미터 튜닝용 | `python backend/test/rag_eval.py` (환경변수로 K/거리 임계값 조정) |
+| `evals/` | 문서 청킹 품질 평가 — golden fixture 대비 청크 분할 정확도 검증 | `python -m evals.eval_chunking` |
+
+샘플 데이터도 목적이 나뉩니다: `meeting_notes/`는 `tests/test_frontend_contract.py`가 참조하는 고정 테스트 fixture이고, `data/samples/`는 코드에서 참조되지 않는 수동 업로드 데모/실험용 샘플입니다.
+
+## 7. 데이터 모델 핵심
+
+| 카테고리 | 설명 |
+| --- | --- |
+| `decision` | 결정 사항 (기록된 이유 포함) |
+| `action` | 할 일 — `owner`(담당)·`due_date`(마감)·`completed_at`(완료)·`sort_order`(정렬) |
+| `issue` | 현재 문제 |
+| `risk` | 잠재 위험 |
+
+- `memory.date` = 회의/문서의 기록 날짜, `memory.due_date` = 마감일 (별개 컬럼, migrate_v4)
+- `memory.is_user_verified` = 사용자가 수정한 기록 보호 플래그 — LLM 재처리가 덮어쓰지 않음
+- `memory_suggestions` = Reconciler가 만든 완료 제안, 근거·승인 이력과 함께 보존 (migrate_v5)
+- `chat_sessions`/`chat_messages`/`chat_summaries` = AES-256-GCM 암호화 세션 대화
+- `project_memory` = 조망형 질문에 쓰이는 응축 요약
+
+## 8. 핵심 흐름
+
+### 8.1 문서 업로드 → 기억 적재
+
+```
+사용자 업로드 (api/upload.py)
+  → storage.py 로 파일 저장 (BackgroundTasks로 비동기 처리)
+  → pipeline/extractor.py: 소스 지침 기반 LLM 구조화 추출
+  → pipeline/ingestor.py: MySQL(memory) + ChromaDB 이중 저장
+  → 문서 상태(status)를 polling(api/upload.py: GET .../documents/{id}/status)으로 확인
+```
+
+### 8.2 GitHub repo 동기화 → 완료 제안
+
+```
+repo 연결/동기화 (api/repository.py: POST .../sync)
+  → GitHub App API로 머지 PR·열린 이슈/README/커밋 수집
+  → pipeline/extractor.py 로 README/커밋/이슈 구조화 적재 (소스 타입별 지침)
+  → reconciler/pr_actions.py: 워터마크 이후 머지 PR × 열린 액션 LLM 배치 대조
+  → high/medium 확신 매칭만 memory_suggestions 에 제안 생성
+  → 사용자가 GithubPanel.tsx 의 제안 인박스에서 승인/거절 (api/suggestion.py)
+  → 승인 시에만 memory.completed_at 갱신
+```
+
+### 8.3 질문 → 답변
+
+```
+사용자 질문 (api/query.py 또는 chat/router.py 세션 질의)
+  → retriever/query_intent.py: 의도 분류
+      ├─ 조회형 → mysql_search.py → SQL 직조회 → 결정론 템플릿
+      ├─ 조망형 → project_memory 응축 요약 직접 사용
+      └─ 탐색형 → qa_engine.py → 멀티쿼리 + BM25/dense RRF → LLM 생성 → graph.py 검증 루프
+  → (세션 질의의 경우) context_builder.py 로 암호화 대화 이력과 함께 컨텍스트 조립
+  → 답변 + 출처 반환
+```
+
+### 8.4 델타 브리핑
+
+```
+앱 재오픈 (api/delta.py: GET/POST .../delta, .../briefing/delta)
+  → 마지막 확인 시점 이후 변경분 조회
+     (완료된 액션·새 완료 제안 → 새 결정/액션/이슈/리스크 → 마감 임박/기한 초과 순)
+  → LLM이 스탠드업 대체 브리핑으로 요약 (약 8문장)
+```
+
+## 9. 설계 원칙
+
+- **정확도 > 재현율**: Reconciler의 완료 매칭은 애매하면 보고하지 않음(high/medium 확신 + 근거 필수). 놓친 제안은 다음 동기화나 사람이 잡을 수 있지만, 틀린 완료 처리는 신뢰를 무너뜨림.
+- **파괴적 변경은 제안-승인, 추가는 자동**: 메모리 적재는 자동이지만 완료 처리처럼 상태를 바꾸는 일은 반드시 사람의 승인을 거침 (human-in-the-loop).
+- **자기검증하는 답변 그래프**: 탐색형 Q&A는 검색 → 답변 → 검증 → (부족하면) 질의 확장 후 재검색 → 계획 제안까지 도는 LangGraph. 계획 생성 실패해도 답변은 유지(best-effort).
+- **로컬 우선 + 암호화**: 백엔드는 `127.0.0.1`에만 바인딩, 세션 대화는 AES-256-GCM 암호화 저장.
+
+## 10. CI/CD
+
+`.github/workflows/release.yml`이 버전 태그(`v*`) push 시 `desktop/`(Tauri) 앱을 macOS `.dmg`, Windows `-setup.exe`/`.msi`로 빌드해 GitHub Releases에 게시합니다. 백엔드는 별도 CI 없이 로컬(`docker compose` + `uv run uvicorn`) 또는 `start-paim.bat`(Windows 원클릭)으로 구동합니다.

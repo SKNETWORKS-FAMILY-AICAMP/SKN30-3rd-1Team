@@ -82,8 +82,10 @@ def _action_rows(rows: list[dict]) -> list[dict]:
 
 def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 3) -> dict:
     """LLM 없이 SQL 집계만으로 델타 배너 데이터를 만든다."""
+    # K-002: 델타의 memory 조회는 전부 active_memory 뷰를 읽는다 — since 이후 생성됐다가
+    # 이미 번복(supersede)된 결정이 신규 건수·브리핑 입력에 재노출되지 않도록.
     cursor.execute(
-        "SELECT category, COUNT(*) AS cnt FROM memory"
+        "SELECT category, COUNT(*) AS cnt FROM active_memory"
         " WHERE project_id = %s AND created_at > %s"
         " GROUP BY category",
         (project_id, since_sql),
@@ -93,15 +95,21 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
         if row["category"] in new_memory:
             new_memory[row["category"]] = int(row["cnt"])
 
+    # 레거시 필드 pending_suggestions는 GET /suggestions 기본 목록(kind=complete_action)과
+    # 의미를 맞춰 complete_action만 센다 — kind를 모르는 구 클라이언트가 "제안 N건" 배너를
+    # 띄우고 빈 인박스를 여는 유령 카운트 방지. 전체는 pending_suggestions_by_kind로 제공
+    # (신규 필드 추가라 구 클라이언트에 무해).
     cursor.execute(
-        "SELECT COUNT(*) AS cnt FROM memory_suggestions"
-        " WHERE project_id = %s AND status = 'pending' AND created_at > %s",
+        "SELECT kind, COUNT(*) AS cnt FROM memory_suggestions"
+        " WHERE project_id = %s AND status = 'pending' AND created_at > %s"
+        " GROUP BY kind",
         (project_id, since_sql),
     )
-    pending_suggestions = int((cursor.fetchone() or {}).get("cnt") or 0)
+    pending_by_kind = {row["kind"]: int(row["cnt"]) for row in cursor.fetchall()}
+    pending_suggestions = pending_by_kind.get("complete_action", 0)
 
     cursor.execute(
-        "SELECT COUNT(*) AS cnt FROM memory"
+        "SELECT COUNT(*) AS cnt FROM active_memory"
         " WHERE project_id = %s AND category = 'action'"
         " AND completed_at IS NOT NULL AND completed_at > %s",
         (project_id, since_sql),
@@ -109,7 +117,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     completed_actions = int((cursor.fetchone() or {}).get("cnt") or 0)
 
     cursor.execute(
-        "SELECT id, content, owner, due_date FROM memory"
+        "SELECT id, content, owner, due_date FROM active_memory"
         " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
         " AND due_date IS NOT NULL"
         " AND due_date >= CURDATE()"
@@ -120,7 +128,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     due_soon = _action_rows(cursor.fetchall())
 
     cursor.execute(
-        "SELECT id, content, owner, due_date FROM memory"
+        "SELECT id, content, owner, due_date FROM active_memory"
         " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
         " AND due_date IS NOT NULL AND due_date < CURDATE()"
         " ORDER BY due_date ASC, id ASC",
@@ -131,6 +139,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     return {
         "new_memory": new_memory,
         "pending_suggestions": pending_suggestions,
+        "pending_suggestions_by_kind": pending_by_kind,
         "completed_actions": completed_actions,
         "due_soon": due_soon,
         "overdue": overdue,
@@ -142,7 +151,7 @@ def _load_new_memory_items(cursor, project_id: int, since_sql: str) -> list[dict
     cursor.execute(
         "SELECT id, category, content, reason, topic, owner, date, due_date,"
         " source, created_by, completed_at, created_at"
-        " FROM memory WHERE project_id = %s AND created_at > %s"
+        " FROM active_memory WHERE project_id = %s AND created_at > %s"
         " ORDER BY created_at ASC, id ASC",
         (project_id, since_sql),
     )

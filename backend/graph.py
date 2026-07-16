@@ -96,13 +96,16 @@ def _format_summary_memory_row(row: dict) -> str:
 
 
 def regenerate_project_memory(project_id: int) -> str:
-    """현재 남아 있는 memory row만 기준으로 프로젝트 요약 캐시를 재생성한다."""
+    """현재 유효한 memory row만 기준으로 프로젝트 요약 캐시를 재생성한다.
+
+    active_memory 뷰를 읽으므로 번복(superseded)된 결정은 요약에 들어가지 않는다.
+    """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT category, content, owner, due_date, completed_at"
-                " FROM memory WHERE project_id = %s"
+                " FROM active_memory WHERE project_id = %s"
                 " ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC",
                 (project_id,),
             )

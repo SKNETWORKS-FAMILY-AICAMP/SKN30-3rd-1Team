@@ -9,9 +9,16 @@ def search(
     completed: Optional[bool] = None,
     due_within_days: Optional[int] = None,
     overdue: Optional[bool] = None,
+    include_superseded: bool = False,
 ) -> List[Dict]:
     conditions = ["m.project_id = %s"]
     params: list = [project_id]
+
+    # 번복된(superseded) 항목은 기본적으로 제외해 최신 상태만 조회한다.
+    # "원래 계획은?" 류 이력 질문에서만 include_superseded=True로 체인을 포함한다.
+    # (superseded_by는 계층 2 판별이 채우기 전까지 항상 NULL이라 그 전에는 무동작.)
+    if not include_superseded:
+        conditions.append("m.superseded_by IS NULL")
 
     if category:
         conditions.append("m.category = %s")

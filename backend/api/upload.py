@@ -12,7 +12,7 @@ from ..pipeline.ingestor import ingest
 from ..retriever.memory_vector import delete_memory_vector, upsert_memory_vector
 from ..storage import save_file, delete_file, safe_upload_name
 from ..graph import refresh_project_memory_after_delete, update_project_memory
-from .auth import require_project_access
+from .auth import get_current_user_id, require_project_access
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -462,6 +462,49 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            # category를 decision 밖으로 바꾸는 변경은, 이 row를 대체자(superseded_by)로
+            # 참조하는 결정이 있으면 거부 — accept 시점 검증(살아있는 decision만 대체자 허용)이
+            # 사후 PATCH로 무력화되어 비decision이 결정을 숨기는 상태를 만들지 않도록.
+            if fields.get("category") not in (None, "decision"):
+                cursor.execute(
+                    "SELECT 1 FROM memory WHERE superseded_by = %s AND project_id = %s LIMIT 1",
+                    (memory_id, project_id),
+                )
+                if cursor.fetchone():
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Cannot change category: this decision supersedes another decision",
+                    )
+                # 이 row 자신이 이미 번복된(superseded) decision이면 category 이탈 거부 —
+                # 사람이 승인한 supersede 관계는 decision→decision이어야 하며, 허용하면
+                # 새 category의 항목이 active_memory에서 계속 숨겨진 채 남는다.
+                cursor.execute(
+                    "SELECT superseded_by FROM memory WHERE id = %s AND project_id = %s",
+                    (memory_id, project_id),
+                )
+                current = cursor.fetchone()
+                if current and current.get("superseded_by") is not None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Cannot change category: this decision is superseded by another decision",
+                    )
+            # 의미 필드(category/content/topic/reason/date)가 바뀌면 이 row가
+            # 대상(memory_id)이든 대체자(evidence.superseding_memory_id)든 관련된
+            # pending supersede 제안을 자동 reject한다. 제안의 LLM 판정은 생성 시점
+            # 내용 기준이라 사용자가 결정을 수정하면 근거가 낡고, 특히 대상의
+            # category 이탈은 accept/reject 모두 404인 영구 미해소(zombie)를 만든다.
+            # 사람이 확정한 상태(superseded_by)는 위 409로 지키고,
+            # LLM의 추측(pending 제안)은 사용자의 수정에 양보한다.
+            if any(raw_fields.get(k) is not None
+                   for k in ("category", "content", "topic", "reason", "date")):
+                cursor.execute(
+                    "UPDATE memory_suggestions"
+                    " SET status = 'rejected', resolved_at = NOW(), resolved_by = %s"
+                    " WHERE project_id = %s AND kind = 'supersede' AND status = 'pending'"
+                    " AND (memory_id = %s OR CAST(JSON_UNQUOTE(JSON_EXTRACT("
+                    "evidence, '$.superseding_memory_id')) AS UNSIGNED) = %s)",
+                    (get_current_user_id(), project_id, memory_id, memory_id),
+                )
             cursor.execute(
                 f"UPDATE memory SET {set_clause} WHERE id = %s AND project_id = %s",
                 values,
@@ -472,7 +515,12 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
         with conn.cursor() as cursor:
             cursor.execute("SELECT * FROM memory WHERE id = %s", (memory_id,))
             row = cursor.fetchone()
-        _upsert_memory_vector_best_effort(row)
+        if row and row.get("superseded_by") is not None:
+            # superseded(숨겨진) memory의 벡터는 upsert로 부활시키지 않는다 — accept가
+            # 삭제한 상태를 유지해 비활성 벡터가 후보/RAG top-N을 차지하지 못하게 한다.
+            _delete_memory_vector_best_effort(memory_id)
+        else:
+            _upsert_memory_vector_best_effort(row)
         return row
     finally:
         conn.close()

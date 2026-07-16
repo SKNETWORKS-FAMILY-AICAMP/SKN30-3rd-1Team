@@ -1,5 +1,5 @@
 """memory 행을 ChromaDB에 보조 인덱싱한다."""
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List, Optional, Set
 
 from ..db.chroma import get_collection
 from ..db.mysql import get_connection
@@ -67,20 +67,73 @@ def upsert_memory_vectors(rows: Iterable[Dict]) -> int:
     return len(rows)
 
 
+def find_similar_memories(
+    project_id: int,
+    text: str,
+    category: Optional[str] = None,
+    n_results: int = 5,
+    exclude_ids: Optional[Set[int]] = None,
+) -> List[int]:
+    """의미 유사한 memory 후보의 memory_id 목록을 ChromaDB에서 조회한다.
+
+    supersede 판별의 후보 recall에 사용. 같은 project·item_type=memory 범위에서
+    category까지 좁혀 검색하고, exclude_ids(자기 자신 등)는 제외한 memory_id를 반환한다.
+    """
+    if not (text or "").strip():
+        return []
+
+    exclude = exclude_ids or set()
+
+    conditions: List[Dict] = [{"project_id": project_id}, {"item_type": "memory"}]
+    if category:
+        conditions.append({"category": category})
+    # 제외 대상을 쿼리 단계에서 걸러 top-N 슬롯을 소모하지 않게 한다. 사후 필터로만 제외하면
+    # 방금 upsert한 신규 decision(자기 자신)이 상위 결과를 차지해 실제 기존 후보가 밀려날 수 있다.
+    if exclude:
+        conditions.append({"memory_id": {"$nin": sorted(exclude)}})
+    where = conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+    results = get_collection().query(
+        query_texts=[text],
+        where=where,
+        n_results=n_results,
+    )
+    metas = (results.get("metadatas") or [[]])[0]
+    ids: List[int] = []
+    seen: Set[int] = set()
+    for meta in metas:
+        mid = (meta or {}).get("memory_id")
+        if mid is None:
+            continue
+        mid = int(mid)
+        if mid in exclude or mid in seen:
+            continue
+        seen.add(mid)
+        ids.append(mid)
+    return ids
+
+
 def delete_memory_vector(memory_id: int) -> None:
     """memory_id에 해당하는 ChromaDB memory 벡터를 삭제한다."""
     get_collection().delete(ids=[memory_vector_id(memory_id)])
 
 
 def cleanup_orphan_memory_vectors() -> int:
-    """MySQL에 없는 project_id/memory_id를 가리키는 memory 벡터를 삭제한다."""
+    """MySQL 기준으로 유효하지 않은 memory 벡터를 삭제한다.
+
+    삭제 대상: MySQL에 없는 project_id/memory_id를 가리키는 벡터(고아), 그리고
+    superseded된 memory의 벡터. 후자는 accept 시점의 delete_memory_vector(best-effort)가
+    실패했거나 과거 백필이 되살린 경우를 매 시작마다 수렴시킨다(자기치유).
+    """
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
             cursor.execute("SELECT id FROM projects")
             project_ids = {row["id"] for row in cursor.fetchall()}
-            cursor.execute("SELECT id FROM memory")
-            memory_ids = {row["id"] for row in cursor.fetchall()}
+            cursor.execute("SELECT id, superseded_by FROM memory")
+            rows = cursor.fetchall()
+            memory_ids = {row["id"] for row in rows}
+            superseded_ids = {row["id"] for row in rows if row["superseded_by"] is not None}
     finally:
         conn.close()
 
@@ -91,7 +144,11 @@ def cleanup_orphan_memory_vectors() -> int:
         metadata = metadata or {}
         if not (str(vector_id).startswith("memory:") or metadata.get("item_type") == "memory"):
             continue
-        if metadata.get("project_id") not in project_ids or metadata.get("memory_id") not in memory_ids:
+        if (
+            metadata.get("project_id") not in project_ids
+            or metadata.get("memory_id") not in memory_ids
+            or metadata.get("memory_id") in superseded_ids
+        ):
             delete_ids.append(vector_id)
 
     if delete_ids:
@@ -100,13 +157,18 @@ def cleanup_orphan_memory_vectors() -> int:
 
 
 def backfill_memory_vectors() -> int:
-    """아직 ChromaDB에 없는 기존 memory row만 1회 백필한다."""
+    """아직 ChromaDB에 없는 기존 memory row만 1회 백필한다.
+
+    superseded row는 색인하지 않는다 — accept가 지운 벡터를 재시작이 되살려
+    후보 top-N을 비활성 벡터로 채우는 것을 막는다. 대체 decision 삭제로 복귀한
+    (superseded_by가 NULL로 돌아온) row는 여기서 벡터도 함께 복원된다.
+    """
     cleanup_orphan_memory_vectors()
 
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT * FROM memory ORDER BY id ASC")
+            cursor.execute("SELECT * FROM memory WHERE superseded_by IS NULL ORDER BY id ASC")
             rows = cursor.fetchall()
     finally:
         conn.close()

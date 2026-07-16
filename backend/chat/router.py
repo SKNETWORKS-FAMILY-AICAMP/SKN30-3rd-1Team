@@ -13,7 +13,7 @@ from backend.security.session_crypto import get_session_crypto
 from backend.chat.session_store import SessionStore
 from backend.chat.context_builder import ContextBuilder
 from backend.llm.chat_model_factory import get_chat_model
-from backend.api.auth import require_project_access
+from backend.api.auth import get_current_user_id, require_project_access
 
 router = APIRouter(prefix="/projects/{project_id}/sessions", tags=["Session Memory API"])
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class MessageResponse(BaseModel):
 class SessionResponse(BaseModel):
     id: str
     project_id: int
+    user_id: Optional[int] = None
     title: str
     created_at: datetime
     updated_at: datetime
@@ -60,12 +61,22 @@ def _verify_project_exists(cursor, project_id: int):
 
 
 def _verify_session_ownership(cursor, project_id: int, session_id: str):
-    """session_id가 project_id 소속인지 확인한다. 아니면 404.
-    (다른 프로젝트의 세션에 접근하는 것을 방지하는 격리 검증)"""
-    cursor.execute(
-        "SELECT id FROM chat_sessions WHERE id = %s AND project_id = %s",
-        (session_id, project_id)
-    )
+    """session_id가 project_id 소속이면서 현재 사용자의 것인지 확인한다. 아니면 404.
+    user_id가 NULL인 레거시 세션(마이그레이션 이전 생성)은 멤버 전원 접근 허용.
+    다른 멤버의 세션은 존재 여부를 숨기기 위해 403이 아닌 404로 응답한다."""
+    current_user_id = get_current_user_id()
+    if current_user_id is not None:
+        cursor.execute(
+            "SELECT id FROM chat_sessions"
+            " WHERE id = %s AND project_id = %s AND (user_id IS NULL OR user_id = %s)",
+            (session_id, project_id, current_user_id)
+        )
+    else:
+        # dev 모드에서 DEV_USER_ID 미설정 — 단일 사용자 동작 유지
+        cursor.execute(
+            "SELECT id FROM chat_sessions WHERE id = %s AND project_id = %s",
+            (session_id, project_id)
+        )
     if not cursor.fetchone():
         raise HTTPException(status_code=404, detail="해당 프로젝트에서 요청하신 세션을 찾을 수 없습니다.")
 
@@ -96,8 +107,8 @@ def create_chat_session(project_id: int, request: SessionCreateRequest, db=Depen
         _verify_project_exists(cursor, project_id)
 
         cursor.execute(
-            "INSERT INTO chat_sessions (id, project_id, title) VALUES (%s, %s, %s)",
-            (session_id, project_id, request.title)
+            "INSERT INTO chat_sessions (id, project_id, user_id, title) VALUES (%s, %s, %s, %s)",
+            (session_id, project_id, get_current_user_id(), request.title)
         )
         db.commit()
 
@@ -110,11 +121,21 @@ def create_chat_session(project_id: int, request: SessionCreateRequest, db=Depen
 @router.get("", response_model=List[SessionResponse])
 def get_chat_session_list(project_id: int, db=Depends(get_db)):
     require_project_access(project_id)
+    current_user_id = get_current_user_id()
     with db.cursor() as cursor:
-        cursor.execute(
-            "SELECT * FROM chat_sessions WHERE project_id = %s ORDER BY updated_at DESC",
-            (project_id,)
-        )
+        if current_user_id is not None:
+            # 본인 세션 + 레거시(user_id NULL) 세션만 노출 — 멤버 간 대화 격리
+            cursor.execute(
+                "SELECT * FROM chat_sessions"
+                " WHERE project_id = %s AND (user_id IS NULL OR user_id = %s)"
+                " ORDER BY updated_at DESC",
+                (project_id, current_user_id)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM chat_sessions WHERE project_id = %s ORDER BY updated_at DESC",
+                (project_id,)
+            )
         return cursor.fetchall()
 
 
