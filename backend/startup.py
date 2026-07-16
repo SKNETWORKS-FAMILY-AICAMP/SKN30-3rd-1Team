@@ -10,6 +10,78 @@ _STALE_DOC_ERROR = "Background task interrupted or stale after server restart."
 _STALE_REPO_ERROR = "Repository sync interrupted or stale after server restart."
 
 
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
+    cursor.execute(
+        "SELECT 1 FROM information_schema.COLUMNS"
+        " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+        (table_name, column_name),
+    )
+    return cursor.fetchone() is not None
+
+
+def ensure_runtime_schema() -> None:
+    """기존 Docker volume에도 upload/status 경로가 요구하는 additive schema를 보장.
+
+    memory_sources·project_memory 테이블과 documents 진행률 컬럼은 initdb.d로만
+    생성되는데, 비어 있지 않은 mysql_data 볼륨에서는 initdb.d가 재실행되지 않아
+    기존 DB가 이를 받지 못한다. 실패해도 기동은 유지한다(best-effort) —
+    다른 startup 보증 함수들과 동일한 정책.
+    """
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS memory_sources (
+                        id          INT PRIMARY KEY AUTO_INCREMENT,
+                        memory_id   INT NOT NULL,
+                        source_kind VARCHAR(20)  NOT NULL,
+                        doc_id      INT NULL,
+                        repo_id     INT NULL,
+                        source_type VARCHAR(30)  NULL,
+                        source_path VARCHAR(500) NULL,
+                        source_ref  VARCHAR(100) NULL,
+                        source_url  VARCHAR(500) NULL,
+                        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (memory_id) REFERENCES memory(id) ON DELETE CASCADE,
+                        FOREIGN KEY (doc_id)    REFERENCES documents(id) ON DELETE SET NULL,
+                        FOREIGN KEY (repo_id)   REFERENCES repositories(id) ON DELETE SET NULL,
+                        INDEX idx_memory_sources_memory_id (memory_id),
+                        INDEX idx_memory_sources_doc_id    (doc_id),
+                        INDEX idx_memory_sources_repo_id   (repo_id)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS project_memory (
+                        project_id INT PRIMARY KEY,
+                        summary    TEXT,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        FOREIGN KEY (project_id) REFERENCES projects(id)
+                    )
+                    """
+                )
+                if not _column_exists(cursor, "documents", "progress_done"):
+                    cursor.execute(
+                        "ALTER TABLE documents ADD COLUMN progress_done INT DEFAULT NULL AFTER last_error"
+                    )
+                if not _column_exists(cursor, "documents", "progress_total"):
+                    cursor.execute(
+                        "ALTER TABLE documents ADD COLUMN progress_total INT DEFAULT NULL AFTER progress_done"
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        logger.error(
+            "런타임 스키마 보증 실패 — 앱은 계속 기동됩니다"
+            " (memory_sources/project_memory/문서 진행률 경로가 동작하지 않을 수 있음)",
+            exc_info=True,
+        )
+
+
 def ensure_schema_v8() -> None:
     """migrate_v8(self-FK + active_memory 뷰)을 앱 시작 시 idempotent하게 보증한다.
 
