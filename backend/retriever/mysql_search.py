@@ -72,3 +72,30 @@ def search(
         }
         result.append(row)
     return result
+
+
+def fetch_supersede_graph(project_id: int) -> List[Dict]:
+    """supersede 관계에 참여하는 decision 행만 반환한다 (이력 체인 재구성용).
+
+    search()는 LIMIT 없이 전 행 + memory_sources JOIN이라 이력 모드 전수 조회에
+    부적합하다. 이 조회는 반환 행 수·전송량이 관계 참여 행 수에 비례한다
+    (참여 행 = superseded_by가 채워진 행 + 다른 행이 가리키는 행).
+    """
+    sql = (
+        "SELECT m.id, m.project_id, m.category, m.content, m.reason, m.topic,"
+        " m.owner, m.date, m.due_date, m.completed_at, m.source,"
+        " m.superseded_by, m.superseded_at"
+        " FROM memory m"
+        " WHERE m.project_id = %s AND m.category = 'decision'"
+        " AND (m.superseded_by IS NOT NULL"
+        "      OR m.id IN (SELECT s.superseded_by FROM memory s"
+        "                  WHERE s.project_id = %s AND s.superseded_by IS NOT NULL))"
+        " ORDER BY m.id ASC"
+    )
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, [project_id, project_id])
+            return cursor.fetchall()
+    finally:
+        conn.close()

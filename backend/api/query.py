@@ -10,6 +10,7 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..graph import update_project_memory, run_qa
+from ..retriever import history_intent
 from ..retriever.query_intent import (
     SemanticFallback,
     answer_filter_lookup,
@@ -91,12 +92,14 @@ def query(project_id: int, body: QueryRequest):
     # 질문 의도가 명확하면 SQL/조망형 경로를 쓰고, 아니면 기존 LangGraph RAG로 폴백한다.
     try:
         if attachment_context:
+            # 첨부 경로는 라우터(classify_question)를 타지 않으므로 이력 감지를 직접 호출한다.
             result = run_qa(
                 project_id=project_id,
                 question=body.question,
                 history=body.history,
                 attachment_context=attachment_context,
                 attachment_sources=attachment_sources,
+                history_mode=history_intent.detect_history_intent(body.question),
             )
             result["route"] = "semantic"
             debug = result.get("debug") or {}
@@ -120,6 +123,7 @@ def query(project_id: int, body: QueryRequest):
             project_id=project_id,
             question=body.question,
             history=body.history,
+            history_mode=decision.history_mode,
         )
         result["route"] = "semantic"
         debug = result.get("debug") or {}

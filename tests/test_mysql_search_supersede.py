@@ -168,3 +168,75 @@ def test_filter_predicates_combine_with_supersede_mode(
 
     # 이들 술어는 CURDATE()/리터럴을 쓰므로 추가 파라미터가 없다.
     assert params == [1]
+
+
+# --- TASK-004: fetch_supersede_graph 전용 조회 -----------------------------------
+
+
+def test_fetch_supersede_graph_sql_limits_to_participating_decisions():
+    """전용 조회는 관계 참여 decision만 대상 — superseded_by 보유 행 OR 참조되는 행,
+    category='decision' 한정, LIMIT 없는 search()와 달리 memory_sources JOIN 없음."""
+    conn, cursor = _make_conn()
+
+    with patch("backend.retriever.mysql_search.get_connection", return_value=conn):
+        mysql_search.fetch_supersede_graph(7)
+
+    sql, params = cursor.execute.call_args.args
+    assert "m.category = 'decision'" in sql
+    assert "m.superseded_by IS NOT NULL" in sql
+    assert "m.id IN (SELECT s.superseded_by FROM memory s" in sql
+    assert "LEFT JOIN memory_sources" not in sql
+    assert "ORDER BY m.id ASC" in sql
+    assert params == [7, 7]
+
+
+class _GraphCursor:
+    """fetch_supersede_graph의 술어를 행 필터로 해석하는 fake cursor.
+
+    문자열 매칭이 아니라 반환 행 수 차이로 '관계 참여 행만 반환' 계약을 검증한다."""
+
+    def __init__(self, rows):
+        self._all_rows = rows
+        self._result: list = []
+
+    def execute(self, sql, params):
+        assert "superseded_by IS NOT NULL" in sql  # 전용 술어가 실제로 존재
+        referenced = {
+            r["superseded_by"] for r in self._all_rows if r["superseded_by"] is not None
+        }
+        self._result = sorted(
+            (
+                r for r in self._all_rows
+                if r["category"] == "decision"
+                and (r["superseded_by"] is not None or r["id"] in referenced)
+            ),
+            key=lambda r: r["id"],
+        )
+
+    def fetchall(self):
+        return [dict(r) for r in self._result]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_fetch_supersede_graph_returns_only_participating_rows():
+    """관계 비참여 행(활성 단독 decision·타 카테고리)은 반환되지 않는다 —
+    반환 행 수가 관계 참여 행 수에 비례해야 이력 모드 비용이 보장된다."""
+    rows = [
+        {"id": 1, "category": "decision", "superseded_by": 3},   # 시조
+        {"id": 3, "category": "decision", "superseded_by": None}, # 참조되는 종단
+        {"id": 5, "category": "decision", "superseded_by": None}, # 비참여 활성 decision
+        {"id": 6, "category": "action",   "superseded_by": None}, # 타 카테고리
+    ]
+    cursor = _GraphCursor(rows)
+    conn = MagicMock()
+    conn.cursor.return_value = cursor
+
+    with patch("backend.retriever.mysql_search.get_connection", return_value=conn):
+        result = mysql_search.fetch_supersede_graph(1)
+
+    assert [r["id"] for r in result] == [1, 3]

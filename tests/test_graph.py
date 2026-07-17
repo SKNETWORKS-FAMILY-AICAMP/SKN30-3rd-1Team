@@ -23,7 +23,10 @@ def fake_qa_engine(monkeypatch):
     """qa_node가 DB/Chroma 없이 동작하도록 _build_context와 _get_chain을 stub."""
     import backend.retriever.qa_engine as qe
 
-    monkeypatch.setattr(qe, "_build_context", lambda pid, q: ("컨텍스트", ["src.md"], {"mysql_rows": [1], "chroma_chunks": []}))
+    monkeypatch.setattr(
+        qe, "_build_context",
+        lambda pid, q, **kwargs: ("컨텍스트", ["src.md"], {"mysql_rows": [1], "chroma_chunks": []}),
+    )
 
     class _FakeChain:
         def invoke(self, inputs):
@@ -64,3 +67,105 @@ def test_update_project_memory_uses_get_chat_model(fake_chat_model, fake_project
     items = [m.MemoryItem(category="action", content="배포 준비", source="test.md")]
     summary = update_project_memory(project_id=1, items=items)
     assert isinstance(summary, str)
+
+
+# ── TASK-004 계층 3: history_mode 전달 · 재검색 불변성 ────────────────────────
+
+@pytest.fixture()
+def recording_build_context(monkeypatch):
+    """_build_context 호출(question + history 키워드 인자)을 기록하는 stub.
+    컨텍스트 없음으로 응답해 verify_answer가 재검색 루프를 돌게 만들 수 있다."""
+    import backend.retriever.qa_engine as qe
+
+    calls = []
+
+    def _record(pid, q, **kwargs):
+        calls.append({"question": q, **kwargs})
+        return "", [], {"mysql_rows": [], "chroma_chunks": []}
+
+    monkeypatch.setattr(qe, "_build_context", _record)
+
+    class _FakeChain:
+        def invoke(self, inputs):
+            return "테스트 답변"
+
+    monkeypatch.setattr(qe, "_get_chain", lambda: _FakeChain())
+    return calls
+
+
+def test_run_qa_passes_frozen_history_state(fake_chat_model, fake_project_memory, recording_build_context):
+    """run_qa()가 이력 predicate·주제 토큰을 진입 시 1회 계산해 _build_context에 넘긴다."""
+    from backend.graph import run_qa
+
+    run_qa(project_id=1, question="JWT로 왜 바뀌었어?", history_mode=True)
+
+    first = recording_build_context[0]
+    assert first["history_mode"] is True
+    assert first["history_scope"] == "topical"
+    assert first["history_topic_tokens"] == ["jwt"]
+
+
+def test_run_qa_history_mode_false_disables_detection(fake_chat_model, fake_project_memory, recording_build_context):
+    """라우터가 history_mode=False를 확정하면 자체 감지로 뒤집지 않는다."""
+    from backend.graph import run_qa
+
+    run_qa(project_id=1, question="왜 바뀌었어?", history_mode=False)
+
+    assert recording_build_context[0]["history_mode"] is False
+    assert recording_build_context[0]["history_scope"] is None
+
+
+def test_run_qa_self_detects_when_history_mode_omitted(fake_chat_model, fake_project_memory, recording_build_context):
+    """history_mode 미전달(None)이면 자체 감지 — 구 호출부 호환."""
+    from backend.graph import run_qa
+
+    run_qa(project_id=1, question="배포 주기가 왜 바뀌었어?")
+
+    first = recording_build_context[0]
+    assert first["history_mode"] is True
+    assert first["history_scope"] == "topical"
+    assert {"배포", "주기"} <= set(first["history_topic_tokens"])
+
+
+def test_rewrite_loop_does_not_flip_history_predicate(fake_chat_model, fake_project_memory, recording_build_context):
+    """재검색 불변성: 검증 실패로 rewrite_node가 질문에 '(관련 배경과 세부 내용 포함)'
+    suffix를 붙여도, 고정된 history_scope·주제 토큰은 1·2차 시도에서 동일하다.
+    (전역형 질문이 suffix의 '배경'·'내용' 때문에 주제형으로 뒤집히는 결함 방지)"""
+    from backend.graph import run_qa
+
+    run_qa(project_id=1, question="왜 바뀌었어?", history_mode=True)
+
+    assert len(recording_build_context) == 2  # 초기 + 재검색 1회(MAX_RETRY)
+    first, second = recording_build_context
+    assert "관련 배경" in second["question"] and "관련 배경" not in first["question"]
+    assert first["history_scope"] == second["history_scope"] == "global"
+    assert first["history_topic_tokens"] == second["history_topic_tokens"] == []
+
+
+def test_deictic_question_inherits_previous_topic(fake_chat_model, fake_project_memory, recording_build_context):
+    """지시어 질문은 직전 사용자 질문과 결합해 주제를 승계한다."""
+    from backend.graph import run_qa
+
+    history = [
+        {"role": "user", "content": "배포 주기 어떻게 하기로 했어?"},
+        {"role": "assistant", "content": "2주로 결정했습니다."},
+    ]
+    run_qa(project_id=1, question="그건 왜 바뀌었어?", history=history, history_mode=True)
+
+    first = recording_build_context[0]
+    assert first["history_scope"] == "topical"
+    assert {"배포", "주기"} <= set(first["history_topic_tokens"])
+    # 결합 질문이 검색 질의로도 쓰인다 — 멀티쿼리·dense와 관련도가 같은 주제를 본다
+    assert first["question"] == "배포 주기 어떻게 하기로 했어? 그건 왜 바뀌었어?"
+
+
+def test_deictic_chain_does_not_cascade(fake_chat_model, fake_project_memory, recording_build_context):
+    """직전 질문도 지시어면 결합하지 않는다(연쇄 승계 방지) — 전역형으로 남는다."""
+    from backend.graph import run_qa
+
+    history = [{"role": "user", "content": "그건 뭐야?"}]
+    run_qa(project_id=1, question="그건 왜 바뀌었어?", history=history, history_mode=True)
+
+    first = recording_build_context[0]
+    assert first["history_scope"] == "global"
+    assert first["history_topic_tokens"] == []
