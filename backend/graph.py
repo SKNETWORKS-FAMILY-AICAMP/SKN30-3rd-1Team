@@ -19,7 +19,7 @@ from langgraph.graph import StateGraph, START, END
 from .db.mysql import get_connection
 from .pipeline.extractor import extract
 from .pipeline.ingestor import ingest
-from .retriever import qa_engine
+from .retriever import history_intent, qa_engine
 from .llm.chat_model_factory import get_chat_model
 
 MAX_RETRY = 1  # 재검색/재기획 최대 반복 (무한 루프 방지)
@@ -228,6 +228,11 @@ class QAState(TypedDict, total=False):
     history: list
     attachment_context: str
     attachment_sources: list
+    # 이력 모드 (run_qa 진입 시 1회 계산 후 불변 — rewrite_node가 question에
+    # 제어용 suffix를 붙여도 체인 선택 판정이 뒤집히지 않도록 상태에 고정한다)
+    history_mode: bool
+    history_scope: Optional[str]       # "topical" | "global" | None(비이력)
+    history_topic_tokens: List[str]
     # 노드가 채우는 값
     section: Optional[str]
     answer: str
@@ -251,7 +256,14 @@ def qa_node(state: QAState) -> dict:
     """Q&A 에이전트: 하이브리드 검색 + LangChain 생성 (qa_engine 부품 재사용).
     Project Memory 요약을 컨텍스트 앞에 얹어 프로젝트 맥락을 보강한다(입력↔출력 다리)."""
     pid, q = state["project_id"], state["question"]
-    context, sources, debug = qa_engine._build_context(pid, q)
+    # 검색 질의는 (재작성될 수 있는) question을 쓰고, 체인 선택 판정은
+    # run_qa 진입 시 고정된 predicate·주제 토큰을 쓴다.
+    context, sources, debug = qa_engine._build_context(
+        pid, q,
+        history_mode=state.get("history_mode", False),
+        history_scope=state.get("history_scope"),
+        history_topic_tokens=state.get("history_topic_tokens") or [],
+    )
 
     parts = []
     if state.get("attachment_context"):
@@ -398,22 +410,70 @@ _qa_app = None
 _ingest_app = None
 
 
+def _last_user_question(history: Optional[list]) -> str:
+    """대화 히스토리에서 가장 최근 사용자 질문을 반환한다. 없으면 빈 문자열."""
+    for message in reversed(history or []):
+        if message.get("role") == "user":
+            content = str(message.get("content", "")).strip()
+            if content:
+                return content
+    return ""
+
+
+def _resolve_history_state(
+    question: str, history: Optional[list], history_mode: Optional[bool]
+) -> tuple[bool, Optional[str], List[str], str]:
+    """이력 모드 predicate·주제 토큰을 최초 질문 기준으로 1회 계산한다.
+
+    반환값(모드·scope·토큰)은 QAState에 불변 보존된다 — rewrite_node의 재검색
+    suffix가 질문을 바꿔도 체인 선택 판정(전역형/주제형·주제 토큰)은 변하지 않는다.
+    effective_question은 검색 질의(멀티쿼리·dense)와 컴포넌트 관련도가 같은 주제를
+    보도록 초기 question으로도 쓰인다. history_mode=None이면 자체 감지
+    (호출자가 라우팅 결과를 안 넘긴 경우 호환).
+    """
+    if history_mode is None:
+        history_mode = history_intent.detect_history_intent(question)
+    if not history_mode:
+        return False, None, [], question
+
+    # 지시어 질문("그건 왜 바뀌었어?")은 직전 사용자 질문과 결합해 주제를 승계한다.
+    # 단 직전 질문도 지시어면 결합하지 않는다(연쇄 승계 방지).
+    effective_question = question
+    if history_intent.is_deictic(question):
+        previous = _last_user_question(history)
+        if previous and not history_intent.is_deictic(previous):
+            effective_question = f"{previous} {question}"
+
+    topic_tokens = history_intent.extract_content_tokens(effective_question)
+    scope = "topical" if topic_tokens else "global"
+    return True, scope, sorted(topic_tokens), effective_question
+
+
 def run_qa(
     project_id: int,
     question: str,
     history: Optional[list] = None,
     attachment_context: str = "",
     attachment_sources: Optional[list] = None,
+    history_mode: Optional[bool] = None,
 ) -> dict:
     """출력 그래프 실행 → {answer, plan, sources, debug}."""
     global _qa_app
     if _qa_app is None:
         _qa_app = build_qa_graph()
+    resolved_mode, history_scope, history_topic_tokens, effective_question = _resolve_history_state(
+        question, history, history_mode
+    )
     out = _qa_app.invoke({
-        "project_id": project_id, "question": question,
+        # 지시어 결합이 일어났으면 결합 질문으로 검색을 시작한다 — 멀티쿼리·dense와
+        # 컴포넌트 관련도가 같은 주제를 보게 하기 위함. rewrite suffix는 이 위에 붙는다.
+        "project_id": project_id, "question": effective_question,
         "history": history or [], "qa_retries": 0, "plan_retries": 0,
         "attachment_context": attachment_context,
         "attachment_sources": attachment_sources or [],
+        "history_mode": resolved_mode,
+        "history_scope": history_scope,
+        "history_topic_tokens": history_topic_tokens,
     })
     return out["result"]
 

@@ -45,6 +45,54 @@ def test_query_attachment_goes_to_temporary_context_not_router():
     assert body["debug"]["router_stage"] == "attachment"
 
 
+def test_attachment_path_passes_history_mode():
+    """TASK-004: 첨부 경로는 라우터를 우회하므로 이력 감지를 직접 호출해 전달한다."""
+    encoded = base64.b64encode("참고 자료".encode()).decode()
+    captured = {}
+
+    def fake_run_qa(**kwargs):
+        captured.update(kwargs)
+        return {"answer": "답", "sources": [], "debug": {}}
+
+    with patch("backend.api.query.require_project_access"), \
+         patch("backend.api.query.get_connection", return_value=_project_conn()), \
+         patch("backend.api.query.run_qa", side_effect=fake_run_qa):
+        resp = _client.post(
+            "/api/v1/projects/1/query",
+            json={
+                "question": "배포 주기가 왜 바뀌었어?",
+                "attachments": [{"filename": "note.txt", "content_base64": encoded}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["history_mode"] is True
+
+
+def test_general_path_passes_router_history_mode():
+    """TASK-004: 일반 경로는 라우터가 확정한 history_mode를 run_qa에 그대로 전달한다."""
+    from backend.retriever.query_intent import QueryRoute
+
+    captured = {}
+
+    def fake_run_qa(**kwargs):
+        captured.update(kwargs)
+        return {"answer": "답", "sources": [], "debug": {}}
+
+    decision = QueryRoute(route="semantic", router_stage="history_rule", history_mode=True)
+    with patch("backend.api.query.require_project_access"), \
+         patch("backend.api.query.get_connection", return_value=_project_conn()), \
+         patch("backend.api.query.classify_question", return_value=decision), \
+         patch("backend.api.query.run_qa", side_effect=fake_run_qa):
+        resp = _client.post(
+            "/api/v1/projects/1/query",
+            json={"question": "배포 주기가 왜 바뀌었어?"},
+        )
+
+    assert resp.status_code == 200
+    assert captured["history_mode"] is True
+
+
 def test_query_attachment_context_marks_truncation(monkeypatch):
     """첨부 텍스트 상한 초과 시 앞부분만 넣고 잘림 표시를 남긴다."""
     from backend.api import query as query_api

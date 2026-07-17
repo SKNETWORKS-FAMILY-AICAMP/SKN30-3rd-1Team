@@ -11,7 +11,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 
-from . import mysql_search, qa_engine
+from . import history_intent, mysql_search, qa_engine
 from ..db.mysql import get_connection
 from ..llm.chat_model_factory import get_chat_model
 
@@ -69,6 +69,7 @@ class QueryRoute(BaseModel):
 
     route: RouteLabel
     router_stage: str
+    history_mode: bool = False
 
 
 class RouteDecision(BaseModel):
@@ -111,6 +112,11 @@ def _routing_input(question: str, history: List[Dict] | None) -> str:
 
 def classify_question(question: str, history: List[Dict] | None = None) -> QueryRoute:
     """규칙으로 먼저 분기하고, 애매하면 LLM 구조화 분류로 라우팅한다."""
+    # 이력 질문 사전 판정 — 기존 규칙보다 우선한다. "변경 이력 정리해줘"(정리→overview),
+    # "이전 결정 목록"(목록→filter_lookup)처럼 이력 질문이 다른 규칙에 걸려
+    # 체인 없는 경로로 새는 것을 막고 semantic + history_mode로 확정한다.
+    if history_intent.detect_history_intent(question):
+        return QueryRoute(route="semantic", router_stage="history_rule", history_mode=True)
     has_filter = bool(_FILTER_RULE_RE.search(question))
     has_overview = bool(_OVERVIEW_RE.search(question))
     if has_filter and not has_overview:
