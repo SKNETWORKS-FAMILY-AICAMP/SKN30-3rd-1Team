@@ -40,6 +40,9 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+eval = [
+    "ragas>=0.4.3",
+]
 
 [project.scripts]
 paim-server = "backend.main:serve"

@@ -1,0 +1,3 @@
+pair_id,kind,old_id,new_id,detector_result,note,global_hook_status
+P-C1,positive,22,33,hit,supersede제안=1 정타=1,"{""called"": 5}"
+N-C1,negative,21,,correct_reject,supersede제안=0 정타=0,"{""called"": 5}"

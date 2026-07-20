@@ -6,7 +6,7 @@ from .base import BaseLLMClient, Message, LLMResponse
 
 class OpenAIClient(BaseLLMClient):
 
-    def __init__(self, model: str = "gpt-4o", max_tokens: int = 4096):
+    def __init__(self, model: str = "gpt-4.1-mini", max_tokens: int = 4096):
         self.client = openai.OpenAI()
         self.model = model
         self.max_tokens = max_tokens

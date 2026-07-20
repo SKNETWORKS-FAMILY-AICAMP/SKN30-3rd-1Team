@@ -1,3 +1,6 @@
+# ⚠️ DEPRECATED (TASK-006): 이 스크립트는 하이브리드 이전 검색을 자체 재구현해
+# 측정하며, 정본 평가 파이프라인은 backend/test/golden/run_eval.py 로 대체되었다.
+# 유지 이유: 과거 수치(0.571 등)의 재현 참조용. 신규 측정에는 사용하지 말 것.
 # RAG 성능 평가 (RAGAS, 로컬) — 우리 backend 하이브리드 검색을 평가한다.
 #
 # 목적: 성능 점수를 보고 리트리버/청킹 파라미터를 튜닝하기 위한 도구.
@@ -7,7 +10,7 @@
 #
 # 기본은 리트리버 튜닝용 경량 모드(정밀도+재현율 2지표, 병렬).
 #   EVAL_FULL=1  → 5지표 전체(최종 보고용, 느림)
-#   EVAL_JUDGE=gpt-4o  → 채점 모델 상향(최종 신뢰 보고용)
+#   EVAL_JUDGE=gpt-4.1  → 채점 모델 상향(최종 신뢰 보고용)
 #
 # ⚠️ 파일명 주의: `ragas.py` 금지 (패키지 shadowing).
 # 실행(SSH 터널 켠 상태):  python backend/test/rag_eval.py
@@ -59,8 +62,8 @@ from backend.retriever import qa_engine, mysql_search
 # ── 평가 대상 & 튜닝 파라미터 (환경변수 오버라이드) ──
 PROJECT_ID = int(os.getenv("EVAL_PID", "6"))
 qa_engine.CHROMA_K = int(os.getenv("EVAL_K", str(qa_engine.CHROMA_K)))
-qa_engine.CHROMA_MAX_DISTANCE = float(os.getenv("EVAL_MAXDIST", str(qa_engine.CHROMA_MAX_DISTANCE)))
-JUDGE_MODEL = os.getenv("EVAL_JUDGE", "gpt-4o-mini")
+EVAL_MAXDIST = float(os.getenv("EVAL_MAXDIST", "1.2"))  # 구 엔진의 CHROMA_MAX_DISTANCE 대체(현 엔진에 해당 상수 없음)
+JUDGE_MODEL = os.getenv("EVAL_JUDGE", "gpt-4.1-mini")
 FULL = os.getenv("EVAL_FULL", "0") == "1"
 MAX_WORKERS = int(os.getenv("EVAL_WORKERS", "8"))
 
@@ -100,7 +103,7 @@ def collect(project_id: int, question: str):
     scored = qa_engine._get_vectorstore().similarity_search_with_score(
         question, k=qa_engine.CHROMA_K, filter={"project_id": project_id}
     )
-    chroma_docs = [d for d, dist in scored if dist <= qa_engine.CHROMA_MAX_DISTANCE]
+    chroma_docs = [d for d, dist in scored if dist <= EVAL_MAXDIST]
     chroma_items = [d.page_content for d in chroma_docs]
 
     # RAGAS retrieved_contexts = 검색된 개별 컨텍스트(전체)
@@ -117,7 +120,7 @@ def collect(project_id: int, question: str):
 
 def main():
     mode = "전체(5지표)" if FULL else "경량(정밀도+재현율)"
-    print(f"[설정] PID={PROJECT_ID}  K={qa_engine.CHROMA_K}  MAXDIST={qa_engine.CHROMA_MAX_DISTANCE}  "
+    print(f"[설정] PID={PROJECT_ID}  K={qa_engine.CHROMA_K}  MAXDIST={EVAL_MAXDIST}  "
           f"judge={JUDGE_MODEL}  mode={mode}  workers={MAX_WORKERS}")
 
     client = OpenAI()
@@ -161,7 +164,7 @@ def main():
 
     df = result.to_pandas()
     tag = "full" if FULL else "lite"
-    out = _HERE.parent / f"rag_eval_{tag}_k{qa_engine.CHROMA_K}_d{qa_engine.CHROMA_MAX_DISTANCE}.csv"
+    out = _HERE.parent / f"rag_eval_{tag}_k{qa_engine.CHROMA_K}_d{EVAL_MAXDIST}.csv"
     df.to_csv(out, index=False, encoding="utf-8-sig")
     print(f"\n상세 저장: {out.name}")
 

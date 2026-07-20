@@ -1,9 +1,12 @@
+# ⚠️ DEPRECATED (TASK-006): 이 스크립트는 하이브리드 이전 검색을 자체 재구현해
+# 측정하며, 정본 평가 파이프라인은 backend/test/golden/run_eval.py 로 대체되었다.
+# 유지 이유: 과거 수치(0.571 등)의 재현 참조용. 신규 측정에는 사용하지 말 것.
 # RAG 성능 평가 (LangSmith + RAGAS) — 우리 backend 하이브리드 검색을 평가하고
 # LangSmith 웹 대시보드에 실험(experiment)으로 기록한다.
 #
 # 특징:
 #   - predict = 우리 backend(qa_engine) 호출  (노트북 RAG 아님)
-#   - 채점 = RAGAS 지표(gpt-4o 판정)
+#   - 채점 = RAGAS 지표(gpt-4.1 판정)
 #   - max_concurrency 병렬 실행 → 순차 대비 대폭 단축
 #   - LangSmith 프로젝트 'project_test_1' 에 기록
 #
@@ -65,8 +68,8 @@ from backend.retriever import qa_engine
 # ── 평가 대상 & 튜닝 파라미터 (환경변수 오버라이드) ──
 PROJECT_ID = int(os.getenv("EVAL_PID", "6"))
 qa_engine.CHROMA_K = int(os.getenv("EVAL_K", str(qa_engine.CHROMA_K)))
-qa_engine.CHROMA_MAX_DISTANCE = float(os.getenv("EVAL_MAXDIST", str(qa_engine.CHROMA_MAX_DISTANCE)))
-JUDGE_MODEL = os.getenv("EVAL_JUDGE", "gpt-4o")   # 채점 모델 (기본 gpt-4o)
+EVAL_MAXDIST = float(os.getenv("EVAL_MAXDIST", "1.2"))  # 구 엔진의 CHROMA_MAX_DISTANCE 대체(현 엔진에 해당 상수 없음)
+JUDGE_MODEL = os.getenv("EVAL_JUDGE", "gpt-4.1")   # 채점 모델 (기본 gpt-4.1)
 MAX_CONCURRENCY = int(os.getenv("EVAL_CONCURRENCY", "6"))
 
 DATASET_NAME = "PaiM_QA_Testset"
@@ -108,7 +111,7 @@ def predict(inputs: dict) -> dict:
 
 
 def ragas_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> list[dict]:
-    """RAGAS 4개 지표를 gpt-4o로 채점. (동시성 안전을 위해 호출마다 지표 생성)"""
+    """RAGAS 4개 지표를 JUDGE_MODEL로 채점. (동시성 안전을 위해 호출마다 지표 생성)"""
     ragas_llm = LangchainLLMWrapper(ChatOpenAI(model=JUDGE_MODEL, temperature=0))
     ragas_emb = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-3-small"))
 
@@ -151,10 +154,10 @@ def main():
         print(f"ℹ️ 기존 데이터셋 '{DATASET_NAME}' 재사용")
 
     exp_prefix = os.getenv(
-        "EVAL_EXP", f"paim-hybrid-k{qa_engine.CHROMA_K}-d{qa_engine.CHROMA_MAX_DISTANCE}"
+        "EVAL_EXP", f"paim-hybrid-k{qa_engine.CHROMA_K}-d{EVAL_MAXDIST}"
     )
     print(f"[설정] project=project_test_2  judge={JUDGE_MODEL}  "
-          f"K={qa_engine.CHROMA_K}  MAXDIST={qa_engine.CHROMA_MAX_DISTANCE}  "
+          f"K={qa_engine.CHROMA_K}  MAXDIST={EVAL_MAXDIST}  "
           f"concurrency={MAX_CONCURRENCY}")
     print(f"[실험] {exp_prefix}\n병렬 평가 실행 중...")
 

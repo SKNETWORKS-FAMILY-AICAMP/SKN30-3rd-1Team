@@ -1,0 +1,521 @@
+[
+ {
+  "corpus": "modu",
+  "id": "A1",
+  "tag": "decision",
+  "question": "Modu 앱의 핵심 콘셉트는 무엇인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A2",
+  "tag": "decision",
+  "question": "앱 개발 프레임워크로 Flutter를 선택한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A3",
+  "tag": "decision",
+  "question": "백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A4",
+  "tag": "decision",
+  "question": "이메일 발송 서비스로 AWS SES를 선택한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A5",
+  "tag": "decision",
+  "question": "관심사 카테고리는 어떻게 구성되었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A6",
+  "tag": "decision",
+  "question": "애플 로그인을 추가하게 된 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A7",
+  "tag": "decision",
+  "question": "모임 생성 시 인원 제한은 어떻게 정해졌는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A8",
+  "tag": "decision",
+  "question": "클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A9",
+  "tag": "decision",
+  "question": "마케팅 푸시 알림을 MVP에서 제외한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "A10",
+  "tag": "decision",
+  "question": "모임 탐색 화면은 어떤 방식으로 구현하기로 했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "B1",
+  "tag": "conflict",
+  "question": "로그인 방식에 대한 결정은 프로젝트 진행 중 어떻게 바뀌었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": true,
+  "expected_chain_pairs": [
+   "P-M1"
+  ]
+ },
+ {
+  "corpus": "modu",
+  "id": "B2",
+  "tag": "conflict",
+  "question": "출시 목표일은 처음 언제였고, 최종적으로 언제로 바뀌었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": true,
+  "expected_chain_pairs": [
+   "P-M2"
+  ]
+ },
+ {
+  "corpus": "modu",
+  "id": "B3",
+  "tag": "conflict",
+  "question": "출시일이 연기된 근본 원인을 거슬러 올라가면 어떤 결정 때문인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": true,
+  "note": "연쇄 인과(연기의 근본 원인) — 구 결정 체인 필요. 현 감지기 미탐 예상 문형",
+  "expected_chain_pairs": [
+   "P-M2",
+   "P-M1"
+  ]
+ },
+ {
+  "corpus": "modu",
+  "id": "B4",
+  "tag": "conflict_negative",
+  "question": "실시간 채팅 기능은 결정이 번복되었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "음성 대조군: 게시판형 결정 유지 + 실시간 채팅 1.1 편입 — 번복 아님 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "B5",
+  "tag": "decision",
+  "question": "이메일 인증 방식의 어떤 문제가 로그인 방식 변경을 촉발했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "문제 수치·변경 이유가 3/23 문서 하나에 완결 — 구 결정 없이 답 완전 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "B6",
+  "tag": "decision",
+  "question": "출시일 조정 시 검토한 3가지 시나리오는 무엇이었고 왜 B안이 선택되었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "출시일 조정 시나리오는 4/6 회의록 원문으로 답 가능 — 체인 불필요로 판단. 검수 요망"
+ },
+ {
+  "corpus": "modu",
+  "id": "B7",
+  "tag": "conflict",
+  "question": "소셜 로그인은 MVP 포함에서 제외되었다가 다시 포함되었는가, 아니면 처음부터 포함이었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": true,
+  "expected_chain_pairs": [
+   "P-M1"
+  ]
+ },
+ {
+  "corpus": "modu",
+  "id": "B8",
+  "tag": "decision",
+  "question": "베타 테스트 결과 중 리텐션(7일 유지율)은 몇 %였는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "B9",
+  "tag": "decision",
+  "question": "5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "5/11 단일 시점 결정의 이유 — 체인 불필요로 판단"
+ },
+ {
+  "corpus": "modu",
+  "id": "B10",
+  "tag": "conflict_negative",
+  "question": "5/18 출시일은 4/6 이후 또 바뀌었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "음성 대조군: 5/18 재확인 — 번복 아님, 활성 결정만으로 답 가능 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C1",
+  "tag": "action",
+  "question": "카카오/구글/애플 소셜 로그인 SDK 연동은 누가 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C2",
+  "tag": "action",
+  "question": "이메일 인증 스팸 문제 개선(SPF/DKIM 설정)은 누가 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C3",
+  "tag": "action",
+  "question": "베타 테스터 100명 모집은 누가 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C4",
+  "tag": "hallucination",
+  "question": "Modu 앱의 개발에 투입된 총 예산은 얼마인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "C5",
+  "tag": "hallucination",
+  "question": "정식 출시 후 실제 다운로드 수나 가입자 수는 얼마였는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "C6",
+  "tag": "action",
+  "question": "지도 마커 미표시 버그와 소셜 로그인 프로필 누락 버그는 각각 누가 수정했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C7",
+  "tag": "hallucination",
+  "question": "Modu 앱의 경쟁 앱 3종의 구체적인 이름은 무엇인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "C8",
+  "tag": "action",
+  "question": "모임 알림 지연 문제는 누가, 어떻게 해결했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "'누가+어떻게' 복합 설명형 — 방식·수치까지 답해야 하므로 filter 템플릿 불허 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "modu",
+  "id": "C9",
+  "tag": "hallucination",
+  "question": "1.1 업데이트 이후 2.0 버전에는 어떤 기능이 들어가는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "modu",
+  "id": "C10",
+  "tag": "action",
+  "question": "실시간 채팅 WebSocket 개발 착수는 누가 담당하며 언제 시작하는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "A1",
+  "tag": "decision",
+  "question": "파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A2",
+  "tag": "decision",
+  "question": "챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A3",
+  "tag": "decision",
+  "question": "chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A4",
+  "tag": "decision",
+  "question": "re-ranking을 정식 도입하기로 결정한 근거 수치는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A5",
+  "tag": "decision",
+  "question": "1차 개선 배포일은 언제로, 왜 그 날짜로 정했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A6",
+  "tag": "decision",
+  "question": "멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A7",
+  "tag": "decision",
+  "question": "LLM 모델을 최신 버전으로 업데이트하기로 한 이유와 예상 비용 증가는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A8",
+  "tag": "decision",
+  "question": "진단 스프린트를 먼저 진행하기로 한 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A9",
+  "tag": "decision",
+  "question": "회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "A10",
+  "tag": "decision",
+  "question": "배포 후 모니터링 계획은 구체적으로 무엇인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "B1",
+  "tag": "decision",
+  "question": "최종(6/27 기준) 전체 정답률은 몇 %이며, 개선 전 대비 몇 %p 향상됐는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "정답률 수치 추이 — 지표 변화이지 결정 번복 아님"
+ },
+ {
+  "corpus": "csbot",
+  "id": "B2",
+  "tag": "decision",
+  "question": "영역별 정답률 변화 중 re-ranking 도입 효과가 가장 명확하게 나타난 영역은?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "B3",
+  "tag": "conflict_negative",
+  "question": "[충돌 탐지] 파인튜닝에 대한 팀의 입장은 6/16과 6/27에 동일한가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "음성 대조군: 6/16 결정에 조건부 재검토가 내장 — 충돌처럼 보이지만 번복 아님. supersede 오탐 방지 검증용, golden pair의 negative 케이스와 연동 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "B4",
+  "tag": "conflict",
+  "question": "[충돌 탐지] re-ranking 도입 여부는 회의마다 어떻게 바뀌었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": true,
+  "expected_chain_pairs": [
+   "P-C1"
+  ]
+ },
+ {
+  "corpus": "csbot",
+  "id": "B5",
+  "tag": "decision",
+  "question": "반품 영역의 정답률은 개선 전부터 최종까지 어떻게 변화했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "정답률 변화 추이 — 결정 번복 아님으로 판단. 검수 요망"
+ },
+ {
+  "corpus": "csbot",
+  "id": "B6",
+  "tag": "decision",
+  "question": "응답 시간은 1차 개선 후와 re-ranking 도입 후 각각 어떻게 변했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "응답 시간 변화 추이 — 결정 번복 아님으로 판단"
+ },
+ {
+  "corpus": "csbot",
+  "id": "B7",
+  "tag": "conflict_negative",
+  "question": "[충돌 탐지] 멀티턴 맥락 유지 기능의 우선순위나 처리 방향이 회의마다 달라졌는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "음성 대조군: 쟁점→결정 구체화 — 선행 decision 부재로 체인 없음 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "B8",
+  "tag": "decision",
+  "question": "테스트 중 발견된 할루시네이션 사례는 몇 건이며 원인은?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "B9",
+  "tag": "decision",
+  "question": "자체 QA 테스트(6/9)에서 측정한 오답률은 몇 %였는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "B10",
+  "tag": "decision",
+  "question": "하루 평균 질의 건수와 fallback 응답 비율(개선 전)은 얼마였는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "C1",
+  "tag": "action",
+  "question": "지식 베이스 전면 갱신과 semantic chunking 구현은 각각 누가 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "C2",
+  "tag": "action",
+  "question": "2차 개선 항목 중 우선순위가 '높음'으로 분류된 항목은 무엇인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "우선순위 분류 항목 나열 — 담당자 조회 아님"
+ },
+ {
+  "corpus": "csbot",
+  "id": "C3",
+  "tag": "action",
+  "question": "1차 개선 프로덕션 배포는 누가, 언제 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "C4",
+  "tag": "hallu",
+  "question": "[문서에 없음] 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 무엇인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "C5",
+  "tag": "hallu",
+  "question": "[문서에 없음] 그린커머스의 계약 연장 여부는 최종적으로 어떻게 결정되었는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "C6",
+  "tag": "action",
+  "question": "멀티턴 기능 설계 문서 작성은 누가 담당하며 마감은 언제인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "C7",
+  "tag": "hallu",
+  "question": "[문서에 없음] 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "C8",
+  "tag": "action",
+  "question": "회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 누가, 언제까지 담당했는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ },
+ {
+  "corpus": "csbot",
+  "id": "C9",
+  "tag": "hallu",
+  "question": "[문서에 없음] 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 얼마인가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false
+ },
+ {
+  "corpus": "csbot",
+  "id": "C10",
+  "tag": "action",
+  "question": "배포 후 3일 시점 QA 재측정은 누가 담당하며 언제 실시되는가?",
+  "expected_route": "semantic",
+  "expected_history_mode": false,
+  "note": "역방향 담당자 질문(내용으로 행 특정 필요) — filter_lookup은 owner/category/마감 순방향 조회만 지원하므로 semantic이 정답 (라벨 리뷰 반영)"
+ }
+]

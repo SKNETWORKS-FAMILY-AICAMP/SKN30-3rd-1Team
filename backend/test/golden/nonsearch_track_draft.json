@@ -1,0 +1,77 @@
+{
+ "filter_forward": [
+  {
+   "corpus": "modu",
+   "id": "F1",
+   "tag": "filter_forward",
+   "question": "박현우가 담당한 액션 목록 보여줘",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "박현우"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  },
+  {
+   "corpus": "modu",
+   "id": "F2",
+   "tag": "filter_forward",
+   "question": "이수진 담당인 미완료 액션은?",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "이수진"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  },
+  {
+   "corpus": "modu",
+   "id": "F3",
+   "tag": "filter_forward",
+   "question": "한지민이 담당한 작업 목록 알려줘",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "한지민"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  },
+  {
+   "corpus": "csbot",
+   "id": "F1",
+   "tag": "filter_forward",
+   "question": "박서연이 담당한 액션 목록 보여줘",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "박서연"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  },
+  {
+   "corpus": "csbot",
+   "id": "F2",
+   "tag": "filter_forward",
+   "question": "강다은 담당 액션은 몇 개야?",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "강다은"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  },
+  {
+   "corpus": "csbot",
+   "id": "F3",
+   "tag": "filter_forward",
+   "question": "최민준이 담당한 작업 목록 보여줘",
+   "expected_route": "filter_lookup",
+   "expected_history_mode": false,
+   "answer_must_contain": [
+    "최민준"
+   ],
+   "note": "비검색 경로 트랙(후속 태스크) 초안 — 라우팅 감사 + 템플릿 답변 담당자 이름 결정론 검사"
+  }
+ ],
+ "overview": "후속 태스크에서 4문항 + 필수/금지 체크리스트 작성 예정"
+}

@@ -1,0 +1,31 @@
+corpus,qid,tag,question,expected_route,actual_route,router_stage,expected_history,actual_history,route_match,history_match
+modu,A1,decision,Modu 앱의 핵심 콘셉트는 무엇인가?,semantic,semantic,llm,False,False,True,True
+modu,A2,decision,앱 개발 프레임워크로 Flutter를 선택한 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A3,decision,백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A4,decision,이메일 발송 서비스로 AWS SES를 선택한 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A5,decision,관심사 카테고리는 어떻게 구성되었는가?,semantic,semantic,llm,False,False,True,True
+modu,A6,decision,애플 로그인을 추가하게 된 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A7,decision,모임 생성 시 인원 제한은 어떻게 정해졌는가?,semantic,semantic,llm,False,False,True,True
+modu,A8,decision,클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A9,decision,마케팅 푸시 알림을 MVP에서 제외한 이유는?,semantic,semantic,llm,False,False,True,True
+modu,A10,decision,모임 탐색 화면은 어떤 방식으로 구현하기로 했는가?,semantic,semantic,llm,False,False,True,True
+modu,B1,conflict,로그인 방식에 대한 결정은 프로젝트 진행 중 어떻게 바뀌었는가?,semantic,overview,llm,True,False,False,False
+modu,B2,conflict,"출시 목표일은 처음 언제였고, 최종적으로 언제로 바뀌었는가?",semantic,filter_lookup,llm,True,False,False,False
+modu,B3,conflict,출시일이 연기된 근본 원인을 거슬러 올라가면 어떤 결정 때문인가?,semantic,semantic,llm,True,False,True,False
+modu,B4,conflict_negative,실시간 채팅 기능은 결정이 번복되었는가?,semantic,semantic,history_rule,False,True,True,False
+modu,B5,decision,이메일 인증 방식의 어떤 문제가 로그인 방식 변경을 촉발했는가?,semantic,semantic,llm,False,False,True,True
+modu,B6,decision,출시일 조정 시 검토한 3가지 시나리오는 무엇이었고 왜 B안이 선택되었는가?,semantic,semantic,llm,False,False,True,True
+modu,B7,conflict,"소셜 로그인은 MVP 포함에서 제외되었다가 다시 포함되었는가, 아니면 처음부터 포함이었는가?",semantic,semantic,llm,True,False,True,False
+modu,B8,decision,베타 테스트 결과 중 리텐션(7일 유지율)은 몇 %였는가?,semantic,filter_lookup,llm,False,False,False,True
+modu,B9,decision,5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는?,semantic,semantic,llm,False,False,True,True
+modu,B10,conflict_negative,5/18 출시일은 4/6 이후 또 바뀌었는가?,semantic,filter_lookup,llm,False,False,False,True
+modu,C1,action,카카오/구글/애플 소셜 로그인 SDK 연동은 누가 담당했는가?,semantic,filter_lookup,rule,False,False,False,True
+modu,C2,action,이메일 인증 스팸 문제 개선(SPF/DKIM 설정)은 누가 담당했는가?,semantic,filter_lookup,rule,False,False,False,True
+modu,C3,action,베타 테스터 100명 모집은 누가 담당했는가?,semantic,filter_lookup,rule,False,False,False,True
+modu,C4,hallucination,Modu 앱의 개발에 투입된 총 예산은 얼마인가?,semantic,filter_lookup,llm,False,False,False,True
+modu,C5,hallucination,정식 출시 후 실제 다운로드 수나 가입자 수는 얼마였는가?,semantic,filter_lookup,llm,False,False,False,True
+modu,C6,action,지도 마커 미표시 버그와 소셜 로그인 프로필 누락 버그는 각각 누가 수정했는가?,semantic,filter_lookup,rule,False,False,False,True
+modu,C7,hallucination,Modu 앱의 경쟁 앱 3종의 구체적인 이름은 무엇인가?,semantic,semantic,llm,False,False,True,True
+modu,C8,action,"모임 알림 지연 문제는 누가, 어떻게 해결했는가?",semantic,filter_lookup,rule,False,False,False,True
+modu,C9,hallucination,1.1 업데이트 이후 2.0 버전에는 어떤 기능이 들어가는가?,semantic,overview,llm,False,False,False,True
+modu,C10,action,실시간 채팅 WebSocket 개발 착수는 누가 담당하며 언제 시작하는가?,semantic,filter_lookup,rule,False,False,False,True
