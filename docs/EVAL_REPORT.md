@@ -84,12 +84,13 @@ recall 우선 검색 설계의 의도된 비용이다.**
 | 지표 | modu | csbot | 비고 |
 |---|---|---|---|
 | routing_accuracy | 0.567 | 0.533 | 관측값(라우터는 구성 독립), 다수 LLM 폴백 |
-| chain_inclusion(E2-e2e) | 0.000 | 1.000 | 이력 체인 포함률 — modu 0.0은 **후속 확인 대상**(TASK-007 범위 밖) |
+| chain_inclusion(E2-e2e) | 0.000 | 1.000 | pair old/new 문구가 검색 컨텍스트에 포함됐는지 검사 — **이력 라우팅 작동 여부가 아님** |
 | abstain_rate | 1.000 | 0.75~1.0 | 환각 문항 기권률 |
 
 - `routing_accuracy`·`chain_inclusion`은 합격 조건이 아닌 **관측 지표**다.
-- **modu의 E2-e2e chain_inclusion=0.0**은 이력 체인 포함이 기대만큼 되지 않았음을
-  시사하며, TASK-007(출처 인용)과 별개의 후속 진단 항목으로 남긴다.
+- `chain_inclusion`은 이력 로직 작동 지표가 아니다: 문구가 일반 검색으로 들어와도
+  통과한다(csbot 1.0이 그 경우 — §8). modu 0.0은 문구 미포함. 이력 라우팅이
+  실제로 켜졌는지는 §8(이력 감지 재현율 0%)로 판단한다.
 
 ## 6. 한계
 
@@ -159,25 +160,33 @@ recall 우선 검색 설계의 의도된 비용이다.**
 ## 8. 질문별 라우팅 감사 — 이력 라우팅 필요/불필요 (dev)
 
 **이력(history_mode) 라우팅이 필요한 질문(expected_history=True)이 실제로
-감지됐는지, 불필요한 질문(False)이 잘못 라우팅됐는지**를 정리한다. 단일 audit
-스냅샷(`classify_question` 직접 호출) 기준이며, `router_stage=llm` 문항은
-비결정적이라 measure 시점과 다를 수 있다(관측 지표, 합격 조건 아님).
-엑셀 `라우팅감사` 시트에 문항별 전체(60행, `mismatch` 열로 필터) 수록.
+감지됐는지, 불필요한 질문(False)이 잘못 라우팅됐는지**를 정리한다.
+`history_mode`는 정규식(`detect_history_intent`)으로 결정론적으로 판정되며
+(LLM은 route 분류만 담당, history를 켜지 못함), 이 미탐 결과는 재현된다
+(관측 지표, 합격 조건 아님). 엑셀 `라우팅감사` 시트에 문항별 전체(60행,
+`mismatch` 열로 필터) 수록.
 
 | 코퍼스 | 필요(True) | 감지(TP) | **미탐(FN)** | 불필요(False) | **오탐(FP)** |
 |---|---|---|---|---|---|
 | modu | 4 | 0 | **4** — conflict B1·B2·B3·B7 | 26 | 1 — B4(conflict_negative) |
 | csbot | 1 | 0 | **1** — conflict B4 | 29 | 1 — A3(decision) |
 
-- **핵심 발견**: 이력 라우팅이 필요한 conflict 질문을 **단일 audit에서 하나도
-  감지하지 못했다(재현율 0%)**. 이것이 §8-분석노트의 chain_inclusion(modu
-  E2-e2e 0/4)과 직접 연결된다 — 이력 모드가 자동 경로(e2e)에서 안 켜지면
-  supersede 체인 로직에 진입하지 못한다.
-- 오탐(불필요한데 라우팅됨)은 각 코퍼스 1건씩(modu B4 대조군, csbot A3) — 소수.
-- **주의**: `router_stage=llm` 문항의 비결정성 때문에 이 스냅샷의 미탐이
-  measure의 chain_inclusion(csbot 1/1 등)과 어긋날 수 있다. 즉 **이력 라우팅의
-  신뢰도·재현성 자체가 낮다**는 것이 진짜 결론이며, 이력 감지 개선은 TASK-008
-  (E1·E2 supersede 정당화)의 핵심 진단 대상이다.
+- **핵심 발견**: 이력 라우팅이 필요한 conflict 질문을 **하나도 감지하지 못했다
+  (재현율 0%)**. 오탐(불필요한데 감지)은 각 코퍼스 1건씩(modu B4 대조군, csbot A3).
+- **원인 규명**: 이력 감지(`detect_history_intent`)는 **정규식 기반 결정론적**
+  판정이다. "어떻게 **바뀌었는가**"·"제외됐다가 다시 포함" 같은 conflict 표현이
+  현재 트리거에 안 걸려(**recall 부족**) 미탐된다. 즉 재현성 문제가 아니라
+  **감지 규칙의 recall 문제**다(LLM은 route만 정하고 history를 켜지 못하므로,
+  이력 라우팅은 전적으로 이 정규식 recall에 달려 있다).
+- **chain_inclusion과의 관계(중요)**: measure의 `chain_inclusion`(csbot 1.0)은
+  이력 라우팅이 켜졌음을 뜻하지 **않는다**. 이 지표는 pair의 old/new 문구가
+  검색 컨텍스트에 있는지만 검사하는데, 그 문구는 **일반 하이브리드 검색으로도
+  들어온다**(csbot B4: old "도입 여부"가 `issue` 행, new "정식 도입"이
+  `decision` 행으로 각각 검색돼 통과 — history_mode=False인데도). 따라서 audit
+  미탐과 chain_inclusion=1.0은 **모순이 아니라 서로 다른 것을 측정**한 결과다.
+- 개선은 트리거 정규식 확장으로 가능하다(결정론적이라 튜닝 후 recall 즉시 측정).
+  **이력 감지 개선 = TASK-008(선행)**, 그 위에서 supersede correctness 검증 =
+  **TASK-009**로 분리한다.
 
 ## 9. 분석 노트 (세션 중 확인 사항)
 
@@ -197,14 +206,17 @@ recall 우선 검색 설계의 의도된 비용이다.**
    전 구성 1.0으로 안정(대조군 정보 누락 없음).
 4. **E1·E2 도입을 현재 지표로는 정당화하기 어렵다**. 5개 축은 전부 "컨텍스트에
    근거했는가"만 재고 "옛 결정 vs 최신 결정 중 맞는 것을 골랐는가"는 못 본다.
-   → 신규 LLM-judge 지표 `supersede_correctness`(E0/E1/E2 비교)를 **TASK-008**로
-   분리해 설계 중.
-5. **이력 라우팅 재현율 0%**(§8) + **chain_inclusion modu 0/4** — 이력 감지가
-   자동 경로에서 신뢰도가 낮다. TASK-008의 핵심 진단 대상(감지 실패면 E2의
-   이력 기능이 e2e에서 발동조차 안 함).
+   → 신규 LLM-judge 지표 `supersede_correctness`(E0/E1/E2 비교)를 **TASK-009**로
+   분리(이력 감지가 선행돼야 유효 — 아래 5번).
+5. **이력 감지 recall 부족**(§8): `detect_history_intent`(정규식)가 conflict
+   표현("바뀌었는가" 등)을 못 잡아 재현율 0%(결정론적, 비결정 아님). LLM은
+   route만 정하고 history를 켜지 못하므로 이력 라우팅은 이 정규식 recall에
+   전적으로 달려 있다. `chain_inclusion`은 라우팅 작동과 무관(문구 포함 검사)
+   하므로 이력 로직 지표로 쓸 수 없다. → 이력 감지 개선을 **TASK-008**로 선행,
+   그 위에서 supersede correctness 검증은 **TASK-009**.
 6. **conflict_negative faithfulness 하락**(final, E0→E2-e2e: modu 0.83→0.59,
    csbot 0.86→0.61) — 이력 모드가 대조군(번복 아님)에서 번복 서사를 과잉
-   생성할 가능성. TASK-008 관전 포인트.
+   생성할 가능성. TASK-009(supersede correctness) 관전 포인트.
 7. **citation_grounding 경계 사례 A7**(§4), **CSV utf-8-sig 인코딩**(Excel 한글
    호환), **추적 스냅샷**(답변·SQL/벡터 근거·인용 로컬 저장)으로 오프라인 검수
    가능.

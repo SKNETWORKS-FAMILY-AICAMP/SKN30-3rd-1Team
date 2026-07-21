@@ -213,6 +213,9 @@ data/uploads/
 .claude/
 evals/results/
 
+# Office(Excel 등) 임시 잠금 파일 — 문서를 열어두면 생김
+~$*
+
 
 # 골든셋 평가 파이프라인 상태물 (체크포인트·Chroma 스냅샷·컨텍스트 전문 — 로컬 전용)
 backend/test/golden/.eval_state/

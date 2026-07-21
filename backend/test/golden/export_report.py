@@ -117,7 +117,8 @@ def main() -> None:
     # 시트 5: 한계·주석
     notes = pd.DataFrame({
         "항목": ["context_precision", "citation_grounding", "비결정성",
-                 "routing/chain", "chain_inclusion(modu E2-e2e)"],
+                 "라우팅 감사", "이력 감지(history_mode)",
+                 "chain_inclusion"],
         "내용": [
             "recall 우선 검색 설계상 낮은 순도 지표. SQL 구조화 기록이 문항당 "
             "13~16행 반환(무관 행 포함) → precision 희석. 하이브리드가 naive 대비 "
@@ -125,8 +126,13 @@ def main() -> None:
             "답변의 (출처: 라벨) 마커를 검색 출처 집합으로 엄격 판정. 마커 형식이 "
             "어긋나면(A7 '원문' 접미) 실제 파일 인용이어도 0점.",
             "답변 생성 비결정성으로 인용 수치 소폭 변동(직전 run modu C10 0.962→1.0).",
-            "관측 지표(합격 조건 아님). 다수 문항 LLM 폴백이라 비결정 가능.",
-            "0.0 — 이력 체인 포함이 기대만큼 안 됨. TASK-007 범위 밖 후속 진단 대상.",
+            "route(semantic/filter_lookup/overview)는 LLM 폴백이라 비결정 가능. "
+            "단 history_mode는 정규식이라 결정론적.",
+            "정규식(detect_history_intent)으로만 켜짐(LLM은 route만). conflict "
+            "표현('바뀌었는가' 등)을 못 잡아 재현율 0% — 재현성 아닌 recall 문제. "
+            "개선=TASK-008(선행), supersede correctness=TASK-009.",
+            "이력 라우팅 작동 지표가 아님 — pair old/new 문구가 검색 컨텍스트에 "
+            "있는지만 검사(일반 검색으로도 통과, csbot 1.0이 그 경우).",
         ],
     })
 
@@ -145,7 +151,8 @@ def main() -> None:
             "출처 추적성) — final E0·E2-e2e만",
             "라우팅 감사 정확도 — 관측값(합격 조건 아님)",
             "이력 질문 감지율 — 관측값",
-            "이력 체인 포함률(E2, 기대 pair 문구 포함) — 높을수록 좋음",
+            "pair old/new 문구가 검색 컨텍스트에 포함됐는지 검사(E2) — 이력 "
+            "라우팅 작동 여부가 아님(일반 검색으로도 통과)",
             "환각 문항 기권률(환각 방지) — 높을수록 좋음",
             "검색 구성: R0-sql/vec/both(초기 재현)·E0(하이브리드)·E1(+계층1·2)·"
             "E2-e2e(+계층3, 실서비스 경로)",
