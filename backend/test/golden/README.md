@@ -43,7 +43,11 @@ judge를 공유하도록 — 2026-07-20 dev 승격 방식으로 전환, 아래 p
 | phase | judge | 용도 |
 |---|---|---|
 | `dev` (기본) | gpt-4.1-mini | 파이프라인 검증·개발 반복 — 저비용 |
-| `final` | gpt-4.1-mini | **보고서·발표 수치** — context 지표는 dev 승격, 생성 지표(faithfulness·relevancy)만 E0·E2 증분 |
+| `final` | gpt-4.1-mini | **보고서·발표 수치** — context 지표는 dev 승격, 생성 지표(faithfulness·relevancy)·출처 추적성(citation_grounding)만 E0·E2 증분 |
+
+출처 추적성(`citation_grounding`, TASK-007): 답변이 근거의 실제 출처를
+`(출처: 파일명)` 마커로 인용했는지(유형 라벨·허위 출처·본문 우연 언급은 0점).
+final E0·E2-e2e에서 실서비스와 동일한 렌더링 컨텍스트로 답변을 생성해 측정한다.
 
 summary는 `(run_id, corpus, config, phase)` 키로 분리 기록되므로 dev/final이
 서로 덮어쓰지 않는다. 같은 키에 다른 judge로 다시 쓰려면 `--overwrite` 필요.

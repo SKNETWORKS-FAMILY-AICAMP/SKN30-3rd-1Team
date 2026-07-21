@@ -1,4 +1,4 @@
-qid,tag,question,n_contexts,context_precision,context_recall,faithfulness,response_relevancy,history_mode,history_rows_added,history_truncated,chain_included,abstained
+﻿qid,tag,question,n_contexts,context_precision,context_recall,faithfulness,response_relevancy,history_mode,history_rows_added,history_truncated,chain_included,abstained
 A1,decision,Modu 앱의 핵심 콘셉트는 무엇인가?,5,0.8875,1.0,,,,,,,
 A2,decision,앱 개발 프레임워크로 Flutter를 선택한 이유는?,5,1.0,1.0,,,,,,,
 A3,decision,백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?,5,0.9167,1.0,,,,,,,

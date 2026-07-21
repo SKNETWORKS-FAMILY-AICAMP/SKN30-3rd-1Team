@@ -84,8 +84,11 @@ def fetch_supersede_graph(project_id: int) -> List[Dict]:
     sql = (
         "SELECT m.id, m.project_id, m.category, m.content, m.reason, m.topic,"
         " m.owner, m.date, m.due_date, m.completed_at, m.source,"
-        " m.superseded_by, m.superseded_at"
+        " m.superseded_by, m.superseded_at,"
+        " ms.source_kind, ms.doc_id AS ms_doc_id, ms.repo_id AS ms_repo_id,"
+        " ms.source_type, ms.source_path, ms.source_ref, ms.source_url"
         " FROM memory m"
+        " LEFT JOIN memory_sources ms ON ms.memory_id = m.id"
         " WHERE m.project_id = %s AND m.category = 'decision'"
         " AND (m.superseded_by IS NOT NULL"
         "      OR m.id IN (SELECT s.superseded_by FROM memory s"
@@ -96,6 +99,19 @@ def fetch_supersede_graph(project_id: int) -> List[Dict]:
     try:
         with conn.cursor() as cursor:
             cursor.execute(sql, [project_id, project_id])
-            return cursor.fetchall()
+            rows = cursor.fetchall()
     finally:
         conn.close()
+    # 체인 행에도 source_info(repo_id·path)를 실어 충돌 없는 출처 라벨(repo#N)을
+    # 만들 수 있게 한다(리뷰 C-002) — search()와 동일 형식.
+    for row in rows:
+        row["source_info"] = {
+            "kind":    row.pop("source_kind", None),
+            "doc_id":  row.pop("ms_doc_id", None),
+            "repo_id": row.pop("ms_repo_id", None),
+            "type":    row.pop("source_type", None),
+            "path":    row.pop("source_path", None),
+            "ref":     row.pop("source_ref", None),
+            "url":     row.pop("source_url", None),
+        }
+    return rows

@@ -302,12 +302,13 @@ def test_pairs_idempotent_when_already_post(tmp_path, monkeypatch):
     (tmp_path / "modu").mkdir(parents=True)
     # 이 run의 coverage가 이미 존재 → 복구 경로도 불필요(R2-005)
     (tmp_path / "pair_coverage_modu_dev_r1.csv").write_text("pair_id\n")
-    # 첫 _state-check(post)가 통과(0) → 즉시 건너뜀, worker 미호출
+    # 첫 _state-check(post)가 통과(0) → 즉시 건너뜀, worker 미호출.
+    # 단, post 상태 프로젝트 메모리는 보장해야 하므로 pmem은 재생성한다(C-001).
     calls, fake_run = _fake_subprocess({"_state-check": 0})
     monkeypatch.setattr(run_eval.subprocess, "run", fake_run)
 
     run_eval.cmd_pairs(_pairs_args())            # SystemExit 없이 정상 반환
-    assert calls == ["_state-check"]
+    assert calls == ["_state-check", "pmem"]
     assert "_pairs-worker" not in calls
 
 
@@ -854,6 +855,46 @@ def test_ragas_score_aborts_before_publish_on_nan(monkeypatch):
     assert "context_precision" not in rows[0]  # 문항별 점수 합류도 미실행
 
 
+def test_ragas_score_raises_judge_max_tokens(monkeypatch):
+    """judge max_tokens 상향: ragas 기본 1024는 E0 원본 답변 faithfulness의
+    진술 분해 출력이 잘려 IncompleteOutputException→NaN을 유발했다(modu E0
+    final Job[62]). ragas_score가 llm_factory에 JUDGE_MAX_TOKENS를 넘기고,
+    그 값이 기본 1024보다 큰지 검증 — 기본으로 되돌아가면 실패."""
+    import pandas as pd
+    run_eval._install_vertexai_shim()
+    ragas_mod = pytest.importorskip("ragas")
+    import ragas.llms as ragas_llms
+    import ragas.metrics as ragas_metrics
+    import openai
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-dummy")
+    captured = {}
+
+    def _fake_factory(*a, **kw):
+        captured.update(kw)
+        return object()
+
+    class _FakeResult:
+        def to_pandas(self):
+            return pd.DataFrame(
+                {"llm_context_precision_with_reference": [1.0],
+                 "context_recall": [1.0]})
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", lambda **kw: object())
+    monkeypatch.setattr(ragas_llms, "llm_factory", _fake_factory)
+    monkeypatch.setattr(ragas_metrics, "LLMContextPrecisionWithReference",
+                        lambda **kw: object())
+    monkeypatch.setattr(ragas_metrics, "LLMContextRecall", lambda **kw: object())
+    monkeypatch.setattr(ragas_mod, "EvaluationDataset",
+                        type("_ED", (), {"from_list": staticmethod(lambda x: x)}))
+    monkeypatch.setattr(ragas_mod, "evaluate", lambda **kw: _FakeResult())
+    rows = [{"tag": "decision", "question": "q1", "contexts": ["c"],
+             "reference": "r"}]
+    run_eval.ragas_score(rows, "gpt-4.1-mini", False, 1)
+
+    assert captured.get("max_tokens") == run_eval.JUDGE_MAX_TOKENS
+    assert run_eval.JUDGE_MAX_TOKENS > 1024   # ragas 기본으로 회귀 금지
+
+
 def test_invalidate_measurement_removes_only_target(tmp_path, monkeypatch):
     """R6-001: 재측정 무효화가 대상 run/config의 게시물 3종(마커·상세 CSV·
     summary 행)만 제거하고 다른 측정은 건드리지 않는다."""
@@ -925,3 +966,111 @@ def test_docs_and_methods_match_runtime_defaults():
     assert run_eval.PHASE_JUDGE["dev"] in readme
     assert run_eval.PHASE_JUDGE["final"] in readme
     assert "4o-mini" not in readme  # 교체 전 judge 표기 잔존 금지
+
+
+# ── TASK-007: 출처 추적성(인용 근거성) 측정 ───────────────────────────────────
+
+def test_citation_grounding_scores():
+    """근거 있는 인용만 인정하고 유형 라벨·본문 언급·허위 출처는 0점."""
+    cg = run_eval.citation_grounding
+    labels = ["2026-03-02_회의.md", "설계.md"]
+    assert cg("착수는 5월. (출처: 2026-03-02_회의.md)", labels) == 1.0
+    # 본문에 파일명만 언급, 완전 마커 없음 → 0.0 (리뷰 R-006)
+    assert cg("2026-03-02_회의.md 에 따르면 5월 착수", labels) == 0.0
+    # 컨텍스트 유형 이름을 출처로 오용 → 0.0
+    assert cg("결론. (출처: 구조화 기록)", labels) == 0.0
+    # 검색 출처에 없는 허위 파일 인용 → 0.0
+    assert cg("(출처: 없는파일.md)", labels) == 0.0
+    # 인용 자체가 없음 → 0.0
+    assert cg("그냥 답변", labels) == 0.0
+
+
+def test_citation_grounding_delimiter_safe_filename():
+    """파일명에 ')' 가 있어도 리터럴 매칭이라 근거로 인정(리뷰 R-003)."""
+    labels = ["회의록) 최종.md"]
+    assert run_eval.citation_grounding(
+        "결론. (출처: 회의록) 최종.md)", labels) == 1.0
+
+
+def test_citation_grounding_multi_source_marker():
+    """한 마커에 콤마로 여러 출처를 묶어도 근거로 인정 — 스모크에서 확인된
+    실제 표기 (출처: A, B). 모두 검색 출처면 1.0."""
+    labels = ["2026-03-23_a.md", "2026-03-30_b.md"]
+    assert run_eval.citation_grounding(
+        "담당은 박현우. (출처: 2026-03-23_a.md, 2026-03-30_b.md)", labels) == 1.0
+    # 묶인 출처 중 하나라도 검색 출처 밖이면 0.0
+    assert run_eval.citation_grounding(
+        "(출처: 2026-03-23_a.md, 없는.md)", labels) == 0.0
+
+
+def test_citation_grounding_repo_label_with_paren_in_multi_source():
+    """R3-P2: 라벨에 ')'가 든 저장소 출처(README.md (repo#7))가 다중 출처
+    마커에 묶여도, 알려진 라벨 경계 파싱으로 정상 인정한다."""
+    labels = ["README.md (repo#7)", "design.md"]
+    assert run_eval.citation_grounding(
+        "정비함. (출처: README.md (repo#7), design.md)", labels) == 1.0
+    # 단일 저장소 라벨도 정상
+    assert run_eval.citation_grounding(
+        "(출처: README.md (repo#7))", labels) == 1.0
+    # repo 라벨 + 허위가 섞이면 0.0
+    assert run_eval.citation_grounding(
+        "(출처: README.md (repo#7), 없는.md)", labels) == 0.0
+
+
+def test_split_contexts_separates_sql_and_vector():
+    """추적 스냅샷용: SQL 구조화 기록과 벡터 원문 청크를 출처 라벨·렌더링
+    메타데이터와 함께 분리. 벡터는 text_full(전문)을 우선 사용한다."""
+    debug = {
+        "mysql_rows": [{"content": "결정1", "source_label": "a.md",
+                        "category": "action", "owner": "김", "date": "2026-03-02",
+                        "due_date": "2026-03-09", "completed": True}],
+        "chroma_chunks": [{"text": "짧은", "text_full": "원문 전체 청크",
+                           "source_label": "b.md", "date": "2026-03-02"}],
+    }
+    sql, vec = run_eval.split_contexts(debug)
+    # SQL은 _row_line_body 렌더링에 쓰이는 메타(owner·date·due_date·완료)까지 보존(C5-003)
+    assert sql == [{"content": "결정1", "source_label": "a.md", "category": "action",
+                    "owner": "김", "date": "2026-03-02", "due_date": "2026-03-09",
+                    "completed": True}]
+    assert vec == [{"text": "원문 전체 청크", "source_label": "b.md",
+                    "date": "2026-03-02"}]
+    # 빈 debug → 빈 리스트
+    assert run_eval.split_contexts({}) == ([], [])
+
+
+def test_split_contexts_tolerates_r0_int_counts():
+    """C5-001: R0 수집기는 mysql_rows/chroma_chunks에 정수 카운트를 넣는다.
+    비리스트 값은 빈 리스트로 처리해 TypeError로 측정이 중단되지 않게 한다."""
+    assert run_eval.split_contexts(
+        {"mysql_rows": 5, "chroma_chunks": 3}) == ([], [])
+
+
+def test_gen_context_falls_back_to_joined_contexts():
+    """C5-002: 렌더링 컨텍스트가 없으면(R0) 수집 원문을 join해 폴백 — 빈
+    컨텍스트로 생성·기권하지 않게 한다."""
+    assert run_eval._gen_context({"rendered_context": "렌더링됨"},
+                                 ["a", "b"]) == "렌더링됨"
+    assert run_eval._gen_context({}, ["a", "b"]) == "a\nb"
+
+
+def test_citation_grounding_grounded_plus_fabricated_is_zero():
+    """근거 있는 인용에 허위 인용이 섞이면 0점 — 허위 출처 오통과 방지."""
+    labels = ["a.md"]
+    assert run_eval.citation_grounding(
+        "(출처: a.md) 그리고 (출처: b.md)", labels) == 0.0
+
+
+def test_build_context_configured_preserves_rendered_and_labels(monkeypatch):
+    """[R-001] RAGAS용 원문 contexts는 유지하되, 생성·인용 측정용 렌더링
+    컨텍스트(출처 마커 포함)와 검색 출처 라벨 집합을 debug로 노출한다."""
+    from backend.retriever import qa_engine
+    debug = {"mysql_rows": [{"content": "c1", "source_label": "a.md"}],
+             "chroma_chunks": [{"text_full": "t1", "source_label": "b.md"}]}
+    monkeypatch.setattr(
+        qa_engine, "_build_context",
+        lambda *a, **k: ("[구조화 기록]\nc1 (출처: a.md)", ["a.md"], debug))
+    contexts, out = run_eval._build_context_configured(
+        1, "q", history_mode=False)
+    assert contexts == ["c1", "t1"]                 # RAGAS 입력은 원문 유지
+    assert out["rendered_context"] == "[구조화 기록]\nc1 (출처: a.md)"
+    assert out["source_labels"] == ["a.md", "b.md"]

@@ -1,4 +1,4 @@
-qid,tag,question,n_contexts,context_precision,context_recall,faithfulness,response_relevancy,history_mode,history_rows_added,history_truncated,chain_included,abstained
+﻿qid,tag,question,n_contexts,context_precision,context_recall,faithfulness,response_relevancy,history_mode,history_rows_added,history_truncated,chain_included,abstained
 A1,decision,파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?,17,0.1326,1.0,,,False,,,,
 A2,decision,챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?,17,0.3895,1.0,,,False,,,,
 A3,decision,chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?,17,0.5375,1.0,,,False,,,,

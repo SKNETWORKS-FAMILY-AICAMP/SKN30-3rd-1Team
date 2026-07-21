@@ -52,7 +52,7 @@ QA 스키마: `{id, set(A/B/C), tag, question, answer(골든 답), source(출처
 - 예상 시나리오: E1은 A세트 상승·B세트 하락 가능(구 결정 숨김) → E2가 B세트를
   회복하는지가 핵심 관전 포인트.
 
-## 3. 측정 축 (4개)
+## 3. 측정 축 (5개)
 
 1. **RAGAS 검색 품질** (비환각 52문항 = A·B 40 + C-action 12, × 6구성):
    context_precision / context_recall, LLM judge(gpt-4.1-mini, 최종 보고 시 상향 — 2026-07-20 4o-mini RPD 소진으로 4.1 계열 교체).
@@ -69,6 +69,21 @@ QA 스키마: `{id, set(A/B/C), tag, question, answer(골든 답), source(출처
    `debug.history_rows_added`·기대 결정 포함 여부 단언.
 4. **환각 기권률** (hallucination 8문항): 응답의 "기록에서 확인되지 않는다" 류
    기권 표현 비율.
+5. **출처 추적성(인용 근거성)** (final E0·E2-e2e, 비환각 답변, 결정론·LLM 비용
+   0, TASK-007): 답변이 근거의 실제 출처를 `(출처: 라벨)` 마커로 인용했는지.
+   - 라벨은 충돌 없는 식별자 — 문서는 파일명, 저장소 파일은 `repo#N` 접미로
+     동명 충돌 방지. 검색된 출처 라벨 집합의 **완전 마커 리터럴 등장**만 근거로
+     인정(파일명에 구분자가 있어도 안전, 본문 우연 언급·부분문자열은 불인정).
+   - 근거 있는 인용을 제거한 뒤에도 `(출처:` 가 남으면 허위 출처/유형 라벨
+     오용이므로 0점. 문항별 1.0/0.0 → 코퍼스 평균 `citation_grounding`.
+   - 실서비스와 동일한 렌더링 컨텍스트로 답변을 생성해야 유효하다(§3주 참고).
+
+> 주(TASK-007): 답변 생성은 `_build_context`의 **렌더링 컨텍스트**(출처 마커
+> 포함)로 수행한다. RAGAS 검색 지표(1축)에는 마커 없는 원문 청크를 그대로
+> 쓰므로 context_precision/recall은 영향받지 않는다. E2-e2e는 실서비스
+> (`graph.qa_node`)와 동일하게 `[프로젝트 메모리]` 접두를 조립하며, 이를 위해
+> ingest 단계에서 프로젝트 메모리 요약을 생성한다(무출처 요약이라 인용 근거
+> 집합에는 더해지지 않음).
 
 ## 4. 기대 라우팅 라벨 (`routing_expected.json`, 리뷰 반영 v2)
 
@@ -126,10 +141,15 @@ phase 계약: `dev`(lite, judge gpt-4.1-mini — 개발 반복용) / `final`(보
    `(run_id, corpus, config, phase)` upsert(주 구성 6종 × 2코퍼스 = phase당
    12행): `run_id, date, commit, corpus, config, phase, judge, n,
    context_precision, context_recall, faithfulness, response_relevancy,
-   routing_accuracy, history_detect_rate, chain_inclusion_rate, abstain_rate`.
+   citation_grounding, routing_accuracy, history_detect_rate,
+   chain_inclusion_rate, abstain_rate`.
+   (`citation_grounding`은 생성 지표를 측정한 구성 = final E0·E2-e2e에서만 채워짐.)
    같은 키에 다른 judge 기록은 거부(--overwrite로만 교체).
-2. **`results/ragas_<corpus>_<config>_<phase>_<runid>.csv`** — 문항별 상세.
-   검색 컨텍스트 전문은 `.eval_state/contexts_*.jsonl`(로컬 전용, gitignore).
+2. **`results/ragas_<corpus>_<config>_<phase>_<runid>.csv`** — 문항별 상세(점수).
+   추적용 전문 스냅샷은 `.eval_state/contexts_*.jsonl`(로컬 전용, gitignore):
+   문항별 `question·response(답변 원문)·citation_grounding·source_labels`와
+   **SQL 구조화 기록(sql_contexts)·벡터 원문 청크(vector_contexts)를 출처 라벨과
+   함께 분리 저장** — LangSmith 없이 답변·검색 근거·인용을 오프라인 확인.
 3. **`results/oracle_<corpus>_E2-oracle_<phase>_<runid>.csv`** — E2-oracle 보조
    측정(summary 12행 계약 밖 — 감지 실패와 체인 품질의 분리 진단 전용).
 4. **`results/routing_audit_<corpus>_<phase>_<runid>.csv`** — 코퍼스별 30문항

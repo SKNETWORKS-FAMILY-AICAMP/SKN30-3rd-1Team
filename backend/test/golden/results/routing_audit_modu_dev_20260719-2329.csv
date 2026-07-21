@@ -1,4 +1,4 @@
-corpus,qid,tag,question,expected_route,actual_route,router_stage,expected_history,actual_history,route_match,history_match
+﻿corpus,qid,tag,question,expected_route,actual_route,router_stage,expected_history,actual_history,route_match,history_match
 modu,A1,decision,Modu 앱의 핵심 콘셉트는 무엇인가?,semantic,semantic,llm,False,False,True,True
 modu,A2,decision,앱 개발 프레임워크로 Flutter를 선택한 이유는?,semantic,semantic,llm,False,False,True,True
 modu,A3,decision,백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?,semantic,semantic,llm,False,False,True,True

@@ -1,4 +1,4 @@
-corpus,qid,tag,question,expected_route,actual_route,router_stage,expected_history,actual_history,route_match,history_match
+﻿corpus,qid,tag,question,expected_route,actual_route,router_stage,expected_history,actual_history,route_match,history_match
 csbot,A1,decision,파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?,semantic,semantic,llm,False,False,True,True
 csbot,A2,decision,챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?,semantic,semantic,llm,False,False,True,True
 csbot,A3,decision,chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?,semantic,semantic,history_rule,False,True,True,False

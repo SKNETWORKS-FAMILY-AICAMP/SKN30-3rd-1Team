@@ -2,7 +2,7 @@
 """골든셋 평가 파이프라인 (TASK-006, 계층 4).
 
 설계 정본: backend/test/golden/EVAL_DESIGN.md — 6구성 매트릭스(R0-sql/vec/both
-→ E0 → E1 → E2) × 측정 4축(RAGAS/라우팅 감사/체인 포함률/기권률).
+→ E0 → E1 → E2) × 측정 5축(RAGAS/라우팅 감사/체인 포함률/기권률/출처 추적성).
 사용법: backend/test/golden/README.md (사전 조건·재실행 시나리오 포함).
 
 상태 모델 요약:
@@ -63,6 +63,10 @@ INITDB_FILES = ["schema.sql"] + [f"migrate_v{i}.sql" for i in range(2, 9)]
 # 백엔드 본체와 같은 4.1-mini 버킷을 공유하므로 workers 기본값을 낮춰 포화 예방.
 PHASE_JUDGE = {"dev": "gpt-4.1-mini", "final": "gpt-4.1-mini"}
 WORKERS_DEFAULT = 3  # measure 병렬성 — METHODS as-run 기록과 공유(리뷰 R5-002)
+# judge max_tokens 상향(실측 확인): ragas llm_factory 기본 1024는 E0(원본 생성
+# 답변) faithfulness의 진술 분해 출력이 잘려 IncompleteOutputException→NaN을
+# 유발한다(modu E0 final Job[62]). 4096으로 상향해 판정 출력 잘림을 방지.
+JUDGE_MAX_TOKENS = 4096
 MAIN_CONFIGS = ["R0-sql", "R0-vec", "R0-both", "E0", "E1", "E2-e2e"]
 AUX_CONFIGS = ["E2-oracle"]
 # 구성별 (recency 가중, DB 상태 전제): pre = pairs 적용 전, post = 적용 후
@@ -79,6 +83,7 @@ CONFIG_SPEC = {
 SUMMARY_COLUMNS = [
     "run_id", "date", "commit", "corpus", "config", "phase", "judge", "n",
     "context_precision", "context_recall", "faithfulness", "response_relevancy",
+    "citation_grounding",
     "routing_accuracy", "history_detect_rate", "chain_inclusion_rate",
     "abstain_rate",
 ]
@@ -274,6 +279,84 @@ def is_abstain(answer: str) -> bool:
     return any(p in answer for p in ABSTAIN_PATTERNS)
 
 
+def _gen_context(debug: dict, contexts: list) -> str:
+    """생성에 넘길 컨텍스트 — 서비스 렌더링 컨텍스트(출처 마커 포함) 우선, 없으면
+    (R0 구성은 rendered_context를 만들지 않음) 수집된 원문 컨텍스트를 join한다.
+    빈 컨텍스트로 답변·기권을 생성하지 않도록 폴백한다(리뷰 C5-002)."""
+    return debug.get("rendered_context") or "\n".join(contexts)
+
+
+def split_contexts(debug: dict) -> tuple[list, list]:
+    """디버그 dict에서 SQL 구조화 기록과 벡터 원문 청크를 출처 라벨·렌더링
+    메타데이터와 함께 분리 추출한다(오프라인 추적용 스냅샷 저장).
+
+    R0 수집기는 mysql_rows/chroma_chunks에 리스트가 아니라 정수 카운트를 넣으므로
+    비리스트 값은 빈 리스트로 처리한다(리뷰 C5-001). SQL 행은 실제 LLM 입력
+    (_row_line_body)에 쓰이는 owner·date·due_date·완료 상태까지 보존한다(C5-003)."""
+    mysql = debug.get("mysql_rows")
+    chroma = debug.get("chroma_chunks")
+    mysql = mysql if isinstance(mysql, list) else []
+    chroma = chroma if isinstance(chroma, list) else []
+    sql = [{"content": r.get("content"), "source_label": r.get("source_label"),
+            "category": r.get("category"), "owner": r.get("owner"),
+            "date": r.get("date"), "due_date": r.get("due_date"),
+            "completed": r.get("completed")}
+           for r in mysql]
+    vec = [{"text": c.get("text_full") or c.get("text"),
+            "source_label": c.get("source_label"), "date": c.get("date")}
+           for c in chroma]
+    return sql, vec
+
+
+def citation_grounding(answer: str, source_labels: list[str]) -> float:
+    """출처 추적성 — 답변이 실제 검색 출처를 인용했는지 판정(TASK-007).
+
+    각 `(출처: …)` 마커를 **알려진 출처 라벨을 경계로 파싱**한다. 마커는
+    `(출처: ` + 라벨(`, ` 구분으로 여럿) + `)` 구조로 보고, 현재 위치에서 검색
+    출처 라벨 집합의 라벨을 리터럴로 소비하며 진행한다. 라벨을 경계로 쓰므로
+    파일명·라벨에 `)`가 있어도(예: `README.md (repo#7)`) 안전하고(리뷰 R-003·
+    R3-P2), `(출처: A, B)`처럼 여럿을 묶은 인용도 인정한다(스모크 확인).
+
+    - 마커 안에서 알려진 라벨로 해석되지 않는 토큰(허위 출처·'구조화 기록' 등
+      유형 라벨)이 하나라도 있으면 근거 없는 인용으로 보고 0점(리뷰 R-006).
+    - 마커 밖 본문의 단순 파일명 언급·부분문자열 겹침은 인용으로 치지 않는다.
+
+    반환: 1.0(근거 있는 인용이 있고 근거 없는 인용이 없음) / 0.0.
+    """
+    text = answer or ""
+    # 접두 충돌(한 라벨이 다른 라벨의 접두)을 피하려 긴 라벨부터 매칭.
+    labels = sorted({s for s in source_labels if s}, key=len, reverse=True)
+    open_tok = "(출처:"
+    grounded = 0
+    ungrounded = 0
+    i = 0
+    while (start := text.find(open_tok, i)) != -1:
+        pos = start + len(open_tok)
+        while pos < len(text) and text[pos] == " ":
+            pos += 1
+        while True:
+            matched = next((L for L in labels if text.startswith(L, pos)), None)
+            if matched is None:                 # 알려진 출처가 아님 → 근거 없음
+                ungrounded += 1
+                end = text.find(")", pos)
+                pos = end + 1 if end != -1 else len(text)
+                break
+            grounded += 1
+            pos += len(matched)
+            if text.startswith(", ", pos):      # 다중 출처 — 다음 라벨로
+                pos += 2
+                continue
+            if pos < len(text) and text[pos] == ")":   # 마커 정상 종료
+                pos += 1
+                break
+            ungrounded += 1                     # 라벨 뒤 예상 밖 텍스트
+            end = text.find(")", pos)
+            pos = end + 1 if end != -1 else len(text)
+            break
+        i = pos
+    return 1.0 if grounded > 0 and ungrounded == 0 else 0.0
+
+
 def chain_included(context_texts: list[str], pair: dict) -> bool:
     """체인 포함 판정(plan 리뷰 2-9): 기대 pair의 old/new 문구가 컨텍스트에 실제 존재."""
     joined = "\n".join(context_texts)
@@ -304,7 +387,7 @@ class SummaryWriter:
     def _load(self) -> list[dict]:
         if not self.path.exists():
             return []
-        with open(self.path, newline="", encoding="utf-8") as f:
+        with open(self.path, newline="", encoding="utf-8-sig") as f:
             return list(csv.DictReader(f))
 
     def upsert(self, row: dict, overwrite: bool = False) -> None:
@@ -326,7 +409,7 @@ class SummaryWriter:
         else:
             rows.append(merged)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w", newline="", encoding="utf-8") as f:
+        with open(self.path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=SUMMARY_COLUMNS)
             writer.writeheader()
             writer.writerows(rows)
@@ -339,7 +422,7 @@ class SummaryWriter:
         if len(kept) == len(rows):
             return False
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w", newline="", encoding="utf-8") as f:
+        with open(self.path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f, fieldnames=SUMMARY_COLUMNS)
             writer.writeheader()
             writer.writerows(kept)
@@ -634,8 +717,19 @@ def _build_context_configured(project_id: int, question: str, *, history_mode,
     context, sources, debug = qa_engine._build_context(
         project_id, question, history_mode=history_mode,
         history_scope=history_scope, history_topic_tokens=history_topic_tokens)
+    # RAGAS context 지표용: 출처 마커 없는 원문(검색 품질 측정 입력 불변).
     contexts = ([r["content"] for r in debug.get("mysql_rows", [])]
                 + [c["text_full"] for c in debug.get("chroma_chunks", [])])
+    # 답변 생성·인용 측정용: 서비스가 LLM에 넘기는 렌더링 컨텍스트(출처 마커
+    # 포함)를 그대로 보존한다(리뷰 R-001). 원문 join으로 대체하면 출처 마커가
+    # 사라져 인용 지표가 항상 0이 되고 생성 지표도 실서비스와 어긋난다.
+    debug["rendered_context"] = context
+    # 검색된 출처 라벨 집합 — 인용 근거성 판정 기준(구조화 기록 + 원문 청크).
+    debug["source_labels"] = sorted({
+        lbl for lbl in (
+            [r.get("source_label") for r in debug.get("mysql_rows", [])]
+            + [c.get("source_label") for c in debug.get("chroma_chunks", [])])
+        if lbl})
     return contexts, debug
 
 
@@ -644,8 +738,9 @@ def collect_e0(project_id: int, question: str) -> tuple[list[str], dict]:
 
 
 def collect_e2_e2e(project_id: int, question: str) -> tuple[list[str], dict]:
-    """실서비스 그대로: 라우터 감지 → predicate 고정 → _build_context."""
-    from backend.graph import _resolve_history_state
+    """실서비스 그대로: 라우터 감지 → predicate 고정 → _build_context →
+    graph.qa_node와 동일하게 [프로젝트 메모리] 접두 조립(리뷰 R-005)."""
+    from backend.graph import _resolve_history_state, get_project_memory
     from backend.retriever.query_intent import classify_question
     decision = classify_question(question)
     mode, scope, tokens, effective = _resolve_history_state(
@@ -653,6 +748,16 @@ def collect_e2_e2e(project_id: int, question: str) -> tuple[list[str], dict]:
     contexts, debug = _build_context_configured(
         project_id, effective, history_mode=mode,
         history_scope=scope, history_topic_tokens=tokens)
+    # 실서비스(graph.qa_node)는 프로젝트 메모리 요약을 컨텍스트 앞에 얹는다.
+    # 프로젝트 메모리는 파일 출처가 없는 요약이라 source_labels(인용 근거 집합)는
+    # 바꾸지 않고 생성 컨텍스트에만 영향을 준다.
+    parts = []
+    mem = get_project_memory(project_id)
+    if mem:
+        parts.append(f"[프로젝트 메모리]\n{mem}")
+    if debug.get("rendered_context"):
+        parts.append(debug["rendered_context"])
+    debug["rendered_context"] = "\n\n".join(parts)
     debug["route"] = decision.route
     debug["router_stage"] = decision.router_stage
     return contexts, debug
@@ -858,6 +963,12 @@ def cmd_ingest(args) -> None:
     finally:
         supersede_mod.detect_supersede = original_detect
 
+    # 실서비스는 적재 후 프로젝트 메모리 요약을 만들어 QA 컨텍스트 최상단에
+    # 얹는다(graph.qa_node). E2-e2e가 그 경로를 충실히 재현하도록 eval도 동일
+    # 생성한다(리뷰 R-005). checkpoint(mysqldump)에 포함돼 final restore 시 복원.
+    from backend.graph import regenerate_project_memory
+    regenerate_project_memory(project_id)
+
     # 적재 결과 덤프(runid 무관 — 코퍼스 상태에 귀속)
     rows = fetch_memory_rows(project_id)
     suggestions = []
@@ -957,6 +1068,22 @@ def cmd_restore(args) -> None:
     print(f"[완료] restore {corpus} (pre-pairs 상태 복원)")
 
 
+def cmd_pmem(args) -> None:
+    """현재 코퍼스 DB의 memory 행에서 프로젝트 메모리 요약을 (재)생성한다(R-005).
+
+    코퍼스를 재적재(비결정적 LLM extract)하지 않고 프로젝트 메모리만 채우므로,
+    프로젝트 메모리 도입 이전에 만든 checkpoint에 이 보강을 적용할 때 쓴다:
+    restore → pmem → checkpoint 로 코퍼스를 보존한 채 checkpoint에 포함시킨다.
+    (dev context 승격분을 지키려면 재적재 대신 이 경로를 사용한다.)"""
+    setup_env(args.corpus)
+    require_openai_key()
+    from backend.graph import regenerate_project_memory, get_project_memory
+    project_id = get_project_id(args.corpus)
+    regenerate_project_memory(project_id)
+    mem = get_project_memory(project_id) or ""
+    print(f"[완료] pmem {args.corpus}: 프로젝트 메모리 {len(mem)}자 생성")
+
+
 def cmd_state_check(args) -> None:
     """내부용: 현재 DB·Chroma가 기대 상태인지 검증(별도 프로세스에서 실행)."""
     corpus = args.corpus
@@ -996,6 +1123,9 @@ def cmd_pairs(args) -> None:
                  "--runid", args.runid, "--coverage-only"])
             if cov_run.returncode != 0:
                 sys.exit(f"[중단] post 상태 coverage 복구 실패({cov_path.name})")
+        # 재개 시에도 post 상태 프로젝트 메모리를 보장(C-001) — pairs 이전 캐시가
+        # 남아 있으면 대체된 결정이 요약에 계속 노출된다.
+        run_step(["pmem", "--corpus", corpus])
         print(f"[건너뜀] pairs {corpus} — 이미 E1(post) 상태(coverage 확인 완료)")
         return
 
@@ -1034,7 +1164,11 @@ def cmd_pairs(args) -> None:
 
     # 4. post-state 검증
     run_step(["_state-check", "--corpus", corpus, "--expect", "post"])
-    print(f"[완료] pairs {corpus} (E1 상태 전환 + post 검증 통과)")
+    # 5. supersede 반영 후 프로젝트 메모리 재생성(C-001) — 실서비스의
+    #    refresh_project_memory_after_delete와 동일 취지. E2-e2e가 대체된 결정이
+    #    빠진 최신 요약을 컨텍스트로 쓰도록 한다(active_memory 기준 재생성).
+    run_step(["pmem", "--corpus", corpus])
+    print(f"[완료] pairs {corpus} (E1 상태 전환 + post 검증 + 프로젝트 메모리 갱신)")
 
 
 def write_pair_coverage(cov_path: Path, resolved: dict, dump: dict) -> dict:
@@ -1052,7 +1186,7 @@ def write_pair_coverage(cov_path: Path, resolved: dict, dump: dict) -> dict:
     hook_note = json.dumps(hook_status, ensure_ascii=False, sort_keys=True)
     tmp = cov_path.with_name(cov_path.name + ".tmp")
     try:
-        with open(tmp, "w", newline="", encoding="utf-8") as f:
+        with open(tmp, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(["pair_id", "kind", "old_id", "new_id",
                             "detector_result", "note", "global_hook_status"])
@@ -1204,9 +1338,13 @@ def cmd_measure(args) -> None:
         for q in non_hallu:
             collector = get_collector(config, q)
             contexts, debug = collector(project_id, q["question"])
+            sql_ctx, vec_ctx = split_contexts(debug)
             row = {"qid": q["qid"], "tag": q["tag"], "question": q["question"],
                    "reference": q["reference"], "contexts": contexts,
                    "n_contexts": len(contexts),
+                   "rendered_context": _gen_context(debug, contexts),
+                   "source_labels": debug.get("source_labels", []),
+                   "sql_contexts": sql_ctx, "vector_contexts": vec_ctx,
                    "history_mode": debug.get("history_mode", ""),
                    "history_rows_added": debug.get("history_rows_added", ""),
                    "history_truncated": debug.get("history_truncated", "")}
@@ -1224,16 +1362,23 @@ def cmd_measure(args) -> None:
         abstains = 0
         for q in hallu:
             collector = get_collector(config, q)
-            contexts, _ = collector(project_id, q["question"])
+            contexts, debug = collector(project_id, q["question"])
+            # 서비스 렌더링 컨텍스트로 생성(출처 마커 포함, R-001). R0는 렌더링
+            # 컨텍스트가 없으므로 수집 원문으로 폴백한다(빈 컨텍스트 생성 방지, C5-002).
+            gen_ctx = _gen_context(debug, contexts)
             answer = qa_engine._get_chain().invoke(
-                {"history": [], "context": "\n".join(contexts),
+                {"history": [], "context": gen_ctx,
                  "question": q["question"]})
             ok = is_abstain(answer)
             abstains += int(ok)
+            sql_ctx, vec_ctx = split_contexts(debug)
             rows_out.append({"qid": q["qid"], "tag": q["tag"],
                              "question": q["question"], "response": answer,
                              "abstained": ok, "contexts": contexts,
-                             "n_contexts": len(contexts)})
+                             "n_contexts": len(contexts),
+                             "rendered_context": gen_ctx,
+                             "source_labels": debug.get("source_labels", []),
+                             "sql_contexts": sql_ctx, "vector_contexts": vec_ctx})
 
         # final은 생성 지표를 E0·E2-e2e 한정 추가(전 구성 context 지표는 공통)
         need_generation = phase == "final" and config in ("E0", "E2-e2e")
@@ -1241,8 +1386,12 @@ def cmd_measure(args) -> None:
             for row in rows_out:
                 if row["tag"] != "hallucination":
                     row["response"] = qa_engine._get_chain().invoke(
-                        {"history": [], "context": "\n".join(row["contexts"]),
+                        {"history": [], "context": row.get("rendered_context", ""),
                          "question": row["question"]})
+                    # 출처 추적성 — 답변이 실제 검색 출처를 마커로 인용했는지
+                    # (환각 문항은 기권이 정답이라 인용 대상 아님, TASK-007)
+                    row["citation_grounding"] = citation_grounding(
+                        row["response"], row.get("source_labels") or [])
 
     # RAGAS 채점 (비환각 문항)
     scores = ragas_score(rows_out, judge, need_generation, args.workers)
@@ -1252,19 +1401,31 @@ def cmd_measure(args) -> None:
     detail_path = detail_path_for(corpus, config, phase, runid)
     detail_cols = ["qid", "tag", "question", "n_contexts", "context_precision",
                    "context_recall", "faithfulness", "response_relevancy",
+                   "citation_grounding",
                    "history_mode", "history_rows_added", "history_truncated",
                    "chain_included", "abstained"]
-    with open(detail_path, "w", newline="", encoding="utf-8") as f:
+    with open(detail_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=detail_cols, extrasaction="ignore")
         writer.writeheader()
         for row in rows_out:
             writer.writerow(row)
-    # 컨텍스트 전문 스냅샷(로컬 전용)
+    # 추적용 전문 스냅샷(로컬 전용, .eval_state는 gitignore): 답변을 채점 후
+    # 버리지 않고, SQL 구조화 기록·벡터 원문 청크를 출처 라벨과 함께 분리 저장해
+    # LangSmith 없이도 문항별 답변·검색 근거·인용 점수를 오프라인에서 확인한다.
     ctx_path = STATE_DIR / f"contexts_{corpus}_{config}_{phase}_{runid}.jsonl"
     with open(ctx_path, "w", encoding="utf-8") as f:
         for row in rows_out:
-            f.write(json.dumps({"qid": row["qid"], "contexts": row["contexts"]},
-                               ensure_ascii=False) + "\n")
+            f.write(json.dumps({
+                "qid": row["qid"], "tag": row.get("tag"),
+                "question": row.get("question"),
+                "response": row.get("response", ""),
+                "citation_grounding": row.get("citation_grounding", ""),
+                "source_labels": row.get("source_labels", []),
+                "sql_contexts": row.get("sql_contexts", []),
+                "vector_contexts": row.get("vector_contexts", []),
+                # 실제 LLM 입력 전문(출처 마커·메타 포함, R0는 원문 join 폴백).
+                "rendered_context": row.get("rendered_context", ""),
+            }, ensure_ascii=False) + "\n")
 
     summary_row = {
         "run_id": runid, "date": datetime.now().strftime("%Y-%m-%d"),
@@ -1276,6 +1437,10 @@ def cmd_measure(args) -> None:
         "response_relevancy": scores.get("response_relevancy", ""),
         "abstain_rate": round(abstains / len(hallu), 3) if hallu else "",
     }
+    cited = [r["citation_grounding"] for r in rows_out
+             if "citation_grounding" in r]
+    if cited:   # 생성 지표를 측정한 구성(final E0·E2-e2e)에서만 채워진다
+        summary_row["citation_grounding"] = round(sum(cited) / len(cited), 3)
     if chain_total:
         summary_row["chain_inclusion_rate"] = round(chain_hits / chain_total, 3)
     if config != "E2-oracle":   # 보조 구성은 summary 12행 계약 밖 — 상세 파일만
@@ -1321,7 +1486,8 @@ def reject_partial_ragas(df, col_map: dict) -> None:
     if bad:
         raise RuntimeError(
             f"[중단] ragas 지표에 NaN 잔존 {bad} — 부분 평균 게시 금지. "
-            "레이트리밋/타임아웃 의심: 한도 회복 후 같은 명령으로 재실행")
+            "레이트리밋/타임아웃/판정출력 절단(max_tokens) 의심: 로그의 "
+            "예외 종류 확인 후 원인 해소하고 같은 명령으로 재실행")
 
 
 def ragas_score(rows_out: list[dict], judge: str, with_generation: bool,
@@ -1354,7 +1520,8 @@ def ragas_score(rows_out: list[dict], judge: str, with_generation: bool,
     # 넘겨 해당 문항 점수가 NaN이 된다. SDK 재시도는 Retry-After를 준수하는
     # 백오프라 자체 감속 효과가 있다(대기 중 다른 worker가 budget 소진 → 자연
     # 스로틀링). modu dev 1차에서 R0-sql·R0-both precision NaN으로 실측 확인.
-    ragas_llm = llm_factory(judge, client=AsyncOpenAI(max_retries=10))
+    ragas_llm = llm_factory(judge, client=AsyncOpenAI(max_retries=10),
+                            max_tokens=JUDGE_MAX_TOKENS)
     metrics = [LLMContextPrecisionWithReference(llm=ragas_llm),
                LLMContextRecall(llm=ragas_llm)]
     if with_generation:
@@ -1404,7 +1571,7 @@ def cmd_audit(args) -> None:
     route_match = 0
     hist_expected = [q for q in questions if q["expected_history_mode"]]
     hist_detected = 0
-    with open(audit_path, "w", newline="", encoding="utf-8") as f:
+    with open(audit_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["corpus", "qid", "tag", "question", "expected_route",
                          "actual_route", "router_stage", "expected_history",
@@ -1452,8 +1619,9 @@ def cmd_report(args) -> None:
     for phase in phases:
         print(f"\n## phase={phase}\n")
         print("| corpus | config | judge | ctx_precision | ctx_recall | "
-              "faithfulness | routing_acc | hist_detect | chain_incl | abstain |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+              "faithfulness | citation | routing_acc | hist_detect | chain_incl "
+              "| abstain |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|")
         for corpus in CORPORA:
             for config in MAIN_CONFIGS:
                 match = [r for r in rows if r["phase"] == phase
@@ -1463,7 +1631,8 @@ def cmd_report(args) -> None:
                 r = match[-1]
                 print(f"| {corpus} | {config} | {r['judge']} "
                       f"| {r['context_precision']} | {r['context_recall']} "
-                      f"| {r['faithfulness']} | {r['routing_accuracy']} "
+                      f"| {r['faithfulness']} | {r.get('citation_grounding', '')} "
+                      f"| {r['routing_accuracy']} "
                       f"| {r['history_detect_rate']} | {r['chain_inclusion_rate']} "
                       f"| {r['abstain_rate']} |")
 
@@ -1610,13 +1779,17 @@ def render_methods(runid: str, phase: str) -> str:
     L.append("- recency 가중(구성별): "
              + ", ".join(f"{c}={CONFIG_SPEC[c]['recency']}" for c in MAIN_CONFIGS)
              + ".")
-    L.append("- 측정 4축: RAGAS context_precision/recall(비환각), 라우팅 감사"
+    L.append("- 측정 5축: RAGAS context_precision/recall(비환각), 라우팅 감사"
              "(classify_question 직접 호출), 체인 포함률(기대 pair 문구 포함), "
-             "환각 기권률(패턴 매칭).")
+             "환각 기권률(패턴 매칭), 출처 추적성(citation_grounding — final "
+             "E0·E2-e2e, 서비스 렌더링 컨텍스트로 생성한 답변의 출처 마커 인용).")
     L.append("- 상태 모델: 적재 1회 → checkpoint(pre-pairs) → [R0×3·E0] → pairs "
              "→ [E1·E2] → audit. 구성마다 pre/post 상태 정밀 검사 후 측정.")
     L.append(f"- 결정론: 측정 병렬성 workers 기본 {WORKERS_DEFAULT}, summary 키 "
              "(run_id,corpus,config,phase)로 dev/final 분리 기록.")
+    L.append(f"- judge 호출: max_tokens={JUDGE_MAX_TOKENS}(ragas 기본 1024는 "
+             "E0 faithfulness 진술 분해 출력이 잘려 NaN 유발), max_retries=10, "
+             "RunConfig timeout=600s.")
     L.append("")
 
     L.append("## 6. 실행 커맨드 (이 run 재현)")
@@ -1705,6 +1878,7 @@ def main() -> None:
         extra=lambda p: p.add_argument("--force", action="store_true"))
     add("checkpoint", cmd_checkpoint, corpus=True)
     add("restore", cmd_restore, corpus=True)
+    add("pmem", cmd_pmem, corpus=True)
     add("_state-check", cmd_state_check, corpus=True,
         extra=lambda p: p.add_argument("--expect", choices=["pre", "post"],
                                        required=True))
