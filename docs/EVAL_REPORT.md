@@ -99,7 +99,117 @@ recall 우선 검색 설계의 의도된 비용이다.**
   0.962였으나 본 run에선 1.0).
 - `routing`·`chain`은 관측 지표이며 일부 문항은 LLM 폴백이라 비결정 가능.
 
-## 7. 산출물 · 재현
+## 7. 질문 유형별 검색 품질 (context 지표, dev)
+
+> **주석**: 이 표는 **검색 정확도 확인**을 위해 검색 품질 지표
+> (context_precision/recall)만 유형별로 정리한다. 이 지표들은 답변 생성 없이
+> 검색 결과 ↔ 정답 비교만으로 측정되므로 R0-sql/vec/both·E0·E1·E2-e2e 6구성
+> 전부 존재한다. 반면 생성 지표(faithfulness·response_relevancy·
+> citation_grounding)는 답변 생성이 필요하고 설계상 final E0·E2-e2e에서만
+> 측정하므로, R0×3·E1에는 없어 **"-"로 처리**한다(hallucination 태그는 RAGAS
+> 대상이 아니라 제외 — 기권률로 별도 측정). 엑셀 `유형별검색품질` 시트 참조.
+
+**modu — context_precision**
+
+| config | decision | conflict | conflict_negative | action |
+|---|---|---|---|---|
+| R0-sql | 0.053 | 0.074 | 0.389 | 0.073 |
+| R0-vec | 0.820 | 0.592 | 0.878 | 0.606 |
+| R0-both | 0.052 | 0.091 | 0.341 | 0.063 |
+| E0 | 0.309 | 0.365 | 0.535 | 0.178 |
+| E1 | 0.332 | 0.428 | 0.596 | 0.161 |
+| E2-e2e | 0.301 | 0.412 | 0.547 | 0.166 |
+
+**modu — context_recall**
+
+| config | decision | conflict | conflict_negative | action |
+|---|---|---|---|---|
+| R0-sql | 0.750 | 0.875 | 1.000 | 0.833 |
+| R0-vec | 0.964 | 0.750 | 1.000 | 0.833 |
+| R0-both | 1.000 | 1.000 | 1.000 | 0.917 |
+| E0 | 1.000 | 0.875 | 1.000 | 0.917 |
+| E1 | 1.000 | 1.000 | 1.000 | 0.917 |
+| E2-e2e | 1.000 | 1.000 | 1.000 | 0.917 |
+
+**csbot — context_precision**
+
+| config | decision | conflict | conflict_negative | action |
+|---|---|---|---|---|
+| R0-sql | 0.170 | 0.122 | 0.188 | 0.074 |
+| R0-vec | 0.749 | 0.750 | 0.944 | 0.766 |
+| R0-both | 0.107 | 0.103 | 0.198 | 0.090 |
+| E0 | 0.369 | 0.651 | 0.434 | 0.277 |
+| E1 | 0.367 | 0.607 | 0.333 | 0.212 |
+| E2-e2e | 0.360 | 0.592 | 0.426 | 0.208 |
+
+**csbot — context_recall**
+
+| config | decision | conflict | conflict_negative | action |
+|---|---|---|---|---|
+| R0-sql | 0.382 | 1.000 | 1.000 | 1.000 |
+| R0-vec | 0.941 | 1.000 | 1.000 | 1.000 |
+| R0-both | 0.941 | 1.000 | 1.000 | 1.000 |
+| E0 | 1.000 | 1.000 | 1.000 | 1.000 |
+| E1 | 1.000 | 1.000 | 1.000 | 1.000 |
+| E2-e2e | 0.941 | 1.000 | 1.000 | 1.000 |
+
+- 생성 지표(faithfulness/relevancy/citation)는 R0×3·E1에서 미측정 → "-".
+  final E0·E2-e2e 값은 §1·§4 참조.
+
+## 8. 질문별 라우팅 감사 — 이력 라우팅 필요/불필요 (dev)
+
+**이력(history_mode) 라우팅이 필요한 질문(expected_history=True)이 실제로
+감지됐는지, 불필요한 질문(False)이 잘못 라우팅됐는지**를 정리한다. 단일 audit
+스냅샷(`classify_question` 직접 호출) 기준이며, `router_stage=llm` 문항은
+비결정적이라 measure 시점과 다를 수 있다(관측 지표, 합격 조건 아님).
+엑셀 `라우팅감사` 시트에 문항별 전체(60행, `mismatch` 열로 필터) 수록.
+
+| 코퍼스 | 필요(True) | 감지(TP) | **미탐(FN)** | 불필요(False) | **오탐(FP)** |
+|---|---|---|---|---|---|
+| modu | 4 | 0 | **4** — conflict B1·B2·B3·B7 | 26 | 1 — B4(conflict_negative) |
+| csbot | 1 | 0 | **1** — conflict B4 | 29 | 1 — A3(decision) |
+
+- **핵심 발견**: 이력 라우팅이 필요한 conflict 질문을 **단일 audit에서 하나도
+  감지하지 못했다(재현율 0%)**. 이것이 §8-분석노트의 chain_inclusion(modu
+  E2-e2e 0/4)과 직접 연결된다 — 이력 모드가 자동 경로(e2e)에서 안 켜지면
+  supersede 체인 로직에 진입하지 못한다.
+- 오탐(불필요한데 라우팅됨)은 각 코퍼스 1건씩(modu B4 대조군, csbot A3) — 소수.
+- **주의**: `router_stage=llm` 문항의 비결정성 때문에 이 스냅샷의 미탐이
+  measure의 chain_inclusion(csbot 1/1 등)과 어긋날 수 있다. 즉 **이력 라우팅의
+  신뢰도·재현성 자체가 낮다**는 것이 진짜 결론이며, 이력 감지 개선은 TASK-008
+  (E1·E2 supersede 정당화)의 핵심 진단 대상이다.
+
+## 9. 분석 노트 (세션 중 확인 사항)
+
+이 보고 수치를 사용자와 함께 해석하며 확인한 사항을 정리한다(후속 판단 근거).
+
+1. **context_precision이 낮은 것은 결함이 아니다**(§3). R0-sql은 질문과 무관하게
+   구조화 기록 **전체 테이블을 덤프**하고(modu 105행·csbot 53행, 문항 불문 동일),
+   하이브리드도 문항당 SQL ~13-16 + 벡터 5로 SQL이 75%를 차지 → recall 우선
+   설계의 정밀도 희석. R0-both→E0에서 정밀도 3~7배 개선(검색 개선 작동).
+2. **recall이 하이브리드 필요성의 핵심 증거**. SQL만·벡터만은 서로 다른 정보를
+   놓친다: csbot decision recall 0.382(SQL만)→1.0(하이브리드), modu conflict
+   recall 0.750(벡터만)→1.0(E1부터). precision과 달리 recall은 "전체 덤프" 왜곡이
+   없어 신뢰할 수 있는 지표다.
+3. **유형별 패턴**: R0-both→E0 정밀도가 전 유형 상승(conflict 최대: csbot
+   0.10→0.65). modu conflict recall이 E0에서 0.875로 잠깐 하락→E1에서 1.0 회복 =
+   **계층 1·2(supersede 승인)가 작동한다는 증거**. conflict_negative는 recall이
+   전 구성 1.0으로 안정(대조군 정보 누락 없음).
+4. **E1·E2 도입을 현재 지표로는 정당화하기 어렵다**. 5개 축은 전부 "컨텍스트에
+   근거했는가"만 재고 "옛 결정 vs 최신 결정 중 맞는 것을 골랐는가"는 못 본다.
+   → 신규 LLM-judge 지표 `supersede_correctness`(E0/E1/E2 비교)를 **TASK-008**로
+   분리해 설계 중.
+5. **이력 라우팅 재현율 0%**(§8) + **chain_inclusion modu 0/4** — 이력 감지가
+   자동 경로에서 신뢰도가 낮다. TASK-008의 핵심 진단 대상(감지 실패면 E2의
+   이력 기능이 e2e에서 발동조차 안 함).
+6. **conflict_negative faithfulness 하락**(final, E0→E2-e2e: modu 0.83→0.59,
+   csbot 0.86→0.61) — 이력 모드가 대조군(번복 아님)에서 번복 서사를 과잉
+   생성할 가능성. TASK-008 관전 포인트.
+7. **citation_grounding 경계 사례 A7**(§4), **CSV utf-8-sig 인코딩**(Excel 한글
+   호환), **추적 스냅샷**(답변·SQL/벡터 근거·인용 로컬 저장)으로 오프라인 검수
+   가능.
+
+## 10. 산출물 · 재현
 
 - `results/summary.csv`(citation_grounding 포함), 문항별 상세
   `results/ragas_<corpus>_<config>_<phase>_<runid>.csv`,

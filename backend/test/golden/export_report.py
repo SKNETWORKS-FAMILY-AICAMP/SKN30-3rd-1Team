@@ -26,6 +26,47 @@ def _num(v):
         return None
 
 
+def _tag_breakdown(runid: str) -> pd.DataFrame:
+    """구성×코퍼스×tag별 검색 품질 지표(context_precision/recall)를 dev 상세
+    CSV에서 집계. 생성 지표는 R0×3·E1엔 없으므로 이 표에는 넣지 않는다
+    (검색 정확도 확인 목적 — 아래 주석 참조)."""
+    tags = ["decision", "conflict", "conflict_negative", "action"]
+    rows = []
+    for corpus in CORPORA:
+        for cfg in MAIN:
+            path = HERE / "results" / f"ragas_{corpus}_{cfg}_dev_{runid}.csv"
+            if not path.exists():
+                continue
+            df = pd.read_csv(path, encoding="utf-8-sig")
+            for tag in tags:
+                sub = df[df["tag"] == tag]
+                if sub.empty:
+                    continue
+                cp = pd.to_numeric(sub["context_precision"], errors="coerce").mean()
+                cr = pd.to_numeric(sub["context_recall"], errors="coerce").mean()
+                rows.append({"corpus": corpus, "config": cfg, "tag": tag,
+                             "context_precision": round(cp, 3),
+                             "context_recall": round(cr, 3)})
+    return pd.DataFrame(rows)
+
+
+def _routing_audit(runid: str) -> pd.DataFrame:
+    """질문별 라우팅 감사(기대 vs 실제 경로·이력모드) — routing_audit CSV 병합.
+    라우팅이 문항별로 제대로 됐는지 확인용(불일치 행이 진단 핵심)."""
+    frames = []
+    for corpus in CORPORA:
+        p = HERE / "results" / f"routing_audit_{corpus}_dev_{runid}.csv"
+        if p.exists():
+            frames.append(pd.read_csv(p, encoding="utf-8-sig"))
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    # 불일치 여부 컬럼(사람이 바로 필터링하도록)
+    df["mismatch"] = ((df["route_match"].astype(str) != "True")
+                      | (df["history_match"].astype(str) != "True"))
+    return df
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runid", default=None)
@@ -114,12 +155,20 @@ def main() -> None:
         ],
     })
 
+    # 시트 7: 유형별 검색 품질(dev, context 지표만 — 생성 지표는 R0×3·E1엔 없어 제외)
+    tagq = _tag_breakdown(runid)
+    # 시트 8: 질문별 라우팅 감사(이력 라우팅 필요/불필요 확인 — mismatch 열로 필터)
+    routing = _routing_audit(runid)
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(OUT, engine="openpyxl") as xw:
         final.to_excel(xw, sheet_name="최종결과(final)", index=False)
         dev.to_excel(xw, sheet_name="계층기여(dev-context)", index=False)
         obs.to_excel(xw, sheet_name="관측지표(dev)", index=False)
         cite.to_excel(xw, sheet_name="인용분석", index=False)
+        tagq.to_excel(xw, sheet_name="유형별검색품질", index=False)
+        if not routing.empty:
+            routing.to_excel(xw, sheet_name="라우팅감사", index=False)
         notes.to_excel(xw, sheet_name="한계·주석", index=False)
         legend.to_excel(xw, sheet_name="컬럼설명", index=False)
         # 열 폭 자동 조정
