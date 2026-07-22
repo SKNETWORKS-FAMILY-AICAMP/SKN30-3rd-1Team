@@ -94,7 +94,8 @@ GET /api/v1/projects/{id}/suggestions?kind=all         (전체 kind)
 - 이력 보기: 숨겨진 결정 조회(`include_superseded`)는 내부에만 있고 API 미노출 —
   "번복 이력 보기" UI가 필요하면 파라미터 노출 요청.
 - un-supersede(승인 취소) API는 현재 없음 — 후속 태스크 후보(L-001과 함께).
-- 계층3(검색 개선) 진행 중 응답 필드가 소폭 추가될 수 있음 — 확정 시 2차 공유.
+- 계층3(검색 개선)은 **완료·병합**됐다(이력 질문 체인·컨텍스트 주석·recency
+  RRF). supersede 관련 응답 필드 계약은 위 §3·§4가 확정본이다.
 
 ## 7. 참고 문서
 
