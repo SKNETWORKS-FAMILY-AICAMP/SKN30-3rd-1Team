@@ -1,0 +1,821 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CS-Bot Agentic Routing 평가</title><style>
+:root{--bg:#f3f5f8;--paper:#fff;--ink:#182230;--muted:#667085;--line:#d9dee7;--pass:#16794c;--partial:#a76608;--fail:#b73535;--accent:#315be8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;line-height:1.55}main{max-width:1540px;margin:auto;padding:32px}header,.panel,.item{background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 3px 18px #17243a0b}header,.panel{padding:24px;margin-bottom:16px}h1{margin:0 0 8px}h2{margin:0 0 12px}.muted,.meta{color:var(--muted)}.scores{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}.score{padding:14px;border:1px solid var(--line);border-radius:10px}.score b{display:block;font-size:26px}.score.agent b{color:var(--accent)}table{width:100%;border-collapse:collapse}th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}.item{margin:12px 0;overflow:hidden}.item.pass{border-left:5px solid var(--pass)}.item.partial{border-left:5px solid var(--partial)}.item.fail{border-left:5px solid var(--fail)}summary{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:center;padding:16px;cursor:pointer}.badge{color:white;border-radius:99px;padding:3px 9px;font-size:12px}.badge.pass{background:var(--pass)}.badge.partial{background:var(--partial)}.badge.fail{background:var(--fail)}.gold{padding:18px;border-top:1px solid var(--line);background:#f8f9fb}.compare{display:grid;grid-template-columns:1fr 1fr}.answer{padding:18px;min-width:0}.answer+.answer{border-left:1px solid var(--line)}h3{margin-top:0}h4{margin:16px 0 5px;color:var(--muted)}pre{white-space:pre-wrap;word-break:break-word;background:#f8f9fb;border:1px solid var(--line);border-radius:9px;padding:13px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.why{margin:0;padding:16px 18px;border-top:1px solid var(--line);background:#fffdf5}.tool{font-size:12px;color:var(--muted);word-break:break-word}.notice{border-left:5px solid var(--accent)}@media(max-width:900px){main{padding:14px}.scores{grid-template-columns:1fr 1fr}.compare{grid-template-columns:1fr}.answer+.answer{border-left:0;border-top:1px solid var(--line)}summary{grid-template-columns:auto auto auto 1fr}}
+</style></head><body><main>
+<header><h1>CS-Bot Agentic Tool Routing 평가</h1><p class="muted">동일하게 적재한 코퍼스에 기존 방식과 agentic 방식을 순차 실행한 30문항 원문 비교 보고서입니다. 부분일치는 엄격 정답률에서 실패로 셉니다.</p>
+<div class="scores"><div class="score"><span>기존 엄격 정답률</span><b>15/30</b><small>50.0%</small></div><div class="score agent"><span>Agentic 엄격 정답률</span><b>26/30</b><small>86.7%</small></div><div class="score"><span>기존 평균 길이</span><b>1197자</b><small>1000자 초과 8건</small></div><div class="score agent"><span>Agentic 평균 길이</span><b>246자</b><small>1000자 초과 0건</small></div></div></header>
+<section class="panel notice"><h2>읽는 법</h2><p>각 문항을 열면 <strong>골든 질문·답변·참고문항</strong>, <strong>기존 실제 답변</strong>, <strong>agentic 실제 답변</strong>, 반환 출처와 수동 판정 근거를 나란히 볼 수 있습니다. 이 파일은 결과 JSONL의 평가 당시 스냅샷이며, 아래 결과를 본 뒤 제안된 수정은 포함하지 않습니다.</p><p class="meta">평가 코드 기준: base HEAD eff0f3fd9229 + 실험 working tree · backend/agentic_graph.py=d24c13ad19da · backend/retriever/qa_tools.py=c770647230ee · backend/retriever/qa_engine.py=da52b27fd221 · backend/api/query.py=2b6388bc4c6e</p></section>
+<section class="panel"><h2>요약</h2><table><thead><tr><th>방식</th><th>일치</th><th>부분</th><th>불일치</th><th>평균/중앙 응답시간</th><th>평균/최대 길이</th><th>덤프 문구</th></tr></thead><tbody><tr><td>기존</td><td>15</td><td>6</td><td>9</td><td>6.43/8.04초</td><td>1197/4780자</td><td>9</td></tr><tr><td>Agentic</td><td>26</td><td>3</td><td>1</td><td>6.57/6.21초</td><td>246/480자</td><td>0</td></tr></tbody></table></section>
+
+<details class="item pass">
+ <summary><strong>A1</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?</p><pre>학습 데이터 준비에 최소 2주 이상 소요되고, 데이터 라벨링·정제 공수가 크며, 현재 팀 가용 리소스로는 2주 내 1차 개선 목표 달성과 병행이 불가능했기 때문.</pre><p class="meta"><strong>참고문항</strong> 6/16 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**파인튜닝을 이번 유지보수에서 제외하기로 한 이유는 학습 데이터 준비와 실험에 최소 2주 이상이 소요되고, 현재 팀의 가용 리소스로는 2주 내 1차 개선 목표를 달성하면서 병행하기 불가능하기 때문이다.**
+
+근거 상세:
+- **학습 데이터 준비 기간**: 파인튜닝에 필요한 최소 500~1000쌍의 질의-답변 학습 데이터 준비에 2~3주 이상이 필요하며, 데이터 라벨링과 정제 공수가 크다.
+- **팀 리소스 부족**: 박서연은 RAG 파이프라인 개선과 프롬프트 재설계를, 최민준은 재임베딩 파이프라인과 서버 안정화를 담당 중이라 파인튜닝 추가 작업 여유가 없다.
+- **고객사 요구 일정**: 고객사가 2주 내 1차 개선 결과를 요청해 빠른 개선이 우선되어야 한다.
+- **결정 문서**: 2026-06-16 결정에서 파인튜닝은 이번 유지보수에서 제외하고, 추후 2차 유지보수 또는 계약 연장 시 별도 과제로 검토하기로 확정됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 12.72초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**파인튜닝은 학습 데이터 준비에 최소 2주 이상이 필요하고, 데이터 라벨링 및 정제 공수가 크며, 현재 팀 가용 리소스로는 2주 내 1차 개선 목표를 달성하면서 병행하기 불가능하여 이번 유지보수에서 제외하기로 결정되었다.**
+
+근거:
+- 파인튜닝 도입을 위해 최소 500~1000쌍의 고품질 학습 데이터가 필요하며, 데이터 정제와 라벨링에 많은 시간이 소요된다.
+- GPT-4o 파인튜닝 기준으로 데이터 준비와 학습 실험에 2~3주 이상 걸리고, 반복 실험과 검증 비용도 발생한다.
+- 현재 팀은 RAG 파이프라인 개선과 프롬프트 재설계, 서버 안정화 등 다른 작업을 병행 중이며, 파인튜닝을 추가로 수행할 여유가 없다.
+- 고객사가 2주 내 1차 개선 결과를 요청한 상황이라, 파인튜닝을 병행하면 일정 내 목표 달성이 어렵다.
+- 따라서 파인튜닝은 2차 유지보수 또는 계약 연장 시 별도 과제로 검토하기로 했다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md</p><p class="meta">tools=search_project_evidence · 7.19초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;파인튜닝 제외 이유 유지보수&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A2</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?</p><pre>그린커머스가 올해 2월 변경한 반품 정책(7일→14일)이 지식 베이스 문서에 반영되지 않아, 챗봇이 여전히 구 정책(7일) 기준으로 답변했기 때문.</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은 **그린커머스의 최신 반품 정책이 지식 베이스에 반영되지 않아 구 정책 기준으로 답변했기 때문**이다.
+
+근거:
+- 원문 맥락에서 올해 2월에 반품 가능 기간이 7일에서 14일로 변경되었으나 챗봇은 여전히 7일로 안내해 오답률이 45%에 달함.
+- 오답의 대부분이 구 정책 기준 답변이며, 이는 지식 베이스 문서가 최신화되지 않은 상태에서 발생한 문제임.
+- 구조화 기록과 원문 모두 지식 베이스 미갱신을 가장 시급한 원인(A)으로 지목하고 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 9.88초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은 **그린커머스의 반품 정책 변경(7일에서 14일로 연장)이 지식 베이스에 반영되지 않아 구 정책 기준으로 답변했기 때문**이다.
+
+근거:
+- 2월에 변경된 반품 정책이 챗봇 지식 베이스에 반영되지 않아 여전히 7일 기준으로 안내함.
+- chunk 분할 방식이 고정 길이 기반이라 문서 맥락이 끊기고, 복잡한 조건이 분리되어 검색 품질 저하.
+- 프롬프트가 납품 이후 수정되지 않아 응답 길이와 톤이 고객 요구에 맞지 않음.
+- QA 테스트에서 반품 관련 질문 20개 중 9개가 오답 또는 불완전 답변(오답률 45%)이었고, 대부분 구 정책 기준 답변임.
+- 정책 문서 갱신과 semantic chunking 도입 후 반품 관련 정답률이 55%에서 90%로 크게 개선됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 4.66초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;챗봇 반품 질문 오답률 원인&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A3</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?</p><pre>고정 길이 청킹이 정책 문서처럼 조건이 복잡한 텍스트의 맥락을 끊어, 앞뒤 조건이 분리되는 문제가 로그와 테스트에서 확인되었기 때문.</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록 (결정 2)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**chunk 분할 방식을 고정 길이에서 의미 단위로 변경한 이유는 고정 길이 청킹이 정책 문서의 맥락을 파괴하는 문제가 로그와 테스트에서 확인되었기 때문입니다.**
+
+근거:
+- 원문 맥락에서 &quot;고정 길이 청킹이 정책 문서의 맥락을 파괴하는 것이 로그와 테스트에서 확인됨&quot;이라고 명확히 언급되어 있음.
+- 구조화 기록의 결정 사항에서도 &quot;지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다&quot;는 점과 그 이유가 일치함.
+- 또한, 의미 단위 분할 방식이 정책 문서처럼 조건문이 많은 텍스트에 더 효과적이라는 박서연의 조사 결과도 이를 뒷받침함.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 9.39초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는 **고정 길이 청킹이 정책 문서의 맥락을 파괴하는 문제가 로그와 테스트에서 확인되어, 문서의 의미 단위로 분할하여 맥락을 보존하기 위함**이다.
+
+근거 상세:
+- 고정 길이 기반 chunk 분할은 정책 문서처럼 조건이 복잡한 내용에서 앞뒤 조건이 분리되어 맥락이 끊기는 문제가 발생함.
+- QA 테스트 결과 반품, 환불, 교환 관련 질문에서 오답률이 높았고, 그 원인 중 하나가 고정 길이 청킹으로 인한 맥락 파괴임이 확인됨.
+- 따라서 지식 베이스 갱신과 함께 의미 단위 분할 방식으로 전면 변경하기로 결정함(2026-06-09 결정).</pre><p class="meta"><strong>반환 출처</strong> 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 6.88초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;chunk 분할 방식을 고정 길이에서 의미 단위로 변경한 이유&quot;, &quot;alternate_queries&quot;: [&quot;왜 chunk 분할 방식을 고정 길이에서 의미 단위로 바꾸었나?&quot;, &quot;chunk 분할 의미 단위 변경 배경&quot;, &quot;chunk 분할 방식 변경 이유&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>A4</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>re-ranking을 정식 도입하기로 결정한 근거 수치는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> re-ranking을 정식 도입하기로 결정한 근거 수치는?</p><pre>cross-encoder 기반 re-ranking 예비 테스트에서 환불 영역 정확도가 75%에서 88%로 13%p 향상되었고, 응답 지연 증가는 0.6초로 허용 가능한 수준이었음.</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**re-ranking을 정식 도입하기로 결정한 근거 수치는 환불 영역 정확도가 75%에서 88%로 13%p 향상된 것과 응답 시간 증가가 평균 0.6초로 허용 가능한 수준이라는 점이다.**
+
+근거 상세:
+- 예비 테스트 결과, cross-encoder 기반 re-ranking 적용 시 환불 영역 정확도가 75%에서 88%로 13%p 상승함.
+- 응답 시간은 평균 0.6초 증가했으나, 기존 평균 2.3초 대비 2.5초 수준으로 허용 가능한 범위임.
+- 이 수치들을 바탕으로 QA 추가 테스트 없이도 전체 도입이 가능하다는 평가가 있었음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 8.04초</p><p><strong>판정 근거</strong> 75%→88%, +13%p, +0.6초는 맞지만 2.3→2.5초라는 모순된 보충 수치를 덧붙였다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>re-ranking을 정식 도입하기로 결정한 근거 수치는 예비 테스트에서 환불 영역 정확도가 75%에서 88%로 13%p 향상되었고, 응답 지연 증가가 평균 0.6초로 허용 가능한 수준이었기 때문입니다. **즉, 13%p 정확도 향상과 0.6초 응답 지연 증가가 도입 근거 수치입니다.**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 6.13초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;re-ranking 도입 근거 수치&quot;, &quot;alternate_queries&quot;: [&quot;re-ranking 도입 이유 수치&quot;, &quot;re-ranking 정식 도입 결정 근거&quot;, &quot;re-ranking 도입 관련 수치&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A5</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>1차 개선 배포일은 언제로, 왜 그 날짜로 정했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 1차 개선 배포일은 언제로, 왜 그 날짜로 정했는가?</p><pre>2026년 6월 30일(화) 오후 2시. 고객사 요청 마감일인 7/1보다 하루 앞당겨 예비 시간을 확보하기 위함.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**1차 개선 배포일은 2026년 6월 30일 (화) 오후 2시로 확정되었으며, 고객사 요청 마감일인 7월 1일보다 하루 앞서 배포하여 예비 시간을 확보하기 위해서이다.**
+
+근거:
+- 고객사가 7월 1일 이전 배포를 요청하여, 그보다 하루 앞선 6월 30일로 일정을 잡음.
+- 스테이징 최종 확인은 6월 30일 오전 중에 완료하여 배포 준비를 마칠 계획임.
+- 이 일정은 고객사와 6월 28일 사전 보고 및 협의 후 확정되었음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-16_개선방안_확정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 8.03초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>1차 개선 배포일은 **2026년 6월 30일 (화) 오후 2시**로 정해졌으며, 그 이유는 **고객사 요청 마감일인 7월 1일보다 하루 앞서 배포하여 예비 시간을 확보하기 위해서**이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 14.13초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;1차 개선 배포일&quot;, &quot;alternate_queries&quot;: [&quot;1차 개선 배포 일정&quot;, &quot;1차 개선 배포 날짜&quot;, &quot;1차 개선 배포일 결정 이유&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A6</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는?</p><pre>1차 배포 일정이 타이트했고, 이 기능은 고객사가 명시적으로 요청한 사항이 아니었으며, 무리하게 포함할 경우 배포 품질 리스크가 있었기 때문.</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록 (결정 3)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**멀티턴 맥락 유지 기능은 1차 배포 일정이 타이트하고 고객사 명시 요청이 아니며, 무리하게 포함 시 품질 리스크가 있어 2차 배포로 분리되었다.**
+
+근거:
+- 1차 배포 일정이 매우 촉박하여 추가 기능을 포함하면 배포 품질에 위험이 발생할 수 있음(원문 맥락).
+- 멀티턴 기능은 고객사에서 명시적으로 요청한 기능이 아니며, 추가 개선 항목으로 분류됨(구조화 기록 [decision], 원문 맥락).
+- 구현 공수가 백엔드와 프론트를 합쳐 약 3~4일 정도로 적지 않고, 설계 이슈(대화 이력 저장 방식 결정 등)도 남아 있어 2차 배포 전 충분한 검토가 필요함(구조화 기록 [issue], 원문 맥락).
+- 프로젝트 메모리와 구조화 기록 모두 멀티턴 기능을 2차 배포 항목으로 분리하기로 결정한 점을 명확히 하고 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 10.64초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는 **1차 배포 일정이 타이트하고, 이 기능이 고객사 명시 요청이 아닌 추가 개선 항목이어서 무리하게 포함할 경우 배포 품질 리스크가 있기 때문**이다.
+
+근거:
+- 구현 공수와 설계 이슈로 2차 배포로 분리됨.
+- 1차 배포 일정이 촉박하여 품질 리스크를 줄이기 위해 2차 배포로 미룸.
+- 고객사에서 명시적으로 요청한 기능이 아니며, 추가 개선 항목으로 분류됨.
+- 2차 배포에 포함하여 다음 스프린트에서 진행하기로 결정함(2026-06-23 결정).</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 7.19초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;멀티턴 맥락 유지 기능 2차 배포 분리 이유&quot;, &quot;alternate_queries&quot;: [&quot;멀티턴 맥락 유지 기능 1차 아닌 2차 배포 이유&quot;, &quot;멀티턴 맥락 유지 기능 배포 일정 변경 배경&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A7</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>LLM 모델을 최신 버전으로 업데이트하기로 한 이유와 예상 비용 증가는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> LLM 모델을 최신 버전으로 업데이트하기로 한 이유와 예상 비용 증가는?</p><pre>기존 모델이 납품 이후 업데이트되지 않았고 최신 모델의 응답 품질이 더 우수했기 때문. 비용 증가는 월 3~5만 원 수준으로 추정.</pre><p class="meta"><strong>참고문항</strong> 6/16 회의록 (결정 3)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**LLM 모델을 최신 버전으로 업데이트하기로 한 이유는 최신 모델이 응답 품질이 개선되었고 비용 증가 폭이 크지 않아 실용적 판단이 가능하기 때문이며, 예상 비용 증가는 월 3~5만 원 수준으로 큰 부담이 아니라고 판단되었기 때문이다.**
+
+근거:
+- 최신 모델의 응답 품질이 납품 시점 이후 사용 중인 모델보다 개선된 것이 확인됨.
+- 비용 차이는 월 약 3~5만 원 수준으로 크지 않아 실용적 판단 가능.
+- 모델 교체 후 프롬프트 재테스트가 반드시 필요하다는 조건이 붙음.
+- 원문 맥락에서 박서연이 비용 산출 근거(월 10,200건, 평균 토큰량 기준)를 설명함.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md</p><p class="meta">route=semantic · 8.71초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>LLM 모델을 최신 버전으로 업데이트하기로 한 이유는 **현재 사용 중인 모델이 납품 시점 이후 업데이트되지 않았고, 최신 모델의 응답 품질이 개선된 것이 확인되어 실용적 판단이 가능하기 때문**이며, 예상 비용 증가는 **월 3~5만 원 수준으로 크지 않아 고객사 계약에 운영 비용 조정이 필요할 수 있으나 큰 부담은 아니다**이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 3.34초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;LLM 모델 최신 버전 업데이트 이유 및 예상 비용 증가&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A8</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>진단 스프린트를 먼저 진행하기로 한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 진단 스프린트를 먼저 진행하기로 한 이유는?</p><pre>문제의 원인이 데이터, 모델, 프롬프트, 시스템 중 어디에 있는지 불명확한 상태에서 바로 개선에 들어가면 방향이 틀릴 수 있어, 먼저 원인을 특정해야 했기 때문.</pre><p class="meta"><strong>참고문항</strong> 6/2 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**진단 스프린트를 먼저 진행하기로 한 이유는 문제 원인이 데이터, 모델, 프롬프트, 시스템 중 어디에 있는지 명확하지 않아 바로 개선에 들어가면 방향이 틀릴 수 있기 때문이며, 먼저 원인을 특정해야 하기 때문이다.**
+
+근거:
+- 원문 맥락에서 &quot;문제의 원인이 데이터, 모델, 프롬프트, 시스템 중 어디에 있는지 명확하지 않은 상태에서 바로 개선에 들어가면 방향이 틀릴 수 있다. 먼저 원인을 특정해야 한다.&quot;라고 명확히 설명되어 있음.
+- 구조화 기록의 결정 항목에서도 &quot;유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다.&quot;고 기록되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 8.90초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**진단 스프린트를 먼저 진행하기로 한 이유는 문제 원인이 데이터, 모델, 프롬프트, 시스템 중 어디에 있는지 명확하지 않은 상태에서 바로 개선에 들어가면 방향이 틀릴 수 있기 때문에 먼저 원인을 특정해야 해서이다.**
+
+근거:
+- 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다.
+- 문제의 원인이 명확하지 않은 상태에서 바로 개선에 들어가면 방향이 틀릴 수 있으므로 먼저 원인을 특정해야 한다는 배경이 명시되어 있다.
+- 고객사로부터 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 요청하는 등 원인 분석을 위한 자료 수집도 병행되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 5.78초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;진단 스프린트 먼저 진행 이유&quot;, &quot;alternate_queries&quot;: [&quot;진단 스프린트 우선 진행 배경&quot;, &quot;진단 스프린트 진행 결정 이유&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A9</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는?</p><pre>해당 영역의 지식 베이스 문서가 충분하지 않았기 때문(고객사 공개 문서·내부 포인트 적립 기준 문서가 지식 베이스에 미반영).</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는 해당 영역의 지식 베이스 문서가 충분하지 않았기 때문이다.**
+
+근거:
+- QA 결과 보고에서 회원/포인트 영역은 1차 개선 후에도 67%로 다른 영역에 비해 낮았으며, 이는 &quot;이 쪽 문서가 충분하지 않은 것 같다&quot;는 평가가 있었다.
+- 박서연이 회원/포인트 영역 지식 베이스 보강 필요성을 언급하며, 공개 문서 외에도 내부 문서 추가 요청이 결정되었다.
+- 문서 보강 후 최종 정답률이 83%로 크게 개선된 점도 문서 부족이 원인이었음을 뒷받침한다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 9.09초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는 **회원/포인트 관련 문서가 지식 베이스에 충분히 반영되지 않았기 때문**이다.
+
+근거:
+- QA 결과에서 회원/포인트 영역은 1차 개선 후에도 정답률이 67%로 다른 영역에 비해 낮았고, 문서가 충분하지 않다는 지적이 있었다.
+- 강다은이 고객사 홈페이지의 회원 혜택과 포인트 정책 공개 문서가 지식 베이스에 없음을 보고했고, 내부 포인트 적립 기준 문서 추가 요청도 결정되었다.
+- 문서 보강과 re-ranking 도입 후 최종 정답률은 83%까지 개선되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 7.53초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;회원 포인트 영역 정답률 낮은 이유&quot;, &quot;alternate_queries&quot;: [&quot;회원/포인트 영역 정답률이 낮은 이유&quot;, &quot;회원 및 포인트 영역 정답률 저조 원인&quot;, &quot;회원과 포인트 관련 정답률 문제 원인&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A10</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>배포 후 모니터링 계획은 구체적으로 무엇인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 배포 후 모니터링 계획은 구체적으로 무엇인가?</p><pre>배포 후 1주일간 fallback 응답 비율, 응답 시간, 에러율을 집중 모니터링하고, 배포 3일 시점에 동일한 30개 케이스로 QA 재측정을 실시.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (결정 2)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>배포 후 모니터링 계획은 **1차 개선 배포 후 1주일간 집중 모니터링과 배포 후 3일 시점에 QA 재측정을 실시하는 것**이다.
+
+근거 및 상세 내용:
+- **1주일간 집중 모니터링**: 서버 로그 및 LLM 응답을 중심으로 fallback 응답 비율, 응답 시간, 에러율 등을 중점적으로 관찰한다.
+- **3일 시점 QA 재측정**: 배포 후 3일째에 동일한 30개 테스트 케이스로 프로덕션 환경에서 정답률을 다시 측정한다.
+- 담당자 및 일정:
+  | 담당자 | 작업 내용                  | 마감일    | 상태   |
+  |--------|---------------------------|-----------|--------|
+  | 박서연 | 배포 후 24시간 LLM 응답 모니터링 | 2026-07-01 | 미완료 |
+  | 최민준 | 서버 로그 모니터링 (1주일간)       | 2026-07-07 | 미완료 |
+  | 윤재혁 | 배포 후 3일 시점 QA 재측정         | 2026-07-03 | 미완료 |
+
+- 고객사에도 배포 후 1~2주 내 체감 변화를 피드백 요청할 예정이다.
+- 이 계획은 2026-06-27 결정되었으며, 스테이징 환경에서 최종 확인 후 6/30 오후 2시에 배포가 진행된다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 11.90초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>배포 후 모니터링 계획은 **배포 후 1주일간 집중 모니터링과 배포 후 3일 시점에 QA 재측정을 실시하는 것**이다.
+
+근거:
+- 1차 개선 배포 후 1주일간 응답 로그를 집중 모니터링하며, fallback 응답 비율, 응답 시간, 에러율을 중점적으로 관찰한다.
+- 배포 후 3일 시점에 동일한 30개 케이스를 다시 테스트하여 프로덕션 정답률을 측정한다.
+- 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지, 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행한다.
+- 이지훈은 고객사에 배포 후 1~2주 내 체감 변화 피드백 요청을 담당한다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 9.03초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;배포 후 모니터링 계획&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B1</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>최종(6/27 기준) 전체 정답률은 몇 %이며, 개선 전 대비 몇 %p 향상됐는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 최종(6/27 기준) 전체 정답률은 몇 %이며, 개선 전 대비 몇 %p 향상됐는가?</p><pre>최종 87%, 개선 전 55% 대비 32%p 향상.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>기록에서 6/27 기준 최종 전체 정답률과 개선 전 대비 향상된 %p 수치는 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md</p><p class="meta">route=overview · 0.91초</p><p><strong>판정 근거</strong> 최종 87%와 +32%p가 기록에 있는데도 확인할 수 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>6월 27일 기준 최종 전체 정답률은 **87%**이며, 개선 전 대비 **32%p** 향상되었다.
+
+근거:
+- 6월 27일 최종 QA 결과에서 전체 정답률이 87%로 보고됨
+- 개선 전 전체 정답률은 55%였음
+- 따라서 87% - 55% = 32%p 향상됨 (원문 맥락 #5 최종 QA 결과 확인 및 배포 일정 확정)</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 13.64초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;최종 전체 정답률 6/27&quot;, &quot;alternate_queries&quot;: [&quot;6월 27일 기준 전체 정답률&quot;, &quot;최종 전체 정답률 및 개선 전 대비 향상률&quot;, &quot;6/27 전체 정답률과 개선 전 대비 차이&quot;], &quot;include_history&quot;: false}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B2</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>영역별 정답률 변화 중 re-ranking 도입 효과가 가장 명확하게 나타난 영역은?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 영역별 정답률 변화 중 re-ranking 도입 효과가 가장 명확하게 나타난 영역은?</p><pre>환불 영역 — 75%(1차 개선 후) → 88%(최종)로 13%p 상승, re-ranking 도입 효과로 명시됨.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>영역별 정답률 변화 중 **re-ranking 도입 효과가 가장 명확하게 나타난 영역은 환불 영역**이다.
+
+근거:
+- 원문 맥락에서 박서연이 re-ranking 적용 시 환불 영역 정확도가 75%에서 88%로 13%p 상승했다고 보고함.
+- 이 외 영역별 정답률 변화는 QA 결과에 포함되어 있으나, re-ranking 도입 전후 비교 수치는 환불 영역에서만 구체적으로 명시됨.
+- 결정 사항에서도 re-ranking 도입 이유로 환불 영역 정확도 13%p 향상을 명확히 들고 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 9.98초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>re-ranking 도입 효과가 가장 명확하게 나타난 영역은 **환불 영역**이다.
+
+근거:
+- 예비 테스트에서 환불 영역 정확도가 75%에서 88%로 13%p 향상됨이 확인되었고, 이 수치가 re-ranking 도입 결정의 주요 근거가 됨.
+- 최종 QA 결과에서도 환불 영역 정답률이 75%에서 88%로 개선되어 re-ranking 효과가 뚜렷함.
+- 반품, 배송, 회원/포인트 영역도 개선되었으나, 환불 영역의 정답률 상승폭과 re-ranking 도입과의 직접적 연관성이 가장 명확하게 보고됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 6.89초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;re-ranking 도입 효과 영역별 정답률 변화&quot;, &quot;alternate_queries&quot;: [&quot;re-ranking 효과가 가장 뚜렷한 영역&quot;, &quot;영역별 정답률 변화와 re-ranking 영향&quot;, &quot;re-ranking 적용 후 정답률 변화 영역&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B3</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>[충돌 탐지] 파인튜닝에 대한 팀의 입장은 6/16과 6/27에 동일한가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [충돌 탐지] 파인튜닝에 대한 팀의 입장은 6/16과 6/27에 동일한가?</p><pre>실질적으로 동일함. 6/16 결정이 이미 &quot;이번 유지보수에서 제외 + 추후 2차 유지보수 또는 계약 연장 시 별도 과제로 검토&quot;였고, 6/27의 2차 개선 항목 등재(파인튜닝 검토, 충분한 데이터 확보 후, 우선순위 &#x27;중간&#x27;)는 그 방침의 구체화이지 입장 번복이 아님.</pre><p class="meta"><strong>참고문항</strong> 6/16 회의록 (결정 1), 6/27 회의록 (2차 개선 항목 정리)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 15건입니다.** _(분류=decision)_
+
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 1.67초</p><p><strong>판정 근거</strong> 결정 목록만 제시하고 6/16 입장의 유지와 6/27의 구체화 관계를 답하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**6/16과 6/27에 팀의 파인튜닝 입장은 동일하며, 파인튜닝은 이번 유지보수에서 제외하기로 결정되었고, 학습 데이터 준비는 계약 연장 시 별도 논의하기로 하였다.**
+
+근거:
+- 6/16 결정: &quot;파인튜닝은 이번 유지보수에서 제외하기로 결정했다.&quot; 이유는 학습 데이터 준비에 최소 2주 이상 필요하고, 현재 팀 리소스로는 1차 개선 목표와 병행 불가능하기 때문임.
+- 6/27 이슈: &quot;파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다.&quot;고 명시되어 있어, 파인튜닝 도입 자체는 보류 상태이며 추후 계약 연장 시 재검토 예정임.
+
+따라서 두 날짜 모두 파인튜닝 도입은 이번 유지보수 범위에서 제외하고, 학습 데이터 준비 등은 계약 연장 협의 시 별도 논의한다는 점에서 입장이 일치한다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 7.28초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;파인튜닝 팀 입장 6/16&quot;, &quot;include_history&quot;: true}}, {&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;파인튜닝 팀 입장 6/27&quot;, &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B4</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>[충돌 탐지] re-ranking 도입 여부는 회의마다 어떻게 바뀌었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [충돌 탐지] re-ranking 도입 여부는 회의마다 어떻게 바뀌었는가?</p><pre>6/16에는 &quot;QA 검증 결과를 보고 도입 여부 결정&quot;(보류 상태)이었고, 6/23에 예비 테스트 결과(환불 정확도 +13%p, 지연 +0.6초)를 근거로 &quot;정식 도입&quot;으로 확정됨. 결정 자체가 뒤집힌 것이 아니라 조건부 보류가 충족되어 진행된 케이스.</pre><p class="meta"><strong>참고문항</strong> 6/16 회의록 (결정 2), 6/23 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**re-ranking 도입은 현재 프로젝트에서 도입이 확정되어 진행 중인 상태이다.**
+
+- [프로젝트 메모리]에 따르면, RAG 파이프라인 개선 작업에 re-ranking 도입이 포함되어 병행 중임이 명확히 언급되어 있다.
+- [구조화 기록]이나 [원문 맥락]에서 re-ranking 도입과 관련된 반려나 변경 이력은 확인되지 않는다.
+- 따라서 회의마다 도입 여부가 바뀌었다는 기록은 없으며, 도입이 확정되어 현재 진행 중인 것으로 판단된다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md</p><p class="meta">route=overview · 3.08초</p><p><strong>판정 근거</strong> 조건부 보류→정식 도입인데 변경 이력이 없었다고 반대로 설명했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>충돌 탐지 re-ranking 도입 여부는 초기에는 QA 결과를 보고 결정하기로 했으나, 6월 23일 회의에서 예비 테스트 결과가 긍정적이어서 **re-ranking(cross-encoder 기반)을 정식 도입하기로 최종 결정되었다**.
+
+근거:
+- 6월 9일 회의에서는 re-ranking 도입 여부가 다음 회의에서 결정될 예정인 미해결 이슈였다.
+- 6월 16일 회의에서는 RAG 파이프라인 개선에 re-ranking 도입은 QA 검증 결과를 보고 결정하기로 했고, QA 결과 후 결정 예정이라는 이슈가 있었다.
+- 6월 23일 회의에서 예비 테스트에서 환불 영역 정확도가 75%에서 88%로 향상되고 응답 시간 증가가 허용 범위 내임이 확인되어, re-ranking을 정식 도입하기로 결정했다.
+- 이후 관련 액션들이 6월 25~26일까지 진행 중이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 6.82초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;충돌 탐지 re-ranking 도입 여부 변경&quot;, &quot;alternate_queries&quot;: [&quot;충돌 탐지 re-ranking 도입 결정 변화&quot;, &quot;충돌 탐지 re-ranking 도입 승인 및 반려 이력&quot;, &quot;충돌 탐지 re-ranking 도입 회의별 결정 변화&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B5</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>반품 영역의 정답률은 개선 전부터 최종까지 어떻게 변화했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 반품 영역의 정답률은 개선 전부터 최종까지 어떻게 변화했는가?</p><pre>55% → 90%(1차 개선 후) → 90%(최종, 변동 없음). 정책 갱신과 semantic chunking 효과로 1차 개선 시점에 이미 가장 크게 상승.</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록, 6/27 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>기록에서 반품 영역의 정답률 변화에 관한 내용은 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md</p><p class="meta">route=overview · 1.97초</p><p><strong>판정 근거</strong> 55%→90%→90% 근거가 있는데도 확인할 수 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>반품 영역의 정답률은 개선 전 55%에서 1차 개선 후 90%로 크게 상승했으며, 최종 QA 결과에서도 **90%로 유지되어 크게 개선되었다**.
+
+근거:
+- 1차 개선 전 반품 영역 정답률은 55%였다.
+- 1차 개선 후 반품 영역 정답률은 90%로 상승했다.
+- 최종 QA 테스트에서도 반품 영역 정답률은 90%로 유지되었다.
+- 개선 효과는 정책 문서 갱신과 semantic chunking 도입이 주요 원인으로 평가되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 5.49초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;반품 영역 정답률 변화&quot;, &quot;alternate_queries&quot;: [&quot;반품 영역 정답률 개선 전후 변화&quot;, &quot;반품 영역 최종 정답률&quot;, &quot;반품 영역 정답률 추이&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B6</strong><span class="badge fail">불일치</span><span class="badge fail">불일치</span><span>응답 시간은 1차 개선 후와 re-ranking 도입 후 각각 어떻게 변했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 응답 시간은 1차 개선 후와 re-ranking 도입 후 각각 어떻게 변했는가?</p><pre>1차 개선 후 평균 1.9초(청킹 개선으로 오히려 단축), re-ranking 도입 후 평균 약 2.5초(+0.6초 증가).</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록, 6/16 회의록(예상치)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>기록에서 응답 시간 변화에 관한 구체 수치나 비교 결과는 **확인되지 않는다**.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md</p><p class="meta">route=overview · 1.58초</p><p><strong>판정 근거</strong> 1.9초→2.5초(+0.6초) 근거가 있는데도 확인할 수 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge fail">불일치</span></h3><pre>**1차 개선 후 평균 응답 시간은 약 2.3초였고, re-ranking 도입 후에는 약 0.6초가 추가되어 평균 2.9초(2.5~3.5초 수준)로 증가했다.**
+
+근거:
+- 1차 개선 후 평균 응답 시간은 2.3초로 기록됨.
+- re-ranking 도입 시 cross-encoder 모델 사용으로 응답 지연이 약 0.5~1초 추가될 것으로 예상되었고, 실제 예비 테스트에서는 0.6초 증가함.
+- 이에 따라 re-ranking 도입 후 평균 응답 시간은 약 2.9초 수준으로 허용 가능한 범위로 판단되어 정식 도입 결정됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 6.29초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;응답 시간 1차 개선 후&quot;, &quot;alternate_queries&quot;: [&quot;응답 시간 re-ranking 도입 후&quot;, &quot;응답 시간 변화 1차 개선과 re-ranking 도입 후&quot;]}}]</p><p><strong>판정 근거</strong> 정답 근거인 1.9초 청크를 회수하지 못하고 2.3초와 +0.6초를 결합해 2.9초로 답했다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>B7</strong><span class="badge partial">부분일치</span><span class="badge partial">부분일치</span><span>[충돌 탐지] 멀티턴 맥락 유지 기능의 우선순위나 처리 방향이 회의마다 달라졌는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [충돌 탐지] 멀티턴 맥락 유지 기능의 우선순위나 처리 방향이 회의마다 달라졌는가?</p><pre>6/9에는 &quot;미해결 쟁점&quot;으로만 언급(구현 공수 크므로 별도 검토 필요)되었고, 6/23에 &quot;2차 배포 항목으로 공식 분리&quot;되어 명확한 일정상 위치를 부여받음. 결정 번복이 아니라 미정 상태에서 구체화된 흐름.</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록 (미해결 쟁점), 6/23 회의록 (결정 3)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**멀티턴 맥락 유지 기능의 우선순위와 처리 방향은 회의마다 달라지지 않고 일관되게 2차 배포로 분리하는 방향으로 결정되었다.**
+
+근거:
+- 6월 9일과 6월 16일 회의에서 멀티턴 기능 도입 여부가 미해결 쟁점으로 남았고, 구현 공수가 크다는 점이 강조되었다.
+- 6월 23일 회의에서 &quot;멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다&quot;는 명확한 결정이 내려졌다.
+- 원문 맥락에서도 6월 27일 회의 전후로 &quot;1차 배포 일정이 타이트하고 고객사 명시 요청이 아니므로 2차 배포에 포함하는 것이 현실적&quot;이라는 이유로 방향이 확정되었다.
+- 우선순위는 &quot;높음&quot;으로 유지되나, 처리 방향은 1차 배포에서 제외하고 2차 배포로 미루는 점이 일관되게 유지되고 있다.
+
+따라서 회의마다 우선순위 자체는 높게 유지되었으나, 처리 방향은 1차 배포에서 제외하고 2차 배포로 분리하는 점에서 변동 없이 일관적이었다고 볼 수 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 11.22초</p><p><strong>판정 근거</strong> 본문에는 미정→구체화가 있으나 결론은 처음부터 일관됐다고 과장했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge partial">부분일치</span></h3><pre>**멀티턴 맥락 유지 기능의 우선순위와 처리 방향은 회의마다 일부 조정되었으나, 2차 배포로 분리하여 다음 스프린트에 포함하는 방향으로 일관되게 결정되었다.**
+
+근거:
+- 6월 9일 회의에서는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아 있었고, 구현 공수가 크다는 이유로 별도 검토가 필요하다고 논의됨.
+- 6월 16일과 6월 23일 회의에서 멀티턴 맥락 유지 기능은 1차 배포 일정에 무리하게 포함하지 않고 2차 배포 항목으로 분리하기로 결정됨. 이유는 고객사 명시 요청이 아니고, 품질 리스크를 줄이기 위함임.
+- 6월 23일 결정에서 우선순위는 높음으로 유지되었으며, 강다은이 설계안을 보유하고 있음.
+- 7월 3일 예정된 2차 개선 계획 수립 회의에서 최종 진행 방향이 결정될 예정임.
+
+즉, 우선순위는 높게 유지되었으나, 일정과 품질 리스크를 고려해 1차가 아닌 2차 배포로 처리 방향이 확정되었고, 이후 설계 문서 작성과 논의가 진행 중이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 8.40초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;충돌 탐지 멀티턴 맥락 유지 우선순위 처리 방향 변경&quot;, &quot;alternate_queries&quot;: [&quot;충돌 탐지 멀티턴 맥락 유지 기능 우선순위 변화&quot;, &quot;충돌 탐지 멀티턴 맥락 유지 처리 방향 회의별 차이&quot;, &quot;충돌 탐지 멀티턴 맥락 유지 기능 결정 변경 이력&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 미정→구체화 흐름을 본문에 담았지만 첫 결론에서 방향이 일관됐다고 과장했다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B8</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>테스트 중 발견된 할루시네이션 사례는 몇 건이며 원인은?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 테스트 중 발견된 할루시네이션 사례는 몇 건이며 원인은?</p><pre>2건. 모두 지식 베이스에 관련 문서가 없는 질문에 대한 답변에서 발생.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>테스트 중 발견된 할루시네이션 사례는 **2건이며, 모두 지식 베이스에 관련 문서가 없는 질문에서 발생했다**.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 9.38초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>테스트 중 발견된 할루시네이션 사례는 **2건**이며, 원인은 모두 지식 베이스에 관련 문서가 없는 질문이었기 때문이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md</p><p class="meta">tools=search_project_evidence · 5.95초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;할루시네이션 사례 수와 원인&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B9</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>자체 QA 테스트(6/9)에서 측정한 오답률은 몇 %였는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 자체 QA 테스트(6/9)에서 측정한 오답률은 몇 %였는가?</p><pre>45% (20개 중 9개 오답/불완전 답변).</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 58건입니다.** _(필터 없음)_
+
+- **[issue]** 관리자용 지식 베이스 업데이트 UI 요구 수준에 대해 고객사와 협의가 필요하다. — 담당: **이지훈**
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[issue]** 계약 연장 협의 결과에 따라 2차 개선 범위가 결정되어야 하는 상황이다. — 담당: **이지훈**
+- **[issue]** 파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다. — 담당: **이지훈**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 최종 QA 기준 정답률 수치를 고객사와 합의해야 하는지 여부가 미해결 쟁점으로 남아 있다. — 담당: **이지훈**
+- **[issue]** 멀티턴 기능 구현 시 대화 이력 저장 방식(세션 vs DB)에 대한 설계 결정이 2차 배포 전 논의 예정으로 미해결 쟁점이다. — 담당: **이지훈**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[issue]** 운영 비용 조정(모델 업데이트에 따른 API 비용 변동): 고객사와 협의 필요 — 담당: **이지훈**
+- **[issue]** 멀티턴 맥락 유지 기능: 강다은이 공수 조사 후 다음 회의에서 논의 — 담당: **강다은**
+- **[issue]** re-ranking 도입 여부: QA 결과 후 결정 예정 — 담당: **이지훈**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 대화 맥락을 유지하는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아있다. 구현 공수가 크므로 별도 검토가 필요하다. — 담당: **이지훈**
+- **[issue]** 검색 알고리즘 개선 수준(BM25 하이브리드, re-ranking 도입 등)은 다음 회의에서 결정할 예정이다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[issue]** 고객사의 요구 수준이 어느 정도인지 아직 명확하지 않음 — 담당: **이지훈**
+- **[issue]** 이번 유지보수 범위가 계약 범위 내인지, 추가 비용이 발생하는지 여부 → 다음 회의 전까지 계약서 검토 필요 — 담당: **이지훈**
+- **[issue]** 고객사가 데이터 공유에 동의할지 여부 (개인정보 포함 가능성) — 담당: **이지훈**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 1.84초</p><p><strong>판정 근거</strong> 전체 기록을 나열했지만 45%와 20건 중 9건을 답하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>자체 QA 테스트(6/9)에서 측정한 오답률은 **45%**였다.
+
+근거:
+- 윤재혁(QA)이 6월 9일 회의에서 보고한 자체 테스트 결과에서 반품, 환불, 교환 관련 질문 20개 중 9개에서 오답 또는 불완전한 답변이 나와 오답률이 45%라고 명시되어 있다.
+- 오답의 주요 원인은 구 정책 기준으로 답변하거나 검색 오류로 엉뚱한 답변이 나온 경우였다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 4.45초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;자체 QA 테스트 오답률 6/9&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B10</strong><span class="badge fail">불일치</span><span class="badge partial">부분일치</span><span>하루 평균 질의 건수와 fallback 응답 비율(개선 전)은 얼마였는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 하루 평균 질의 건수와 fallback 응답 비율(개선 전)은 얼마였는가?</p><pre>하루 평균 약 340건, fallback 응답 비율은 전체 18%, 반품·교환 관련 질문에서는 31%까지 상승.</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 58건입니다.** _(필터 없음)_
+
+- **[issue]** 관리자용 지식 베이스 업데이트 UI 요구 수준에 대해 고객사와 협의가 필요하다. — 담당: **이지훈**
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[issue]** 계약 연장 협의 결과에 따라 2차 개선 범위가 결정되어야 하는 상황이다. — 담당: **이지훈**
+- **[issue]** 파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다. — 담당: **이지훈**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 최종 QA 기준 정답률 수치를 고객사와 합의해야 하는지 여부가 미해결 쟁점으로 남아 있다. — 담당: **이지훈**
+- **[issue]** 멀티턴 기능 구현 시 대화 이력 저장 방식(세션 vs DB)에 대한 설계 결정이 2차 배포 전 논의 예정으로 미해결 쟁점이다. — 담당: **이지훈**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[issue]** 운영 비용 조정(모델 업데이트에 따른 API 비용 변동): 고객사와 협의 필요 — 담당: **이지훈**
+- **[issue]** 멀티턴 맥락 유지 기능: 강다은이 공수 조사 후 다음 회의에서 논의 — 담당: **강다은**
+- **[issue]** re-ranking 도입 여부: QA 결과 후 결정 예정 — 담당: **이지훈**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 대화 맥락을 유지하는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아있다. 구현 공수가 크므로 별도 검토가 필요하다. — 담당: **이지훈**
+- **[issue]** 검색 알고리즘 개선 수준(BM25 하이브리드, re-ranking 도입 등)은 다음 회의에서 결정할 예정이다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[issue]** 고객사의 요구 수준이 어느 정도인지 아직 명확하지 않음 — 담당: **이지훈**
+- **[issue]** 이번 유지보수 범위가 계약 범위 내인지, 추가 비용이 발생하는지 여부 → 다음 회의 전까지 계약서 검토 필요 — 담당: **이지훈**
+- **[issue]** 고객사가 데이터 공유에 동의할지 여부 (개인정보 포함 가능성) — 담당: **이지훈**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 1.97초</p><p><strong>판정 근거</strong> 하루 340건, 전체 18%, 반품·교환 31%를 답하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge partial">부분일치</span></h3><pre>하루 평균 질의 건수는 약 340건이고, 개선 전 fallback 응답 비율은 전체 질의의 약 18%였다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 4.37초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;하루 평균 질의 건수 fallback 응답 비율 개선 전&quot;, &quot;alternate_queries&quot;: [&quot;하루 평균 질의 건수와 fallback 응답 비율 개선 전&quot;, &quot;fallback 응답 비율 개선 전 하루 평균 질의 건수&quot;, &quot;개선 전 fallback 응답 비율과 하루 평균 질의 건수&quot;]}}]</p><p><strong>판정 근거</strong> 전체 18%는 답했지만 질문의 두 번째 값인 반품·교환 31%를 누락했다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C1</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>지식 베이스 전면 갱신과 semantic chunking 구현은 각각 누가 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 지식 베이스 전면 갱신과 semantic chunking 구현은 각각 누가 담당했는가?</p><pre>두 작업 모두 박서연(AI 엔지니어)이 담당.</pre><p class="meta"><strong>참고문항</strong> 6/9 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 58건입니다.** _(필터 없음)_
+
+- **[issue]** 관리자용 지식 베이스 업데이트 UI 요구 수준에 대해 고객사와 협의가 필요하다. — 담당: **이지훈**
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[issue]** 계약 연장 협의 결과에 따라 2차 개선 범위가 결정되어야 하는 상황이다. — 담당: **이지훈**
+- **[issue]** 파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다. — 담당: **이지훈**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 최종 QA 기준 정답률 수치를 고객사와 합의해야 하는지 여부가 미해결 쟁점으로 남아 있다. — 담당: **이지훈**
+- **[issue]** 멀티턴 기능 구현 시 대화 이력 저장 방식(세션 vs DB)에 대한 설계 결정이 2차 배포 전 논의 예정으로 미해결 쟁점이다. — 담당: **이지훈**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[issue]** 운영 비용 조정(모델 업데이트에 따른 API 비용 변동): 고객사와 협의 필요 — 담당: **이지훈**
+- **[issue]** 멀티턴 맥락 유지 기능: 강다은이 공수 조사 후 다음 회의에서 논의 — 담당: **강다은**
+- **[issue]** re-ranking 도입 여부: QA 결과 후 결정 예정 — 담당: **이지훈**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 대화 맥락을 유지하는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아있다. 구현 공수가 크므로 별도 검토가 필요하다. — 담당: **이지훈**
+- **[issue]** 검색 알고리즘 개선 수준(BM25 하이브리드, re-ranking 도입 등)은 다음 회의에서 결정할 예정이다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[issue]** 고객사의 요구 수준이 어느 정도인지 아직 명확하지 않음 — 담당: **이지훈**
+- **[issue]** 이번 유지보수 범위가 계약 범위 내인지, 추가 비용이 발생하는지 여부 → 다음 회의 전까지 계약서 검토 필요 — 담당: **이지훈**
+- **[issue]** 고객사가 데이터 공유에 동의할지 여부 (개인정보 포함 가능성) — 담당: **이지훈**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 1.08초</p><p><strong>판정 근거</strong> 박서연 담당 행은 포함됐지만 두 작업의 담당자라는 관계를 직접 답하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**지식 베이스 전면 갱신과 semantic chunking 구현은 모두 박서연이 담당했다.**
+
+근거:
+- 지식 베이스 전면 갱신은 박서연이 &quot;최신 정책 문서 기반으로 지식 베이스 전면 갱신&quot;을 6/13까지 진행하기로 하였고(구조화 기록, 2026-06-09),
+- semantic chunking 구현 및 하이브리드 검색 모듈 개발도 박서연이 6/20까지 담당하기로 하였다(구조화 기록, 2026-06-16).
+- 회의록 원문에서도 박서연이 지식 베이스 문서 최신화와 semantic chunking 방식 조사 및 적용을 직접 수행했다고 명시되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 11.11초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;지식 베이스 전면 갱신 담당자&quot;, &quot;alternate_queries&quot;: [&quot;semantic chunking 담당자&quot;, &quot;지식 베이스 갱신과 semantic chunking 담당자&quot;]}}, {&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;semantic chunking 담당자&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C2</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>2차 개선 항목 중 우선순위가 &#x27;높음&#x27;으로 분류된 항목은 무엇인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 2차 개선 항목 중 우선순위가 &#x27;높음&#x27;으로 분류된 항목은 무엇인가?</p><pre>멀티턴 맥락 유지 기능, 포인트/회원 문서 추가 요청 건 반영.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (2차 개선 항목 정리)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 58건입니다.** _(미완료)_
+
+- **[issue]** 관리자용 지식 베이스 업데이트 UI 요구 수준에 대해 고객사와 협의가 필요하다. — 담당: **이지훈**
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[issue]** 계약 연장 협의 결과에 따라 2차 개선 범위가 결정되어야 하는 상황이다. — 담당: **이지훈**
+- **[issue]** 파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다. — 담당: **이지훈**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 최종 QA 기준 정답률 수치를 고객사와 합의해야 하는지 여부가 미해결 쟁점으로 남아 있다. — 담당: **이지훈**
+- **[issue]** 멀티턴 기능 구현 시 대화 이력 저장 방식(세션 vs DB)에 대한 설계 결정이 2차 배포 전 논의 예정으로 미해결 쟁점이다. — 담당: **이지훈**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[issue]** 운영 비용 조정(모델 업데이트에 따른 API 비용 변동): 고객사와 협의 필요 — 담당: **이지훈**
+- **[issue]** 멀티턴 맥락 유지 기능: 강다은이 공수 조사 후 다음 회의에서 논의 — 담당: **강다은**
+- **[issue]** re-ranking 도입 여부: QA 결과 후 결정 예정 — 담당: **이지훈**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 대화 맥락을 유지하는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아있다. 구현 공수가 크므로 별도 검토가 필요하다. — 담당: **이지훈**
+- **[issue]** 검색 알고리즘 개선 수준(BM25 하이브리드, re-ranking 도입 등)은 다음 회의에서 결정할 예정이다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[issue]** 고객사의 요구 수준이 어느 정도인지 아직 명확하지 않음 — 담당: **이지훈**
+- **[issue]** 이번 유지보수 범위가 계약 범위 내인지, 추가 비용이 발생하는지 여부 → 다음 회의 전까지 계약서 검토 필요 — 담당: **이지훈**
+- **[issue]** 고객사가 데이터 공유에 동의할지 여부 (개인정보 포함 가능성) — 담당: **이지훈**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 1.78초</p><p><strong>판정 근거</strong> 관련 항목은 섞여 있으나 우선순위가 높은 두 항목을 식별하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>2차 개선 항목 중 우선순위가 &#x27;높음&#x27;으로 분류된 항목은 **멀티턴 맥락 유지 기능과 포인트/회원 문서 추가 요청 건 반영**이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 2.94초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;2차 개선 우선순위 높음&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C3</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>1차 개선 프로덕션 배포는 누가, 언제 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 1차 개선 프로덕션 배포는 누가, 언제 담당했는가?</p><pre>최민준(백엔드)이 2026년 6월 30일 오후 2시에 담당.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (최종 액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 58건입니다.** _(필터 없음)_
+
+- **[issue]** 관리자용 지식 베이스 업데이트 UI 요구 수준에 대해 고객사와 협의가 필요하다. — 담당: **이지훈**
+- **[decision]** 1차 개선 배포 일정을 2026년 6월 30일 (화) 오후 2시로 확정했다. — 담당: **이지훈**
+- **[decision]** 배포 후 1주일간 집중 모니터링을 진행하고, 배포 후 3일 시점에 QA 재측정을 실시하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 2차 개선 계획 수립을 위한 별도 회의를 2026년 7월 3일에 진행하기로 결정했다. — 담당: **이지훈**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[issue]** 계약 연장 협의 결과에 따라 2차 개선 범위가 결정되어야 하는 상황이다. — 담당: **이지훈**
+- **[issue]** 파인튜닝 도입을 위한 학습 데이터 준비 계획이 계약 연장 시 별도 논의가 필요하다. — 담당: **이지훈**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[decision]** re-ranking(cross-encoder 기반)을 정식 도입하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 그린커머스 회원/포인트 관련 내부 문서를 추가 요청하고, 공개 문서를 지식 베이스에 즉시 추가하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 멀티턴 맥락 유지 기능은 2차 배포 항목으로 분리하여 다음 스프린트에 포함하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 최종 QA 기준 정답률 수치를 고객사와 합의해야 하는지 여부가 미해결 쟁점으로 남아 있다. — 담당: **이지훈**
+- **[issue]** 멀티턴 기능 구현 시 대화 이력 저장 방식(세션 vs DB)에 대한 설계 결정이 2차 배포 전 논의 예정으로 미해결 쟁점이다. — 담당: **이지훈**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[issue]** 운영 비용 조정(모델 업데이트에 따른 API 비용 변동): 고객사와 협의 필요 — 담당: **이지훈**
+- **[issue]** 멀티턴 맥락 유지 기능: 강다은이 공수 조사 후 다음 회의에서 논의 — 담당: **강다은**
+- **[issue]** re-ranking 도입 여부: QA 결과 후 결정 예정 — 담당: **이지훈**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[decision]** LLM 모델을 최신 버전으로 업데이트하기로 결정했다. — 담당: **이지훈**
+- **[decision]** RAG 파이프라인 개선은 semantic chunking + 하이브리드 검색(벡터 + BM25)을 우선 적용하고, re-ranking은 QA 검증 결과를 보고 도입 여부를 결정하기로 했다. — 담당: **이지훈**
+- **[decision]** 파인튜닝은 이번 유지보수에서 제외하기로 결정했다. — 담당: **이지훈**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[decision]** 지식 베이스 문서를 최신 정책 기준으로 전면 갱신하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 지식 베이스 갱신과 함께 chunk 분할 방식을 고정 길이에서 의미 단위 분할 방식으로 변경하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 프롬프트를 전면 재설계하기로 결정했다. 응답은 3문장 이내로 간결하게, 조건이 복잡한 경우 번호 목록 활용, 고객 친화적 구어체 톤을 기준으로 한다. — 담당: **이지훈**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[issue]** 대화 맥락을 유지하는 멀티턴 기능 도입 여부가 미해결 쟁점으로 남아있다. 구현 공수가 크므로 별도 검토가 필요하다. — 담당: **이지훈**
+- **[issue]** 검색 알고리즘 개선 수준(BM25 하이브리드, re-ranking 도입 등)은 다음 회의에서 결정할 예정이다. — 담당: **이지훈**
+- **[decision]** 유지보수 착수 전에 현황 파악을 위한 진단 스프린트를 1주일간 진행하기로 결정했다. — 담당: **이지훈**
+- **[issue]** 고객사의 요구 수준이 어느 정도인지 아직 명확하지 않음 — 담당: **이지훈**
+- **[issue]** 이번 유지보수 범위가 계약 범위 내인지, 추가 비용이 발생하는지 여부 → 다음 회의 전까지 계약서 검토 필요 — 담당: **이지훈**
+- **[issue]** 고객사가 데이터 공유에 동의할지 여부 (개인정보 포함 가능성) — 담당: **이지훈**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[decision]** 그린커머스의 최신 정책 문서(반품, 환불, 교환, 배송 관련)를 다시 요청해서 현재 지식 베이스와 비교하기로 결정했다. — 담당: **이지훈**
+- **[decision]** 고객사에 최근 3개월치 실제 질의-응답 로그 데이터 및 불만 사례 케이스를 공식적으로 요청하기로 결정했다. — 담당: **이지훈**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 0.94초</p><p><strong>판정 근거</strong> 최민준·6/30 오후 2시 행을 반환했지만 직접 답으로 종합하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**1차 개선 프로덕션 배포는 최민준이 2026년 6월 30일 오후 2시에 담당했다.**
+
+근거:
+- 구조화 기록에 따르면, 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하기로 되어 있다.
+- 2026년 6월 27일 결정으로 1차 개선 배포 일정이 6월 30일 (화) 오후 2시로 확정되었다.
+- 원문 맥락에서도 최민준이 6/30 오후 2시에 1차 개선 프로덕션 배포를 담당하는 것으로 명시되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 5.97초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;1차 개선 프로덕션 배포 담당자 및 일정&quot;, &quot;alternate_queries&quot;: [&quot;1차 개선 프로덕션 배포 누가 담당했나&quot;, &quot;1차 개선 프로덕션 배포 완료 시점&quot;, &quot;1차 개선 프로덕션 배포 담당자와 날짜&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>C4</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>[문서에 없음] 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 무엇인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [문서에 없음] 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 무엇인가?</p><pre>문서에서 확인할 수 없음. 회의록에는 &quot;벡터 검색&quot;, &quot;임베딩&quot;, &quot;재임베딩&quot; 등의 표현만 있을 뿐 구체적인 벡터 DB 제품명은 언급되지 않음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (문서 내 미언급)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>기록에서 확인되지 않는다.
+프로젝트 메모리와 구조화 기록, 원문 맥락 어디에도 벡터 데이터베이스 제품명이나 구체적인 솔루션 명칭은 언급되어 있지 않다. RAG 파이프라인 개선에 하이브리드 검색(벡터 + BM25) 도입은 결정되었으나, 사용된 벡터 DB 제품명은 기록에 포함되어 있지 않다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=semantic · 14.21초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>기록에서 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 2.47초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;벡터 데이터베이스 제품명&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C5</strong><span class="badge pass">일치</span><span class="badge partial">부분일치</span><span>[문서에 없음] 그린커머스의 계약 연장 여부는 최종적으로 어떻게 결정되었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [문서에 없음] 그린커머스의 계약 연장 여부는 최종적으로 어떻게 결정되었는가?</p><pre>문서에서 확인할 수 없음. 6/27 회의록 기준 &quot;계약 연장 협의 착수(7/1~)&quot;가 액션 아이템으로 잡혀 있을 뿐, 협의 결과나 최종 결정은 7/3 회의(문서 범위 밖)에서 다뤄질 예정으로 되어 있음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (협의 진행 중, 결과 미기재)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>그린커머스의 계약 연장 여부는 기록에서 최종 결정된 내용이 **확인되지 않는다**.
+
+- [구조화 기록]과 [원문 맥락] 모두 7월 1일부터 이지훈이 계약 연장 협의를 시작할 예정이고, 7월 3일 2차 개선 계획 수립 회의에서 계약 연장 협의 결과에 따라 2차 개선 범위가 결정될 것이라고 명시되어 있으나, 그 이후의 협의 결과나 최종 결정 내용은 기록에 포함되어 있지 않다.
+- 계약 연장과 유지보수 범위, 운영 비용 조정 등이 주요 리스크로 남아 있으며, 고객사의 계약 연장 여부가 프로젝트 진행 방향에 중요한 변수임이 언급되었으나, 최종 확정된 사항은 아직 보고되지 않았다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-16_개선방안_확정.md</p><p class="meta">route=semantic · 16.77초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge partial">부분일치</span></h3><pre>그린커머스의 계약 연장 여부는 2026년 7월 3일에 예정된 2차 개선 계획 수립 회의에서 고객사와의 협의 결과에 따라 최종 결정될 예정이며, 현재까지는 **계약 연장 협의가 7월 1일부터 착수된 상태로, 7월 3일 회의에서 확정될 계획**이다.
+
+근거:
+- 6월 27일 기록에 따르면 계약 연장 협의 착수는 7월 1일부터 시작되었고, 2차 개선 범위는 계약 연장 협의 결과에 따라 결정되어야 하는 미해결 쟁점으로 남아 있다.
+- 7월 3일에 2차 개선 계획 수립을 위한 별도 회의가 예정되어 있으며, 이 회의에서 1차 배포 결과와 고객사 피드백을 바탕으로 2차 개선 범위와 계약 연장 여부가 확정될 예정이다.
+- 파인튜닝 도입 등 추가 사항도 계약 연장 시 별도 논의하기로 되어 있어, 계약 연장 자체가 아직 확정되지 않은 상태임을 보여준다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md</p><p class="meta">tools=search_project_evidence · 6.47초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;그린커머스 계약 연장 결정&quot;}}]</p><p><strong>판정 근거</strong> 미확정 판단은 맞지만 7/3에 확정될 것이라고 말하고 7/1 협의를 이미 시작된 일처럼 바꿨다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C6</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>멀티턴 기능 설계 문서 작성은 누가 담당하며 마감은 언제인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 멀티턴 기능 설계 문서 작성은 누가 담당하며 마감은 언제인가?</p><pre>강다은(프론트엔드)이 담당, 마감은 7/3(다음 회의 전).</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (최종 액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 30건입니다.** _(분류=action · 미완료)_
+
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 0.79초</p><p><strong>판정 근거</strong> 강다은·7/3 행을 반환했지만 직접 답으로 종합하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>멀티턴 기능 설계 문서 작성은 **강다은이 담당하며, 마감은 7월 3일(다음 회의 전)**이다.
+
+근거:
+- 구조화 기록의 액션 항목에 &quot;강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다.&quot;라고 명시되어 있다.
+- 원문 맥락에서도 7/3 회의 전까지 작성하는 것으로 확인된다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">tools=search_project_evidence · 3.72초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;멀티턴 기능 설계 문서 작성 담당자와 마감일&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>C7</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>[문서에 없음] 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [문서에 없음] 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는?</p><pre>문서에서 확인할 수 없음. 임베딩이라는 행위(재임베딩 등)는 언급되지만 구체적인 임베딩 모델명이나 벡터 차원 수는 회의록에 기재되어 있지 않음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (문서 내 미언급)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는 기록에서 확인되지 않는다.**
+
+- [구조화 기록]과 [원문 맥락] 모두 임베딩 모델의 구체 명칭이나 차원 수에 관한 정보가 포함되어 있지 않다.
+- 원문에서는 LLM 모델 업데이트, RAG 파이프라인 개선, semantic chunking 방식 등 파이프라인 구성과 모델 버전 관련 논의는 있으나 임베딩 모델 세부 스펙은 언급되지 않았다.
+- 따라서 임베딩 모델 관련 구체 사항은 현재 프로젝트 기록 내에 존재하지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-27_최종QA_배포일정.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">route=semantic · 13.44초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>기록에서 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md</p><p class="meta">tools=search_project_evidence · 5.23초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;그린커머스 CS-Bot 임베딩 모델 이름 차원 수&quot;, &quot;alternate_queries&quot;: [&quot;그린커머스 CS-Bot embedding model name and dimension&quot;, &quot;임베딩 모델 정확한 명칭과 차원 수 그린커머스 CS-Bot&quot;, &quot;CS-Bot embedding model dimension and name for Green Commerce&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C8</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 누가, 언제까지 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 누가, 언제까지 담당했는가?</p><pre>강다은(프론트엔드)이 담당, 마감 6/24.</pre><p class="meta"><strong>참고문항</strong> 6/23 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 30건입니다.** _(분류=action · 미완료)_
+
+- **[action]** 강다은이 멀티턴 기능 설계 문서를 7/3 (다음 회의 전)까지 작성하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 이지훈이 7/1부터 계약 연장 협의를 착수하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 이지훈이 고객사에 배포 완료 안내 및 피드백 요청을 6/30 오후에 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 최민준이 서버 로그 모니터링을 7/7까지 1주일간 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 배포 후 24시간 LLM 응답 모니터링을 7/1까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 최민준이 1차 개선 프로덕션 배포를 6/30 오후 2시에 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 최민준이 스테이징 최종 확인을 6/30 오전까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 이지훈이 1차 배포 전 고객사 사전 보고 일정 협의를 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 re-ranking 및 문서 보강 후 최종 QA 테스트 30개를 6/26까지 재실시하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 이지훈이 그린커머스에 내부 포인트 문서 추가 요청을 6/24까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행하겠습니다. — 담당: **강다은** · **미완료**
+- **[action]** 최민준이 re-ranking 서버 연동 및 응답 시간 모니터링을 6/25까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 re-ranking 모듈 정식 통합 및 최종 프롬프트 버전 확정을 6/25까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 고객사에 1차 개선 일정 및 범위 공식 안내 (6/17까지) — 담당: **이지훈** · **미완료**
+- **[action]** 멀티턴 맥락 유지 기능 구현 가능성 조사 (6/20까지) — 담당: **강다은** · **미완료**
+- **[action]** 30개 QA 케이스로 1차 개선 후 테스트 진행 (6/23까지) — 담당: **윤재혁** · **미완료**
+- **[action]** 전체 재임베딩 실행 및 하이브리드 검색 서버 연동 (6/21까지) — 담당: **최민준** · **미완료**
+- **[action]** LLM 모델 버전 업데이트 및 프롬프트 재설계 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** Semantic chunking 구현 및 하이브리드 검색 모듈 개발 (6/20까지) — 담당: **박서연** · **미완료**
+- **[action]** 이지훈이 개선 로드맵 초안 작성 및 고객사 공유를 6/11까지 진행하겠습니다. — 담당: **이지훈** · **미완료**
+- **[action]** 윤재혁이 개선 후 재테스트를 위한 QA 케이스 30개 준비를 6/13까지 진행하겠습니다. — 담당: **윤재혁** · **미완료**
+- **[action]** 최민준이 청킹 방식 변경 후 전체 재임베딩 파이프라인 준비를 6/16까지 진행하겠습니다. — 담당: **최민준** · **미완료**
+- **[action]** 박서연이 semantic chunking 방식 조사 및 적용 방안 도출을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 박서연이 최신 정책 문서 기반으로 지식 베이스 전면 갱신을 6/13까지 진행하겠습니다. — 담당: **박서연** · **미완료**
+- **[action]** 그린커머스 김민수 팀장에게 로그 데이터 및 최신 정책 문서 요청 메일 발송 (6/2 당일) — 담당: **이지훈** · **미완료**
+- **[action]** 프론트엔드 입력 로그 분석 및 사용자 질문 패턴 정리 (6/5) — 담당: **강다은** · **미완료**
+- **[action]** 자체 QA 환경에서 반품/환불 관련 질문 20개 테스트 및 오답률 측정 (6/5) — 담당: **윤재혁** · **미완료**
+- **[action]** 현재 RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리 (6/5) — 담당: **박서연** · **미완료**
+- **[action]** 서버 측 응답 로그 6개월치 추출 및 기초 통계 작성 (6/5) — 담당: **최민준** · **미완료**</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md</p><p class="meta">route=filter_lookup · 0.91초</p><p><strong>판정 근거</strong> 강다은·6/24 행을 반환했지만 직접 답으로 종합하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 **강다은이 담당하며, 2026년 6월 24일까지 완료하기로 되어 있다**.
+
+근거:
+- 2026-06-23 결정에서 회원/포인트 공개 문서를 지식 베이스에 즉시 추가하기로 했고 담당은 이지훈이 내부 문서 추가 요청, 강다은이 공개 문서 추가를 맡음.
+- 액션 항목에 &quot;강다은이 회원/포인트 공개 문서 지식 베이스 추가를 6/24까지 진행&quot;으로 명시되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md, 2026-06-27_최종QA_배포일정.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md</p><p class="meta">tools=search_project_evidence · 5.80초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;회원 포인트 공개 문서 지식 베이스 추가 담당자 및 완료 예정일&quot;, &quot;alternate_queries&quot;: [&quot;회원 및 포인트 관련 공개 문서 지식 베이스 추가 작업 담당자와 마감일&quot;, &quot;회원 포인트 공개 문서 지식 베이스 작업 누가 언제까지 담당했나?&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>C9</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>[문서에 없음] 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 얼마인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> [문서에 없음] 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 얼마인가?</p><pre>문서에서 확인할 수 없음. 모델 교체에 따른 API 비용 증가분(월 3~5만 원)은 언급되나, 전체 프로젝트의 인건비나 총 비용에 대한 정보는 회의록에 없음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (문서 내 미언급)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>기록에서 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md</p><p class="meta">route=overview · 0.91초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 기록에서 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-02_유지보수요청_초기대응.md, 2026-06-16_개선방안_확정.md, 2026-06-27_최종QA_배포일정.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-09_진단결과_원인분석.md</p><p class="meta">tools=search_project_evidence · 5.22초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;유지보수 전체 인건비 총액&quot;, &quot;alternate_queries&quot;: [&quot;프로젝트 유지보수 비용 총합&quot;, &quot;유지보수에 투입된 총 비용&quot;, &quot;유지보수 인건비 합계&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C10</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>배포 후 3일 시점 QA 재측정은 누가 담당하며 언제 실시되는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 배포 후 3일 시점 QA 재측정은 누가 담당하며 언제 실시되는가?</p><pre>윤재혁(QA)이 담당, 2026년 7월 3일에 실시 예정.</pre><p class="meta"><strong>참고문항</strong> 6/27 회의록 (최종 액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록이 없습니다.** _(분류=action · 미완료 · 3일 이내 마감)_</pre><p class="meta"><strong>반환 출처</strong> 반환 없음</p><p class="meta">route=filter_lookup · 1.19초</p><p><strong>판정 근거</strong> 윤재혁·7/3 근거가 있는데도 조건에 맞는 기록이 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**배포 후 3일 시점 QA 재측정은 윤재혁이 담당하며, 7월 3일에 실시된다.**
+
+근거:
+- 구조화 기록의 액션 항목에 &quot;윤재혁이 배포 후 3일 시점 QA 재측정을 7/3에 진행하겠습니다.&quot;라고 명시되어 있다.
+- 원문 맥락 회의록 #5에서 윤재혁이 &quot;배포 후 3일 시점에 동일한 30개 케이스를 다시 테스트해서 프로덕션 정답률을 측정하겠습니다.&quot;라고 발언하였다.
+- 배포 일정은 6월 30일이며, 3일 후인 7월 3일에 QA 재측정이 계획되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-06-27_최종QA_배포일정.md, 2026-06-09_진단결과_원인분석.md, 2026-06-02_유지보수요청_초기대응.md, 2026-06-23_QA결과검토_2차방향.md, 2026-06-16_개선방안_확정.md</p><p class="meta">tools=search_project_evidence · 6.87초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;배포 후 3일 시점 QA 재측정 담당자 및 일정&quot;, &quot;alternate_queries&quot;: [&quot;QA 재측정 담당자와 일정&quot;, &quot;배포 후 3일 QA 재측정 누가 언제 하나&quot;, &quot;QA 재측정 담당자 일정&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details></main></body></html>

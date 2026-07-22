@@ -82,6 +82,7 @@ def test_general_path_passes_router_history_mode():
     decision = QueryRoute(route="semantic", router_stage="history_rule", history_mode=True)
     with patch("backend.api.query.require_project_access"), \
          patch("backend.api.query.get_connection", return_value=_project_conn()), \
+         patch.dict("os.environ", {"PAIM_QUERY_ROUTING_MODE": "legacy"}), \
          patch("backend.api.query.classify_question", return_value=decision), \
          patch("backend.api.query.run_qa", side_effect=fake_run_qa):
         resp = _client.post(

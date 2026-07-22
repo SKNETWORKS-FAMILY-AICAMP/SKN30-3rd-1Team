@@ -595,6 +595,7 @@ def _build_context(
     history_mode: Optional[bool] = None,
     history_scope: Optional[str] = None,
     history_topic_tokens: Optional[List[str]] = None,
+    query_variants: Optional[List[str]] = None,
 ) -> tuple[str, List[str], dict]:
     """MySQL(구조화) + ChromaDB(원문 맥락)를 모두 조회해 컨텍스트로 조합.
     반환: (컨텍스트 문자열, 출처 목록, 디버그 dict)
@@ -615,9 +616,25 @@ def _build_context(
 
     sources: List[str] = []
     debug: dict = {"mysql_rows": [], "chroma_chunks": [], "history_mode": bool(history_mode)}
-    multi_queries = _generate_multi_queries(question)
+    if query_variants is None:
+        multi_queries = _generate_multi_queries(question)
+        multi_query_source = "generator"
+    else:
+        # Tool-calling 오케스트레이터는 첫 LLM 호출에서 검색어 변형까지 함께 만든다.
+        # 이 경우 검색 내부에서 LLM을 다시 호출하지 않고 원 질문을 첫 검색어로 보존한다.
+        multi_queries = [question]
+        for candidate in query_variants:
+            cleaned = str(candidate).strip()
+            if cleaned and cleaned not in multi_queries:
+                multi_queries.append(cleaned)
+            if len(multi_queries) >= 4:
+                break
+        multi_query_source = "tool_agent"
     debug["multi_queries"] = multi_queries
-    debug["multi_query_model_tier"] = MULTI_QUERY_MODEL_TIER
+    debug["multi_query_model_tier"] = (
+        MULTI_QUERY_MODEL_TIER if multi_query_source == "generator" else None
+    )
+    debug["multi_query_source"] = multi_query_source
 
     # 1) 구조화 기록 — MySQL memory 테이블.
     #    category는 하드 필터가 아니라 소프트 우선순위로 쓴다: 추출기의 decision/action 분류

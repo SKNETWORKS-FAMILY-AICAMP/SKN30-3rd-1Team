@@ -1,5 +1,6 @@
 import base64
 import binascii
+import logging
 import os
 from pathlib import Path
 from typing import List, Dict
@@ -10,6 +11,7 @@ from ..db.mysql import get_connection
 from ..pipeline.extractor import extract
 from ..pipeline.ingestor import ingest
 from ..graph import update_project_memory, run_qa
+from ..agentic_graph import run_agentic_qa
 from ..retriever import history_intent
 from ..retriever.query_intent import (
     SemanticFallback,
@@ -21,6 +23,7 @@ from .upload import _ALLOWED_SUFFIXES, _MAX_FILE_BYTES, _delete_document, _extra
 from .auth import require_project_access
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 _ATTACHMENT_MAX_CHARS_PER_FILE = int(os.getenv("QUERY_ATTACHMENT_MAX_CHARS_PER_FILE", "20000"))
 _ATTACHMENT_MAX_CHARS_TOTAL = int(os.getenv("QUERY_ATTACHMENT_MAX_CHARS_TOTAL", "40000"))
 
@@ -34,6 +37,11 @@ class QueryRequest(BaseModel):
     question: str
     history: List[Dict] = []
     attachments: List[QueryAttachment] = []
+
+
+def _agentic_routing_enabled() -> bool:
+    """Feature flag for the disposable tool-routing experiment."""
+    return os.getenv("PAIM_QUERY_ROUTING_MODE", "agentic").strip().lower() != "legacy"
 
 
 def _clip_attachment_text(text: str, limit: int, marker: str) -> str:
@@ -110,6 +118,31 @@ def query(project_id: int, body: QueryRequest):
             result["debug"] = debug
             return result
 
+        if _agentic_routing_enabled():
+            try:
+                return run_agentic_qa(project_id, body.question, body.history)
+            except Exception:
+                # Tool calling is not guaranteed for every local OpenAI-compatible
+                # model. Keep the endpoint useful and ground the fallback in the
+                # existing hybrid semantic retriever rather than the brittle router.
+                logger.warning(
+                    "agentic Q&A 실패, semantic RAG로 폴백: project_id=%s",
+                    project_id,
+                    exc_info=True,
+                )
+                result = run_qa(
+                    project_id=project_id,
+                    question=body.question,
+                    history=body.history,
+                    history_mode=history_intent.detect_history_intent(body.question),
+                )
+                result["route"] = "semantic"
+                debug = result.get("debug") or {}
+                debug["route"] = "semantic"
+                debug["router_stage"] = "tool_agent_fallback"
+                result["debug"] = debug
+                return result
+
         decision = classify_question(body.question, body.history)
         if decision.route == "filter_lookup":
             try:
@@ -135,8 +168,7 @@ def query(project_id: int, body: QueryRequest):
         result["debug"] = debug
         return result
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Q&A 처리 오류: %s", e, exc_info=True)
+        logger.error("Q&A 처리 오류: %s", e, exc_info=True)
         raise HTTPException(status_code=503, detail="Q&A 처리 중 오류가 발생했습니다. 서버 로그를 확인하세요.")
 
 

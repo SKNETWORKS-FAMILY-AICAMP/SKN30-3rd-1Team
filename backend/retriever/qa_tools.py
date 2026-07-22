@@ -1,0 +1,228 @@
+"""Retrieval-only tools used by the experimental tool-calling Q&A graph.
+
+The tools in this module never write the user-facing answer. They only return
+bounded evidence plus an artifact containing provenance/debug information. The
+orchestrator LLM is the single component responsible for the final response.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Annotated, Literal, Optional
+
+from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
+
+from ..graph import get_project_memory
+from . import mysql_search, qa_engine
+from .query_intent import _fetch_overview_context
+
+
+MemoryCategory = Literal["decision", "action", "issue", "risk"]
+MemoryOperation = Literal["list", "count"]
+MEMORY_TOOL_MAX_ROWS = 10
+
+
+def _dedupe_rows(rows: list[dict]) -> list[dict]:
+    """Deduplicate JOIN-expanded memory rows without losing their DB order."""
+    seen: set[object] = set()
+    result: list[dict] = []
+    for row in rows:
+        key = row.get("id")
+        if key is None:
+            key = (
+                row.get("category"),
+                row.get("content"),
+                row.get("owner"),
+                row.get("source"),
+            )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(row)
+    return result
+
+
+def _row_evidence(row: dict) -> str:
+    line = qa_engine._format_mysql_row(row)
+    if row.get("reason"):
+        line += f" 이유: {row['reason']}"
+    return line
+
+
+def _compact_retrieval_debug(debug: dict) -> dict:
+    """Keep useful retrieval diagnostics without duplicating full chunk text."""
+    chunks = []
+    for chunk in debug.get("chroma_chunks") or []:
+        chunks.append({key: value for key, value in chunk.items() if key != "text_full"})
+    return {
+        "filters": debug.get("filters") or {},
+        "history_mode": bool(debug.get("history_mode")),
+        "history_scope": debug.get("history_scope"),
+        "multi_queries": debug.get("multi_queries") or [],
+        "multi_query_source": debug.get("multi_query_source"),
+        "mysql_rows": debug.get("mysql_rows") or [],
+        "chroma_chunks": chunks,
+    }
+
+
+@tool(response_format="content_and_artifact")
+def search_project_evidence(
+    query: str,
+    project_id: Annotated[int, InjectedState("project_id")],
+    alternate_queries: Optional[list[str]] = None,
+    include_history: bool = False,
+) -> tuple[str, dict]:
+    """Search project records for a specific fact, metric, owner, date, reason, or change history.
+
+    Use this for target-to-attribute questions such as "SDK 연동은 누가 담당했나?",
+    for percentages and other measured values, and for comparisons across meetings.
+    ``alternate_queries`` may contain at most three faithful rewrites of the user's
+    question. Set ``include_history`` when the question asks how a decision changed.
+    """
+    context, sources, debug = qa_engine._build_context(
+        project_id,
+        query,
+        history_mode=include_history,
+        query_variants=alternate_queries or [],
+    )
+    project_memory = get_project_memory(project_id)
+    parts = []
+    if project_memory:
+        parts.append(f"[프로젝트 메모리]\n{project_memory}")
+    if context:
+        parts.append(context)
+    content = "\n\n".join(parts) or "프로젝트 기록에서 관련 근거를 찾지 못했습니다."
+    return content, {
+        "tool": "search_project_evidence",
+        "sources": sources,
+        "debug": _compact_retrieval_debug(debug),
+    }
+
+
+@tool(response_format="content_and_artifact")
+def query_structured_memory(
+    operation: MemoryOperation,
+    text_query: str,
+    project_id: Annotated[int, InjectedState("project_id")],
+    owner: Optional[str] = None,
+    category: Optional[MemoryCategory] = None,
+    completed: Optional[bool] = None,
+    due_within_days: Optional[int] = None,
+    overdue: Optional[bool] = None,
+    limit: int = 8,
+) -> tuple[str, dict]:
+    """List or count project memory using explicit structured conditions.
+
+    Use this only for true list/count requests. ``owner`` is a condition already
+    present in the question, never the person the user is asking you to discover.
+    Put the original target phrase in ``text_query`` so records can be ranked.
+    Raw SQL is not supported, and list output is always capped at ten rows.
+    """
+    text_query = str(text_query or "").strip()
+    limit = max(1, min(int(limit), MEMORY_TOOL_MAX_ROWS))
+    has_filter = any(
+        value is not None
+        for value in (owner, category, completed, due_within_days, overdue)
+    )
+    if not text_query and not has_filter:
+        content = (
+            "구조화 조건과 검색 대상이 모두 비어 있어 전체 기록 조회를 거부했습니다. "
+            "구체적인 근거 검색에는 search_project_evidence를 사용하세요."
+        )
+        return content, {
+            "tool": "query_structured_memory",
+            "status": "invalid_query",
+            "sources": [],
+            "total_rows": 0,
+            "returned_rows": 0,
+        }
+
+    rows = _dedupe_rows(mysql_search.search(
+        project_id,
+        category=category,
+        owner=owner,
+        completed=completed,
+        due_within_days=due_within_days,
+        overdue=overdue,
+    ))
+    sources = []
+    for row in rows:
+        source = row.get("source")
+        if source and source not in sources:
+            sources.append(source)
+
+    if operation == "count":
+        payload = {"count": len(rows), "filters": {
+            "owner": owner,
+            "category": category,
+            "completed": completed,
+            "due_within_days": due_within_days,
+            "overdue": overdue,
+        }}
+        return json.dumps(payload, ensure_ascii=False, default=str), {
+            "tool": "query_structured_memory",
+            "status": "ok",
+            "operation": operation,
+            "sources": sources,
+            "total_rows": len(rows),
+            "returned_rows": 0,
+        }
+
+    ranked = rows
+    vector_hits: list[dict] = []
+    if text_query and rows:
+        ranked, vector_hits = qa_engine._rank_mysql_rows(
+            project_id, rows, [text_query], limit
+        )
+    ranked = ranked[:limit]
+    if ranked:
+        content = "\n".join(_row_evidence(row) for row in ranked)
+    else:
+        content = (
+            "구조화 조건으로 일치하는 행을 찾지 못했습니다. 이것만으로 기록 부재를 "
+            "확정하지 말고 search_project_evidence로 원문을 확인하세요."
+        )
+    return content, {
+        "tool": "query_structured_memory",
+        "status": "ok" if ranked else "empty",
+        "operation": operation,
+        "sources": [
+            row.get("source") for row in ranked
+            if row.get("source")
+        ],
+        "total_rows": len(rows),
+        "returned_rows": len(ranked),
+        "truncated": len(rows) > len(ranked),
+        "memory_vector_hits": vector_hits[:10],
+    }
+
+
+@tool(response_format="content_and_artifact")
+def get_project_overview(
+    project_id: Annotated[int, InjectedState("project_id")],
+) -> tuple[str, dict]:
+    """Return a broad project-wide summary, category counts, and action samples.
+
+    Use only when the user explicitly asks for a briefing or overall project status.
+    A phrase such as "전체 정답률" is a specific metric and must use evidence search.
+    """
+    context = _fetch_overview_context(project_id)
+    rows = list(context.get("open_actions") or []) + list(context.get("recent_completed_actions") or [])
+    sources = []
+    for row in rows:
+        source = row.get("source")
+        if source and source not in sources:
+            sources.append(source)
+    return "[프로젝트 조망]\n" + json.dumps(
+        context, ensure_ascii=False, default=str
+    ), {
+        "tool": "get_project_overview",
+        "sources": sources,
+        "category_stats": context.get("category_stats") or {},
+        "open_actions": len(context.get("open_actions") or []),
+        "recent_completed_actions": len(context.get("recent_completed_actions") or []),
+    }
+
+
+QA_TOOLS = [search_project_evidence, query_structured_memory, get_project_overview]
