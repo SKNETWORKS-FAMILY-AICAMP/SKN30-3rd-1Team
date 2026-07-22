@@ -201,9 +201,13 @@
     .s200 { color: #065f46; font-weight: 700; }
     .s201 { color: #065f46; font-weight: 700; }
     .s204 { color: #065f46; font-weight: 700; }
+    .s202 { color: #065f46; font-weight: 700; }
     .s400 { color: #b45309; font-weight: 700; }
+    .s401 { color: #b45309; font-weight: 700; }
     .s403 { color: #b45309; font-weight: 700; }
     .s404 { color: #b45309; font-weight: 700; }
+    .s409 { color: #b45309; font-weight: 700; }
+    .s410 { color: #b45309; font-weight: 700; }
     .s503 { color: #991b1b; font-weight: 700; }
 
     .note {
@@ -301,13 +305,86 @@
   </nav>
 
   <main>
+    <!-- auth-mode: jwt-fail-closed -->
+    <!-- updated: 2026-07-22 -->
     <h1>PaiM FastAPI 명세서</h1>
     <p class="subtitle">
       Base URL (로컬): <code>http://127.0.0.1:8000</code> &nbsp;·&nbsp;
-      API Prefix: <code>/api/v1</code> &nbsp;·&nbsp;
+      API Prefix: <code>/api/v1</code> (GitHub App은 <code>/github/app/*</code>, prefix 없음) &nbsp;·&nbsp;
       에러 형식: <code>{"detail": "..."}</code> &nbsp;·&nbsp;
-      갱신: 2026-07-02
+      갱신: 2026-07-22 (TASK-010 — 누락 20 operation·인증/권한 최신화)
     </p>
+
+    <!-- ── Auth ───────────────────────────────────────────────── -->
+    <h2 id="auth">인증·권한</h2>
+    <div class="note" data-auth-mode="jwt-fail-closed">
+      <strong>인증 모드·갱신일 단일 출처</strong>: 인증 정책은 이 섹션이 정본이다
+      (문서 상단 <code>auth-mode</code>·<code>updated</code> 표식과 값 일치).
+      서버는 기본 <code>PAIM_AUTH_MODE=jwt</code>(fail-closed) — 보호 엔드포인트는
+      <code>Authorization: Bearer &lt;token&gt;</code> 필수, 없거나 무효면 401.
+      <code>PAIM_JWT_SECRET</code>(≥32바이트, 비플레이스홀더) 미설정 시 기동 거부.
+      <code>PAIM_AUTH_MODE=dev</code>는 로컬 전용(<code>DEV_USER_ID</code> 대체, 배포 금지).
+      공개 경로: <code>GET /</code>, <code>GET /health</code>,
+      <code>POST /api/v1/auth/signup</code>, <code>POST /api/v1/auth/login</code>,
+      <code>GET /github/app/callback</code>(state 필수).
+    </div>
+    <!-- perms: see role-matrix -->
+    <div class="note" data-perms="role-matrix">
+      <strong>역할 서열</strong>: <code>viewer &lt; member &lt; admin &lt; owner</code>
+      (프로젝트별 <code>project_members</code>). 조회=viewer, 상태 변경(업로드·삭제·
+      메모리 CRUD·제안 accept/reject·git·세션 생성/수정/삭제)=member,
+      프로젝트 삭제=owner. <strong>멤버 API</strong>: 멤버 목록 조회=viewer,
+      멤버 초대=owner, 역할 변경=owner, 멤버 제거는 본인 탈퇴=member·
+      타인 제거=owner. dev 모드는 <code>DEV_USER_ID</code>가 설정돼 있으면 실제
+      역할로 검사하고, 미설정일 때만 검사를 생략(no-op)한다. 엔드포인트별 최소
+      역할은 각 카드와 <a href="API_명세서.md">Markdown 명세서</a>의 역할 표를 따른다.
+    </div>
+
+    <!-- ── Auth API ───────────────────────────────────────────── -->
+    <h2 id="auth-api">인증 API</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/auth/signup</span>
+      </div>
+      <div class="endpoint-desc">회원가입 (공개). 성공 시 access token·사용자 정보 반환.</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "email": "a@b.c", "password": "at-least-8-chars", "name": "이름" }</code></pre>
+        <div class="res-label"><span class="s201">201</span> Created</div>
+        <pre><code>{ "access_token": "&lt;JWT&gt;", "token_type": "bearer", "user": { "id": 1, "email": "a@b.c", "name": "이름" } }</code></pre>
+        <div class="res-label"><span class="s400">400</span> 이메일 형식 / 비밀번호 길이</div>
+        <div class="res-label"><span class="s409">409</span> 이미 가입된 이메일</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/auth/login</span>
+      </div>
+      <div class="endpoint-desc">로그인 (공개). signup과 동일한 응답 형태.</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "email": "a@b.c", "password": "..." }</code></pre>
+        <div class="res-label"><span class="s200">200</span> OK — <code>{ access_token, token_type, user }</code></div>
+        <div class="res-label"><span class="s401">401</span> 이메일 또는 비밀번호가 올바르지 않습니다 (사유 미노출)</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/api/v1/auth/me</span>
+      </div>
+      <div class="endpoint-desc">현재 토큰의 사용자 정보 (인증 필요).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>{ "id": 1, "email": "a@b.c", "name": "이름", "created_at": "..." }</code></pre>
+        <div class="res-label"><span class="s401">401</span> 토큰 없음/무효/만료</div>
+      </div>
+    </div>
 
     <!-- ── Health ─────────────────────────────────────────────── -->
     <h2 id="health">서버 상태</h2>
@@ -382,6 +459,33 @@
         <pre><code>{ "id": 1, "name": "PaiM MVP", "created_at": "2026-07-01T12:00:00" }</code></pre>
         <div class="res-label"><span class="s404">404</span> Not Found</div>
         <pre><code>{ "detail": "Project not found" }</code></pre>
+      </div>
+    </div>
+
+    <div class="endpoint" id="projects-update">
+      <div class="endpoint-header">
+        <span class="method PATCH">PATCH</span>
+        <span class="path">/api/v1/projects/{project_id}</span>
+      </div>
+      <div class="endpoint-desc">프로젝트 이름 수정 (최소 역할 member).</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "name": "새 이름" }</code></pre>
+        <div class="res-label"><span class="s200">200</span> OK — 수정된 프로젝트 객체</div>
+        <div class="res-label"><span class="s400">400</span> 빈 이름</div>
+        <div class="res-label"><span class="s404">404</span> Not Found</div>
+      </div>
+    </div>
+
+    <div class="endpoint" id="projects-delete">
+      <div class="endpoint-header">
+        <span class="method DELETE">DELETE</span>
+        <span class="path">/api/v1/projects/{project_id}</span>
+      </div>
+      <div class="endpoint-desc">프로젝트 삭제 (최소 역할 <strong>owner</strong>). 하위 문서·저장소·메모리·세션·멤버십·벡터·원본 파일 함께 삭제.</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s204">204</span> No Content</div>
+        <div class="res-label"><span class="s404">404</span> Not Found</div>
       </div>
     </div>
 
@@ -717,7 +821,7 @@
         <span class="method POST">POST</span>
         <span class="path">/api/v1/projects/{project_id}/memory</span>
       </div>
-      <div class="endpoint-desc">Memory 항목 수동 추가. <code>created_by: "user"</code>, <code>is_user_verified: true</code>로 저장.</div>
+      <div class="endpoint-desc">Memory 항목 수동 추가 (최소 역할 member). <code>created_by: "user"</code>, <code>is_user_verified: true</code>로 저장.</div>
       <div class="endpoint-body">
         <div class="res-label">Request Body</div>
         <pre><code>{
@@ -725,6 +829,7 @@
   "content": "배포 전 보안 점검 수행",
   "owner": "지훈",
   "date": "2026-07-05",
+  "due_date": "2026-07-10",
   "topic": "배포 준비"
 }</code></pre>
         <table>
@@ -733,21 +838,24 @@
           <tr><td><code>content</code></td><td>string</td><td>✅</td></tr>
           <tr><td><code>owner</code></td><td>string</td><td>-</td></tr>
           <tr><td><code>date</code></td><td>string</td><td>-</td></tr>
+          <tr><td><code>due_date</code></td><td>string</td><td>-</td></tr>
           <tr><td><code>topic</code></td><td>string</td><td>-</td></tr>
           <tr><td><code>reason</code></td><td>string</td><td>-</td></tr>
         </table>
-        <div class="res-label"><span class="s201">201</span> Created</div>
+        <div class="res-label"><span class="s201">201</span> Created — 생성된 memory row(raw). <code>due_date</code>·<code>completed_at</code>·<code>sort_order</code> 포함. <code>source_info</code> 없음(GET 목록에서만 계산됨).</div>
         <pre><code>{
   "id": 99,
   "category": "action",
   "content": "배포 전 보안 점검 수행",
   "owner": "지훈",
   "date": "2026-07-05",
+  "due_date": "2026-07-10",
   "topic": "배포 준비",
   "reason": null,
   "created_by": "user",
   "updated_by": null,
   "is_user_verified": true,
+  "completed_at": null,
   "created_at": "2026-07-01T12:00:00"
 }</code></pre>
       </div>
@@ -759,11 +867,20 @@
         <span class="path">/api/v1/projects/{project_id}/memory/{memory_id}</span>
       </div>
       <div class="endpoint-desc">
-        Memory 항목 수정. 수정 후 <code>is_user_verified: true</code> 마킹 — 이후 LLM 재처리 시 덮어쓰지 않음.
+        Memory 항목 부분 수정 (최소 역할 member). 의미 필드 수정 시 <code>is_user_verified: true</code> 마킹.
       </div>
       <div class="endpoint-body">
         <div class="res-label">Request Body (수정할 필드만)</div>
-        <pre><code>{ "content": "API 규약을 이번 주 내로 정리한다", "owner": "지훈" }</code></pre>
+        <pre><code>{ "content": "API 규약을 이번 주 내로 정리한다", "owner": "지훈",
+  "due_date": "2026-07-12", "completed": true, "sort_order": 3 }</code></pre>
+        <table>
+          <tr><th>필드</th><th>타입</th><th>설명</th></tr>
+          <tr><td><code>category</code>·<code>content</code>·<code>owner</code>·<code>date</code>·<code>topic</code>·<code>reason</code></td><td>string</td><td>의미 필드(부분 수정). 하나라도 바뀌면 <code>is_user_verified: true</code></td></tr>
+          <tr><td><code>due_date</code></td><td>string | null</td><td>마감일. <code>null</code>이면 해제</td></tr>
+          <tr><td><code>completed</code></td><td>boolean</td><td><code>true</code>→<code>completed_at=NOW()</code>, <code>false</code>→<code>null</code>. <code>null</code> 전송은 400</td></tr>
+          <tr><td><code>sort_order</code></td><td>integer | null</td><td>표시 정렬 순서. 명시적 <code>null</code> 전송 시 해제</td></tr>
+        </table>
+        <div class="note"><code>completed</code>(요청, boolean) ↔ <code>completed_at</code>(응답, timestamp). 수정 필드가 없으면 400. category를 decision 밖으로 바꾸는 변경이 supersede 관계와 충돌하면 409.</div>
         <div class="res-label"><span class="s200">200</span> OK</div>
         <pre><code>{
   "id": 1,
@@ -793,17 +910,175 @@
       </div>
     </div>
 
+    <!-- ── Members ────────────────────────────────────────────── -->
+    <h2 id="members">멤버 관리</h2>
+    <p class="note" style="margin-bottom:16px;">
+      역할 서열 <code>viewer &lt; member &lt; admin &lt; owner</code>. owner는 프로젝트
+      생성 시에만 부여(이관 불가). 할당 가능 role: <code>viewer</code>/<code>member</code>/<code>admin</code>.
+    </p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/api/v1/projects/{project_id}/members</span>
+      </div>
+      <div class="endpoint-desc">멤버 목록 조회 (최소 역할 viewer).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>[{ "user_id": 1, "email": "a@b.c", "name": "이름", "role": "owner", "created_at": "...", "last_seen_at": null }]</code></pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/projects/{project_id}/members</span>
+      </div>
+      <div class="endpoint-desc">멤버 추가 (최소 역할 <strong>owner</strong>). 대상은 이미 가입된 사용자.</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "email": "new@b.c", "role": "member" }</code></pre>
+        <div class="res-label"><span class="s201">201</span> Created</div>
+        <pre><code>{ "user_id": 5, "email": "new@b.c", "name": "새 멤버", "role": "member" }</code></pre>
+        <div class="res-label"><span class="s400">400</span> 허용되지 않는 role &nbsp;·&nbsp; <span class="s404">404</span> 미가입 &nbsp;·&nbsp; <span class="s409">409</span> 이미 멤버</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method PATCH">PATCH</span>
+        <span class="path">/api/v1/projects/{project_id}/members/{member_user_id}</span>
+      </div>
+      <div class="endpoint-desc">멤버 역할 변경 (최소 역할 <strong>owner</strong>).</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "role": "admin" }</code></pre>
+        <div class="res-label"><span class="s200">200</span> OK — <code>{ "user_id": 5, "role": "admin" }</code></div>
+        <div class="res-label"><span class="s400">400</span> role 오류/본인 변경 &nbsp;·&nbsp; <span class="s403">403</span> owner 변경 불가 &nbsp;·&nbsp; <span class="s404">404</span> 비멤버</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method DELETE">DELETE</span>
+        <span class="path">/api/v1/projects/{project_id}/members/{member_user_id}</span>
+      </div>
+      <div class="endpoint-desc">멤버 제외. <strong>본인 탈퇴 = member, 타인 제거 = owner</strong> (진입 최소 역할 member).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s204">204</span> No Content</div>
+        <div class="res-label"><span class="s400">400</span> owner 탈퇴 불가 &nbsp;·&nbsp; <span class="s403">403</span> 타인 제거는 owner 필요 &nbsp;·&nbsp; <span class="s404">404</span> 비멤버</div>
+      </div>
+    </div>
+
+    <!-- ── Suggestions ────────────────────────────────────────── -->
+    <h2 id="suggestions">제안 (Suggestions)</h2>
+    <p class="note" style="margin-bottom:16px;">
+      <code>kind</code>: <code>complete_action</code>(기본)·<code>supersede</code>·<code>all</code>.
+      상세 계약·에러는 <code>HANDOVER_SUPERSEDE_FRONTEND.md</code>.
+    </p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/api/v1/projects/{project_id}/suggestions</span>
+      </div>
+      <div class="endpoint-desc">제안 목록 (최소 역할 viewer). Query: <code>status</code>(pending)·<code>kind</code>(complete_action).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>[{ "id": 8, "project_id": 1, "memory_id": 10, "kind": "complete_action",
+  "evidence": {...}, "rationale": "...", "confidence": "high",
+  "status": "pending", "created_at": "...", "resolved_at": null, "resolved_by": null }]</code></pre>
+        <div class="res-label"><span class="s400">400</span> 잘못된 status/kind &nbsp;·&nbsp; <span class="s404">404</span> 프로젝트 없음</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/projects/{project_id}/suggestions/{suggestion_id}/accept</span>
+      </div>
+      <div class="endpoint-desc">제안 승인 (최소 역할 member). complete_action=완료 처리, supersede=결정 번복.</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK — 갱신된 suggestion (<code>status: "accepted"</code>)</div>
+        <div class="res-label"><span class="s400">400</span> 이미 해소/미지원 kind &nbsp;·&nbsp; <span class="s409">409</span> supersede 충돌/경합 &nbsp;·&nbsp; <span class="s404">404</span> 제안 없음</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/projects/{project_id}/suggestions/{suggestion_id}/reject</span>
+      </div>
+      <div class="endpoint-desc">제안 거절 (최소 역할 member).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK — 갱신된 suggestion (<code>status: "rejected"</code>)</div>
+        <div class="res-label"><span class="s400">400</span> 이미 해소 &nbsp;·&nbsp; <span class="s409">409</span> 경합 &nbsp;·&nbsp; <span class="s404">404</span> 제안 없음</div>
+      </div>
+    </div>
+
+    <!-- ── Delta ──────────────────────────────────────────────── -->
+    <h2 id="delta">델타 (Delta)</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/api/v1/projects/{project_id}/delta</span>
+      </div>
+      <div class="endpoint-desc">델타 배너 집계 (최소 역할 viewer). Query: <code>since</code>(ISO8601, 필수)·<code>due_within_days</code>(1~7, 기본 3).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>{ "since": "2026-07-01T00:00:00",
+  "new_memory": { "decision": 1, "action": 2, "issue": 0, "risk": 0 },
+  "pending_suggestions": 1, "pending_suggestions_by_kind": { "complete_action": 1, "supersede": 1 },
+  "completed_actions": 2,
+  "due_soon": [{ "id": 3, "content": "...", "owner": "지훈", "due_date": "2026-07-05" }],
+  "overdue": [] }</code></pre>
+        <div class="res-label"><span class="s400">400</span> since ISO8601 아님 &nbsp;·&nbsp; <span class="s404">404</span> 프로젝트 없음</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/projects/{project_id}/briefing/delta</span>
+      </div>
+      <div class="endpoint-desc">델타 브리핑 생성(LLM, 최소 역할 member).</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "since": "2026-07-01T00:00:00" }</code></pre>
+        <div class="res-label"><span class="s200">200</span> OK — <code>{ "answer": "...", "sources": [] }</code> (변화 없으면 "새 변화가 없습니다.")</div>
+        <div class="res-label"><span class="s400">400</span> since ISO8601 아님 &nbsp;·&nbsp; <span class="s404">404</span> 프로젝트 없음</div>
+      </div>
+    </div>
+
+    <!-- ── Git ────────────────────────────────────────────────── -->
+    <h2 id="git-upload">Git 로그 업로드</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/api/v1/projects/{project_id}/git</span>
+      </div>
+      <div class="endpoint-desc">Git 로그 텍스트를 동기 처리해 메모리로 추출·적재 (최소 역할 member). 상태 추적 없음.</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "content": "커밋 로그 텍스트", "source": "git log", "date": "2026-07-05" }</code></pre>
+        <div class="res-label"><span class="s201">201</span> Created</div>
+        <pre><code>{ "doc_id": 42, "extracted": { "decision": 1, "action": 3, "issue": 0, "risk": 0 } }</code></pre>
+        <div class="res-label"><span class="s400">400</span> 빈 content &nbsp;·&nbsp; <span class="s404">404</span> 프로젝트 없음</div>
+      </div>
+    </div>
+
     <!-- ── Sessions ─────────────────────────────────────────────── -->
     <h2 id="session-create">채팅 세션</h2>
     <p class="note" style="margin-bottom:16px;">
-      ⚠️ 세션 엔드포인트는 <code>/api/v1</code> prefix 없이 루트 기준으로 등록됨.
-      <code>/api/v1</code> 이동 여부는 프론트엔드와 합의 중.
+      세션 엔드포인트는 <code>/api/v1/projects/{project_id}/sessions/*</code>로 확정됨.
     </p>
 
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method POST">POST</span>
-        <span class="path">/projects/{project_id}/sessions</span>
+        <span class="path">/api/v1/projects/{project_id}/sessions</span>
       </div>
       <div class="endpoint-desc">채팅 세션 생성. <code>member</code> 이상 권한 필요.</div>
       <div class="endpoint-body">
@@ -823,7 +1098,7 @@
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method GET">GET</span>
-        <span class="path" id="session-list">/projects/{project_id}/sessions</span>
+        <span class="path" id="session-list">/api/v1/projects/{project_id}/sessions</span>
       </div>
       <div class="endpoint-desc">세션 목록 조회 (최신순). <code>viewer</code> 이상 권한 필요.</div>
       <div class="endpoint-body">
@@ -835,7 +1110,7 @@
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method PATCH">PATCH</span>
-        <span class="path" id="session-update">/projects/{project_id}/sessions/{session_id}</span>
+        <span class="path" id="session-update">/api/v1/projects/{project_id}/sessions/{session_id}</span>
       </div>
       <div class="endpoint-desc">세션 제목 수정. <code>member</code> 이상 권한 필요.</div>
       <div class="endpoint-body">
@@ -850,7 +1125,7 @@
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method DELETE">DELETE</span>
-        <span class="path" id="session-delete">/projects/{project_id}/sessions/{session_id}</span>
+        <span class="path" id="session-delete">/api/v1/projects/{project_id}/sessions/{session_id}</span>
       </div>
       <div class="endpoint-desc">세션 삭제. 하위 messages · summaries도 함께 삭제됨. <code>member</code> 이상 권한 필요.</div>
       <div class="endpoint-body">
@@ -862,7 +1137,7 @@
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method GET">GET</span>
-        <span class="path" id="session-messages">/projects/{project_id}/sessions/{session_id}/messages</span>
+        <span class="path" id="session-messages">/api/v1/projects/{project_id}/sessions/{session_id}/messages</span>
       </div>
       <div class="endpoint-desc">세션 메시지 이력 조회. 저장된 AES-256-GCM 암호문을 복호화해 반환.</div>
       <div class="endpoint-body">
@@ -877,7 +1152,7 @@
     <div class="endpoint">
       <div class="endpoint-header">
         <span class="method POST">POST</span>
-        <span class="path" id="session-query">/projects/{project_id}/sessions/{session_id}/query</span>
+        <span class="path" id="session-query">/api/v1/projects/{project_id}/sessions/{session_id}/query</span>
       </div>
       <div class="endpoint-desc">
         세션 기반 대화형 질의. 암호화된 대화 이력을 컨텍스트로 사용하며 롤링 요약을 자동 관리.
@@ -916,23 +1191,37 @@
   "history": [
     { "role": "user", "content": "이전 질문" },
     { "role": "assistant", "content": "이전 답변" }
+  ],
+  "attachments": [
+    { "filename": "meeting.md", "content_base64": "&lt;base64&gt;" }
   ]
 }</code></pre>
+        <div class="res-label">첨부 <code>attachments</code>: <code>.md</code>/<code>.txt</code>/<code>.pdf</code>, 파일당 최대 10 MB. 형식 미지원 400, 초과 413. 첨부 시 항상 <code>route: "semantic"</code>.</div>
         <div class="res-label"><span class="s200">200</span> OK</div>
         <pre><code>{
-  "answer": "현재 가장 큰 리스크는 API 계약 변경 가능성입니다.",
+  "answer": "현재 가장 큰 리스크는 API 계약 변경 가능성입니다. (출처: planning.pdf)",
+  "plan": ["API 계약 변경 사항을 프론트엔드 팀과 공유한다"],
   "sources": ["planning.pdf", "meeting_notes.md"],
-  "route": "both",
+  "route": "semantic",
   "debug": {
     "filters": { "category": null },
     "mysql_rows": [
-      { "category": "risk", "content": "...", "source": "planning.pdf" }
+      { "category": "risk", "content": "...", "source": "planning.pdf", "source_label": "planning.pdf" }
     ],
     "chroma_chunks": [
-      { "text": "...(200자)", "source": "planning.pdf", "date": "2026-06-30" }
+      { "text": "...(200자)", "source": "planning.pdf", "source_label": "planning.pdf", "date": "2026-06-30" }
     ]
   }
 }</code></pre>
+        <div class="endpoint-desc">
+          <strong>answer 출처 마커 (2026-07-22 추가)</strong>: 답변 본문에 근거 출처가
+          <code>(출처: 파일명)</code>으로 포함된다(저장소 파일은 <code>(출처: 파일명 (repo#N))</code>).
+          프론트는 파싱해 출처 칩으로 표시하거나 그대로 둘 수 있다. <code>sources</code>는 변경
+          없음. <code>debug.*.source_label</code>이 추가됐다(무시 가능). 상세: HANDOVER_CITATION_FRONTEND.md
+        </div>
+        <div class="endpoint-desc">
+          <strong>route</strong>: <code>semantic</code>(RAG·첨부) · <code>filter_lookup</code>(구조화 조회) · <code>overview</code>(조망 요약) 중 하나(구 <code>both</code> 제거). 세 경로 모두 <code>plan</code>·<code>debug</code>를 반환한다(생략 없음). 단 <code>filter_lookup</code>·<code>overview</code>는 <code>plan</code>이 항상 <code>[]</code>이고 <code>debug</code>에 <code>mysql_rows</code>/<code>chroma_chunks</code>가 없으며(각 <code>rows</code>/<code>overview</code>), 인라인 <code>(출처:)</code> 마커가 없을 수 있다.
+        </div>
         <div class="res-label"><span class="s503">503</span> Service Unavailable</div>
         <pre><code>{ "detail": "Q&amp;A 처리 중 오류가 발생했습니다. 서버 로그를 확인하세요." }</code></pre>
       </div>
@@ -963,16 +1252,111 @@
       (<code>BACKGROUND_TASK_STALE_MINUTES</code> 환경 변수로 조정 가능).
     </div>
 
+    <!-- ── GitHub App ─────────────────────────────────────────── -->
+    <h2 id="github-app">GitHub App 연동</h2>
+    <p class="note" style="margin-bottom:16px;">
+      경로에 <code>/api/v1</code> prefix가 <strong>없다</strong> (<code>/github/app/*</code>).
+      <code>callback</code> 외 4개는 jwt 모드에서 <strong>로그인(Bearer)</strong> 필요.
+    </p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/github/app/sessions</span>
+      </div>
+      <div class="endpoint-desc">설치 세션 생성 (로그인 필요, state 입력 없음).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s201">201</span> Created</div>
+        <pre><code>{ "state": "&lt;token&gt;", "status": "pending", "installUrl": "https://github.com/apps/.../installations/new?state=...", "expiresIn": 1800 }</code></pre>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/github/app/sessions/{state}</span>
+      </div>
+      <div class="endpoint-desc">세션 상태 조회 (로그인 + state 필수).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>{ "state": "&lt;token&gt;", "status": "connected", "setupAction": "install" }</code></pre>
+        <div class="res-label"><span class="s404">404</span> state 없음 &nbsp;·&nbsp; <span class="s410">410</span> 만료된 state</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/github/app/sessions/{state}/repositories</span>
+      </div>
+      <div class="endpoint-desc">설치된 저장소 목록 (로그인 + state 필수).</div>
+      <div class="endpoint-body">
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>{
+  "repositories": [
+    { "fullName": "org/repo", "name": "repo", "private": false, "defaultBranch": "main", "url": "...",
+      "owner": { "login": "org", "avatarUrl": "https://...", "htmlUrl": "https://github.com/org", "name": null } }
+  ],
+  "user": { "login": "org", "avatarUrl": "https://...", "htmlUrl": "https://github.com/org", "name": null }
+}</code></pre>
+        <div class="res-label"><code>owner</code>·<code>user</code> 프로필: <code>{login, avatarUrl, htmlUrl, name}</code>. <strong><code>owner</code>는 login이 없으면 <code>null</code>, <code>user</code>는 선택된 저장소가 없으면(<code>repositories: []</code>) <code>null</code></strong> — 둘 다 null 가드 필요.</div>
+        <div class="res-label"><span class="s404">404</span> 미지 state &nbsp;·&nbsp; <span class="s410">410</span> 만료 state &nbsp;·&nbsp; <span class="s409">409</span> 설치 미완료(installation_id 없음)</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="path">/github/app/repository-preview</span>
+      </div>
+      <div class="endpoint-desc">저장소 미리보기 (로그인 필요, state 선택).</div>
+      <div class="endpoint-body">
+        <div class="res-label">Request Body</div>
+        <pre><code>{ "repository_url": "https://github.com/org/repo", "state": "&lt;token-선택&gt;" }</code></pre>
+        <div class="res-label"><span class="s200">200</span> OK</div>
+        <pre><code>{
+  "events": [
+    { "id": "commit-abc123", "type": "commit", "title": "커밋 메시지", "createdAt": 1719900000000, "status": "abc123", "url": "https://github.com/org/repo/commit/abc123" }
+  ],
+  "repository": {
+    "path": "https://github.com/org/repo", "name": "repo", "branch": "main",
+    "isDirty": false, "remoteRepo": "org/repo",
+    "issuePrStatus": "2 open issues · 1 open PRs",
+    "visibility": "public", "authProvider": "public"
+  }
+}</code></pre>
+        <div class="res-label"><code>events[]</code>: commit/issue/pull_request 최대 10건(<code>createdAt</code> epoch ms). <code>visibility</code>: public|private. <code>authProvider</code>: public|github_app.</div>
+        <div class="res-label"><span class="s401">401</span> private repo인데 state(설치 토큰) 없음 — <code>Private repository requires GitHub App login</code></div>
+        <div class="res-label">state를 넘기면 세션 오류 전파: <span class="s404">404</span> 미지 &nbsp;·&nbsp; <span class="s410">410</span> 만료 &nbsp;·&nbsp; <span class="s409">409</span> 설치 미완료</div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="path">/github/app/callback</span>
+      </div>
+      <div class="endpoint-desc">설치 완료 콜백. <strong>공개(무인증)이나 <code>state</code> 필수</strong>. 응답은 <code>text/html</code>.</div>
+      <div class="endpoint-body">
+        <div class="res-label">Query</div>
+        <pre><code>state (필수), installation_id (필수), setup_action (선택)</code></pre>
+        <div class="res-label"><span class="s200">200</span> text/html — 앱 복귀 안내 페이지</div>
+        <div class="res-label"><span class="s400">400</span> state/installation_id 누락 &nbsp;·&nbsp; <span class="s404">404</span> 존재하지 않는 state &nbsp;·&nbsp; <span class="s410">410</span> 만료된 state</div>
+      </div>
+    </div>
+
     <!-- ── Errors ─────────────────────────────────────────────── -->
     <h2 id="errors">공통 에러 코드</h2>
 
     <table>
       <tr><th>상태 코드</th><th>의미</th></tr>
       <tr><td><code>400</code></td><td>잘못된 요청 (빈 content, 잘못된 날짜 형식 등)</td></tr>
-      <tr><td><code>403</code></td><td>프로젝트 접근 권한 없음</td></tr>
+      <tr><td><code>401</code></td><td>인증 실패 (토큰 없음/무효/만료, 로그인 실패)</td></tr>
+      <tr><td><code>403</code></td><td>권한 없음 (프로젝트 비멤버 또는 최소 역할 미달)</td></tr>
       <tr><td><code>404</code></td><td>리소스 없음</td></tr>
+      <tr><td><code>409</code></td><td>충돌 (중복 멤버, supersede 경합, 동시 해소 등)</td></tr>
       <tr><td><code>422</code></td><td>Pydantic 유효성 검사 실패</td></tr>
-      <tr><td><code>503</code></td><td>LLM / 외부 서비스 오류</td></tr>
+      <tr><td><code>503</code></td><td>LLM / 외부 서비스 오류, <code>PAIM_JWT_SECRET</code> 미설정/약함</td></tr>
     </table>
 
     <!-- ── Notes ─────────────────────────────────────────────── -->
@@ -986,11 +1370,11 @@
       </tr>
       <tr>
         <td>인증</td>
-        <td>현재 <code>DEV_USER_ID</code> env 기반 fallback. 운영 도입 시 Authorization 헤더 토큰으로 교체 예정</td>
+        <td>정책은 상단 <a href="#auth">인증·권한</a> 섹션이 정본이다(여기서는 중복 서술하지 않음).</td>
       </tr>
       <tr>
         <td>권한</td>
-        <td>write 작업(upload, delete, memory CRUD, repo connect/sync/delete)은 <code>member</code> 이상 필요. DEV 모드에서는 권한 체크 no-op</td>
+        <td>역할 서열 <code>viewer &lt; member &lt; admin &lt; owner</code>. 조회(멤버 목록 포함)=viewer, 상태 변경=member, 프로젝트 삭제·멤버 초대/역할 변경=owner, 멤버 제거는 본인 탈퇴=member·타인 제거=owner. 상세는 <a href="#auth">인증·권한</a> 역할 요약 참조. dev 모드 권한 검사 생략은 <code>DEV_USER_ID</code> 미설정 시에 한함.</td>
       </tr>
       <tr>
         <td>stale recovery</td>
@@ -1004,7 +1388,7 @@
 
     <!-- ── Implementation Status ──────────────────────────────── -->
     <h2 id="status-impl">구현 현황</h2>
-    <p style="color:#6b7280; font-size:13px; margin-bottom:12px;">갱신: 2026-07-02 · feature/api-build-on-main 기준 (origin/main 병합 완료)</p>
+    <p style="color:#6b7280; font-size:13px; margin-bottom:12px;">갱신: 2026-07-22 · TASK-010 기준 (origin/main <code>5240f40</code> 병합 완료, 전체 46 operation)</p>
 
     <table>
       <tr><th>엔드포인트</th><th>상태</th><th>비고</th></tr>
@@ -1028,12 +1412,32 @@
       <tr><td><code>PATCH /api/v1/projects/{id}/memory/{memory_id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>is_user_verified 마킹</td></tr>
       <tr><td><code>DELETE /api/v1/projects/{id}/memory/{memory_id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td></td></tr>
       <tr><td><code>POST /api/v1/projects/{id}/query</code></td><td><span class="badge badge-done">✅ 완료</span></td><td></td></tr>
-      <tr><td><code>POST /projects/{id}/sessions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>prefix 없음, member 권한</td></tr>
-      <tr><td><code>GET /projects/{id}/sessions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>viewer 권한</td></tr>
-      <tr><td><code>PATCH /projects/{id}/sessions/{sid}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member 권한</td></tr>
-      <tr><td><code>DELETE /projects/{id}/sessions/{sid}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>messages + summaries cascade</td></tr>
-      <tr><td><code>GET /projects/{id}/sessions/{sid}/messages</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>AES-256-GCM 복호화</td></tr>
-      <tr><td><code>POST /projects/{id}/sessions/{sid}/query</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>롤링 요약, 토큰 예산 관리</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/sessions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member 권한</td></tr>
+      <tr><td><code>GET /api/v1/projects/{id}/sessions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>viewer 권한</td></tr>
+      <tr><td><code>PATCH /api/v1/projects/{id}/sessions/{sid}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member 권한</td></tr>
+      <tr><td><code>DELETE /api/v1/projects/{id}/sessions/{sid}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>messages + summaries cascade</td></tr>
+      <tr><td><code>GET /api/v1/projects/{id}/sessions/{sid}/messages</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>AES-256-GCM 복호화</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/sessions/{sid}/query</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>롤링 요약, 토큰 예산 관리</td></tr>
+      <tr><td><code>POST /api/v1/auth/signup</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>공개</td></tr>
+      <tr><td><code>POST /api/v1/auth/login</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>공개</td></tr>
+      <tr><td><code>GET /api/v1/auth/me</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>인증</td></tr>
+      <tr><td><code>PATCH /api/v1/projects/{id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member</td></tr>
+      <tr><td><code>DELETE /api/v1/projects/{id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>owner</td></tr>
+      <tr><td><code>GET /api/v1/projects/{id}/members</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>viewer</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/members</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>owner</td></tr>
+      <tr><td><code>PATCH /api/v1/projects/{id}/members/{member_user_id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>owner</td></tr>
+      <tr><td><code>DELETE /api/v1/projects/{id}/members/{member_user_id}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>본인 탈퇴 member / 타인 제거 owner</td></tr>
+      <tr><td><code>GET /api/v1/projects/{id}/suggestions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>viewer</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/suggestions/{sid}/accept</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/suggestions/{sid}/reject</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member</td></tr>
+      <tr><td><code>GET /api/v1/projects/{id}/delta</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>viewer</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/briefing/delta</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member</td></tr>
+      <tr><td><code>POST /api/v1/projects/{id}/git</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>member</td></tr>
+      <tr><td><code>POST /github/app/sessions</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>로그인</td></tr>
+      <tr><td><code>GET /github/app/sessions/{state}</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>로그인 + state</td></tr>
+      <tr><td><code>GET /github/app/sessions/{state}/repositories</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>로그인 + state</td></tr>
+      <tr><td><code>POST /github/app/repository-preview</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>로그인</td></tr>
+      <tr><td><code>GET /github/app/callback</code></td><td><span class="badge badge-done">✅ 완료</span></td><td>공개 + state, text/html</td></tr>
     </table>
 
   </main>

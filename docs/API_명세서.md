@@ -1,9 +1,76 @@
 # PaiM FastAPI 명세서
 
+<!-- auth-mode: jwt-fail-closed -->
+<!-- updated: 2026-07-22 -->
+
 **Base URL (로컬)**: `http://127.0.0.1:8000`  
-**API Prefix**: `/api/v1`  
+**API Prefix**: `/api/v1` (단, GitHub App 연동 엔드포인트는 prefix 없이 `/github/app/*`)  
 **Content-Type**: `application/json` (파일 업로드는 `multipart/form-data`)  
 **에러 형식**: FastAPI 기본 `{"detail": "..."}`
+
+---
+
+## 인증·권한
+
+> **인증 모드·갱신일 단일 출처**: 이 섹션이 인증 정책의 정본이다(위 문서
+> 상단의 `auth-mode`·`updated` 표식과 값이 일치). 다른 섹션에 인증 정책을
+> 중복 서술하지 않는다.
+
+**인증 모드**: 서버는 기본적으로 **`jwt` 모드(fail-closed)** 로 동작한다
+(`PAIM_AUTH_MODE=jwt`). 이 모드에서는 모든 보호 엔드포인트가 유효한 Bearer
+토큰을 요구하며, 토큰이 없거나 무효면 **401**을 반환한다. `PAIM_JWT_SECRET`이
+없거나 약하면(플레이스홀더·32바이트 미만) 서버 기동이 거부된다.
+
+`PAIM_AUTH_MODE=dev`는 **로컬 개발 전용**이다. JWT 검증을 생략하고
+`DEV_USER_ID` 환경변수로 단일 사용자를 대체한다(배포 금지 — 기동 시 경고 로그).
+
+**관련 환경변수**
+
+| 키 | 기본값 | 설명 |
+|----|--------|------|
+| `PAIM_AUTH_MODE` | `jwt` | `jwt`(fail-closed) 또는 `dev`(로컬 전용) |
+| `PAIM_JWT_SECRET` | (없음) | HS256 서명키. jwt 모드 필수, ≥32바이트·비플레이스홀더 |
+| `PAIM_JWT_TTL_HOURS` | `12` | access token 유효시간(시간) |
+
+**요청 헤더**: 보호 엔드포인트는 `Authorization: Bearer <access_token>`를 부착한다.
+
+**공개 경로(토큰 불필요)**: `GET /`, `GET /health`, `POST /api/v1/auth/signup`,
+`POST /api/v1/auth/login`, `GET /github/app/callback`(`/github/app/callback`
+prefix). CORS `OPTIONS` 프리플라이트도 통과.
+
+<!-- perms: see role-matrix -->
+**프로젝트 역할 서열**: `viewer < member < admin < owner` (프로젝트별,
+`project_members`). 각 엔드포인트의 최소 역할은 아래 표를 정본으로 한다. jwt
+모드에서 멤버가 아니면 403(`이 프로젝트에 접근 권한이 없습니다`), 역할이
+부족하면 403(`최소 '<role>' 권한이 필요합니다`). dev 모드에서 `DEV_USER_ID`가
+설정돼 있으면 그 사용자의 실제 역할로 검사하고, 미설정이면 단일 사용자
+동작으로 검사를 생략한다(no-op은 `DEV_USER_ID` 미설정 시에 한함).
+
+**멤버 API 권한 요약**(회귀 기준): 멤버 목록 조회 = viewer, 멤버 초대 = owner,
+역할 변경 = owner, 멤버 제거는 본인 탈퇴 = member / 타인 제거 = owner.
+
+| 엔드포인트 | 인증 | 최소 역할 |
+|-----------|------|-----------|
+| `POST /api/v1/auth/signup`·`/auth/login` | 공개 | — |
+| `GET /api/v1/auth/me` | 인증 | (프로젝트 무관) |
+| `GET·POST /api/v1/projects` | 인증 | (프로젝트 무관) |
+| `GET /api/v1/projects/{id}` | 인증 | viewer |
+| `PATCH /api/v1/projects/{id}` | 인증 | member |
+| `DELETE /api/v1/projects/{id}` | 인증 | owner |
+| 문서·저장소·메모리 조회(`GET`) | 인증 | viewer |
+| 문서 업로드·삭제, 저장소 연결/sync/삭제 | 인증 | member |
+| 메모리 `POST`·`PATCH`·`DELETE` | 인증 | member |
+| `POST /api/v1/projects/{id}/query` | 인증 | viewer |
+| `POST /api/v1/projects/{id}/git` | 인증 | member |
+| `GET /api/v1/projects/{id}/delta` | 인증 | viewer |
+| `POST /api/v1/projects/{id}/briefing/delta` | 인증 | member |
+| `GET /api/v1/projects/{id}/suggestions` | 인증 | viewer |
+| `POST .../suggestions/{sid}/accept`·`/reject` | 인증 | member |
+| 세션 조회(`GET`) | 인증 | viewer |
+| 세션 생성·수정·삭제, 세션 query | 인증 | member |
+| `GET·POST /api/v1/projects/{id}/members` 등 멤버 관리 | 인증 | 아래 멤버 섹션 참조 |
+| `GET /github/app/callback` | 공개 + **state 필수** | — |
+| 그 외 `/github/app/*` 4개 | jwt 모드 로그인 필요 | — |
 
 ---
 
@@ -33,6 +100,84 @@
   "status": "ok"
 }
 ```
+
+---
+
+## 인증 API
+
+### `POST /api/v1/auth/signup`
+
+회원가입. 성공 시 access token과 사용자 정보를 반환한다. (공개)
+
+**요청 Body**
+```json
+{
+  "email": "a@b.c",
+  "password": "at-least-8-chars",
+  "name": "이름"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `email` | string | ✅ | 3~255자, `@` 포함 |
+| `password` | string | ✅ | 8~128자 (UTF-8 72바이트 초과 시 400) |
+| `name` | string | ✅ | 1~255자 |
+
+**응답 `201`**
+```json
+{
+  "access_token": "<JWT>",
+  "token_type": "bearer",
+  "user": { "id": 1, "email": "a@b.c", "name": "이름" }
+}
+```
+
+**응답 `400`** — 이메일 형식 오류 / 비밀번호 길이 초과  
+**응답 `409`**
+```json
+{ "detail": "이미 가입된 이메일입니다." }
+```
+**응답 `503`** — `PAIM_JWT_SECRET` 미설정/약함 (계정은 생성되지 않음)
+
+---
+
+### `POST /api/v1/auth/login`
+
+로그인. 성공 시 signup과 동일한 형태를 반환한다. (공개)
+
+**요청 Body**
+```json
+{ "email": "a@b.c", "password": "..." }
+```
+
+**응답 `200`** — signup과 동일한 `{ access_token, token_type, user }`
+
+**응답 `401`**
+```json
+{ "detail": "이메일 또는 비밀번호가 올바르지 않습니다." }
+```
+
+> 미가입/비밀번호 불일치 모두 동일한 401 메시지 — 계정 존재 여부 노출 방지.
+> 프론트에서 사유를 세분화하지 말 것.
+
+---
+
+### `GET /api/v1/auth/me`
+
+현재 토큰의 사용자 정보 조회. (인증 필요)
+
+**응답 `200`**
+```json
+{
+  "id": 1,
+  "email": "a@b.c",
+  "name": "이름",
+  "created_at": "2026-07-01T12:00:00"
+}
+```
+
+**응답 `401`** — 토큰 없음/무효/만료, 또는 존재하지 않는 사용자
 
 ---
 
@@ -94,6 +239,40 @@
 ```json
 { "detail": "Project not found" }
 ```
+
+---
+
+### `PATCH /api/v1/projects/{project_id}`
+
+프로젝트 이름 수정. (최소 역할: member)
+
+**요청 Body**
+```json
+{ "name": "새 이름" }
+```
+
+**응답 `200`**
+```json
+{
+  "id": 1,
+  "name": "새 이름",
+  "created_at": "2026-07-01T12:00:00"
+}
+```
+
+**응답 `400`** — 빈 이름  
+**응답 `404`** — 프로젝트 없음
+
+---
+
+### `DELETE /api/v1/projects/{project_id}`
+
+프로젝트 삭제. (최소 역할: **owner** — 공유 멤버 전체의 데이터를 지우므로)
+하위 문서·저장소·메모리·세션·멤버십과 Vector DB·원본 파일을 함께 삭제한다.
+
+**응답 `204`** (No Content)
+
+**응답 `404`** — 프로젝트 없음
 
 ---
 
@@ -427,16 +606,20 @@ Memory 항목 수동 추가.
 }
 ```
 
-| 필드 | 타입 | 필수 |
-|------|------|------|
-| `category` | string | ✅ |
-| `content` | string | ✅ |
-| `owner` | string | - |
-| `date` | string | - |
-| `topic` | string | - |
-| `reason` | string | - |
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `category` | string | ✅ | `decision`/`action`/`issue`/`risk` |
+| `content` | string | ✅ | |
+| `owner` | string | - | 담당자 |
+| `date` | string | - | `YYYY-MM-DD` |
+| `due_date` | string | - | 마감일 `YYYY-MM-DD` (주로 `action`) |
+| `topic` | string | - | |
+| `reason` | string | - | |
 
-**응답 `201`**
+**응답 `201`** — 생성된 memory row(DB raw). `due_date`·`completed_at`·
+`sort_order` 등 컬럼을 포함하나, **`source_info`는 포함되지 않는다** — 이
+중첩 객체는 `GET .../memory` 목록에서만 계산돼 붙는다. 수동 생성은
+`created_by: "user"`, `is_user_verified: true`.
 ```json
 {
   "id": 99,
@@ -444,11 +627,13 @@ Memory 항목 수동 추가.
   "content": "배포 전 보안 점검 수행",
   "owner": "지훈",
   "date": "2026-07-05",
+  "due_date": "2026-07-10",
   "topic": "배포 준비",
   "reason": null,
   "created_by": "user",
   "updated_by": null,
   "is_user_verified": true,
+  "completed_at": null,
   "created_at": "2026-07-01T12:00:00"
 }
 ```
@@ -457,15 +642,35 @@ Memory 항목 수동 추가.
 
 ### `PATCH /api/v1/projects/{project_id}/memory/{memory_id}`
 
-Memory 항목 수정. 사용자가 수정한 항목은 `is_user_verified: true` 로 마킹되어 LLM 재처리 시 덮어쓰지 않는다.
+Memory 항목 수정. (최소 역할: member) 수정할 필드만 부분 전송한다(PATCH 시맨틱).
+의미 필드(`category`/`content`/`owner`/`date`/`due_date`/`topic`/`reason`)를 수정하면
+`is_user_verified: true`로 마킹되어 LLM 재처리 시 덮어쓰지 않는다.
 
 **요청 Body** (수정할 필드만 포함)
 ```json
 {
   "content": "API 규약을 이번 주 내로 정리한다",
-  "owner": "지훈"
+  "owner": "지훈",
+  "due_date": "2026-07-12",
+  "completed": true,
+  "sort_order": 3
 }
 ```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `category`·`content`·`owner`·`date`·`topic`·`reason` | string | 의미 필드(부분 수정). 이 중 하나라도 바뀌면 `is_user_verified: true` |
+| `due_date` | string \| null | 마감일. `null`이면 마감 해제 |
+| `completed` | boolean | `true`→`completed_at = NOW()`, `false`→`completed_at = NULL`. `null` 전송은 400 |
+| `sort_order` | integer \| null | 표시 정렬 순서. 명시적 `null` 전송 시 정렬값 해제 |
+
+> **`completed` ↔ `completed_at`**: 요청은 boolean `completed`로 보내지만
+> 저장·응답은 timestamp `completed_at`으로 표현된다. `completed: true`면
+> `completed_at`이 현재 시각으로, `false`면 `null`로 설정된다.
+>
+> 수정할 필드가 하나도 없으면 **400**(`수정할 필드가 없습니다.`).
+> `category`를 `decision` 밖으로 바꾸는 변경이 supersede 관계와 충돌하면 **409**
+> (상세는 [HANDOVER_SUPERSEDE_FRONTEND.md](HANDOVER_SUPERSEDE_FRONTEND.md) §4).
 
 **응답 `200`**
 ```json
@@ -498,6 +703,239 @@ Memory 항목 삭제.
 ```json
 { "detail": "Memory item not found" }
 ```
+
+---
+
+## 멤버 관리
+
+프로젝트별 멤버·역할 관리. 역할 서열은 `viewer < member < admin < owner`.
+`owner`는 프로젝트 생성 시에만 부여되며 API로 두 번째 owner를 만들거나
+이관할 수 없다. 할당 가능한 role은 `viewer`/`member`/`admin`.
+
+### `GET /api/v1/projects/{project_id}/members`
+
+멤버 목록 조회. (최소 역할: viewer)
+
+**응답 `200`**
+```json
+[
+  {
+    "user_id": 1,
+    "email": "a@b.c",
+    "name": "이름",
+    "role": "owner",
+    "created_at": "2026-07-01T12:00:00",
+    "last_seen_at": null
+  }
+]
+```
+
+---
+
+### `POST /api/v1/projects/{project_id}/members`
+
+멤버 추가. (최소 역할: **owner**) 대상은 이미 가입된 사용자여야 한다.
+
+**요청 Body**
+```json
+{ "email": "new@b.c", "role": "member" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `email` | string | ✅ | 가입된 사용자 이메일 |
+| `role` | string | - | `viewer`/`member`/`admin` (기본 `member`) |
+
+**응답 `201`**
+```json
+{ "user_id": 5, "email": "new@b.c", "name": "새 멤버", "role": "member" }
+```
+
+**응답 `400`** — 허용되지 않는 role  
+**응답 `404`** — 해당 이메일로 가입된 사용자 없음  
+**응답 `409`** — 이미 이 프로젝트의 멤버
+
+---
+
+### `PATCH /api/v1/projects/{project_id}/members/{member_user_id}`
+
+멤버 역할 변경. (최소 역할: **owner**)
+
+**요청 Body**
+```json
+{ "role": "admin" }
+```
+
+**응답 `200`**
+```json
+{ "user_id": 5, "role": "admin" }
+```
+
+**응답 `400`** — 허용되지 않는 role / 자신의 역할 변경 시도  
+**응답 `403`** — owner의 역할은 변경 불가  
+**응답 `404`** — 이 프로젝트의 멤버가 아님
+
+---
+
+### `DELETE /api/v1/projects/{project_id}/members/{member_user_id}`
+
+멤버 제외. **권한 규칙**: owner는 다른 멤버를 제외할 수 있고, owner가 아닌
+멤버는 **자기 자신만** 제외(프로젝트 탈퇴)할 수 있다. 즉 **본인 탈퇴 = member,
+타인 제거 = owner**. (엔드포인트 진입 최소 역할: member)
+
+**응답 `204`** (No Content)
+
+**응답 `400`** — owner는 탈퇴 불가(프로젝트 삭제 이용)  
+**응답 `403`** — 다른 멤버 제외는 owner 권한 필요 / owner는 제외 불가  
+**응답 `404`** — 이 프로젝트의 멤버가 아님
+
+---
+
+## 제안 (Suggestions)
+
+LLM이 만든 메모리 변경 제안(pending)을 사람이 승인/거절한다. `kind`는
+`complete_action`(액션 완료) 또는 `supersede`(결정 번복). 상세 계약·에러는
+[HANDOVER_SUPERSEDE_FRONTEND.md](HANDOVER_SUPERSEDE_FRONTEND.md).
+
+### `GET /api/v1/projects/{project_id}/suggestions`
+
+제안 목록 조회. (최소 역할: viewer)
+
+**Query Parameters**
+
+| 파라미터 | 타입 | 기본 | 설명 |
+|---------|------|------|------|
+| `status` | string | `pending` | `pending`/`accepted`/`rejected` |
+| `kind` | string | `complete_action` | `complete_action`/`supersede`/`all`. 구 클라이언트 보호를 위해 기본은 `complete_action`만 |
+
+**응답 `200`**
+```json
+[
+  {
+    "id": 8,
+    "project_id": 1,
+    "memory_id": 10,
+    "kind": "complete_action",
+    "evidence": { "type": "complete_action", "title": "..." },
+    "rationale": "...",
+    "confidence": "high",
+    "status": "pending",
+    "created_at": "2026-07-02T10:00:00",
+    "resolved_at": null,
+    "resolved_by": null
+  }
+]
+```
+
+**응답 `400`** — 잘못된 `status`/`kind`  
+**응답 `404`** — 프로젝트 없음
+
+---
+
+### `POST /api/v1/projects/{project_id}/suggestions/{suggestion_id}/accept`
+
+제안 승인. (최소 역할: member) `complete_action`은 대상 action을 완료 처리,
+`supersede`는 대상 decision을 번복 처리한다.
+
+**응답 `200`** — 갱신된 suggestion 객체(위 목록 항목과 동일 스키마, `status: "accepted"`)
+
+**응답 `400`** — 이미 해소된 제안 / 지원하지 않는 kind  
+**응답 `409`** — supersede 대상/대체 결정 충돌, 동시 경합 (상세: supersede 핸드오버 §4)  
+**응답 `404`** — 제안 없음
+
+---
+
+### `POST /api/v1/projects/{project_id}/suggestions/{suggestion_id}/reject`
+
+제안 거절. (최소 역할: member)
+
+**응답 `200`** — 갱신된 suggestion 객체(`status: "rejected"`)
+
+**응답 `400`** — 이미 해소된 제안  
+**응답 `409`** — 동시 경합  
+**응답 `404`** — 제안 없음
+
+---
+
+## 델타 (Delta)
+
+지난 확인 이후의 변화 집계·브리핑.
+
+### `GET /api/v1/projects/{project_id}/delta`
+
+델타 배너 데이터(LLM 없이 SQL 집계). (최소 역할: viewer)
+
+**Query Parameters**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `since` | string | ✅ | ISO8601 기준 시각 |
+| `due_within_days` | integer | - | 마감 임박 판정 일수(1~7, 기본 3) |
+
+**응답 `200`**
+```json
+{
+  "since": "2026-07-01T00:00:00",
+  "new_memory": { "decision": 1, "action": 2, "issue": 0, "risk": 0 },
+  "pending_suggestions": 1,
+  "pending_suggestions_by_kind": { "complete_action": 1, "supersede": 1 },
+  "completed_actions": 2,
+  "due_soon": [ { "id": 3, "content": "...", "owner": "지훈", "due_date": "2026-07-05" } ],
+  "overdue": []
+}
+```
+
+**응답 `400`** — `since`가 ISO8601 아님  
+**응답 `404`** — 프로젝트 없음
+
+---
+
+### `POST /api/v1/projects/{project_id}/briefing/delta`
+
+델타 브리핑 생성(LLM). (최소 역할: member)
+
+**요청 Body**
+```json
+{ "since": "2026-07-01T00:00:00" }
+```
+
+**응답 `200`**
+```json
+{ "answer": "지난 확인 이후 ...", "sources": [] }
+```
+
+> 변화가 없으면 `{ "answer": "지난 확인 이후 새 변화가 없습니다.", "sources": [] }`.
+
+**응답 `400`** — `since`가 ISO8601 아님  
+**응답 `404`** — 프로젝트 없음
+
+---
+
+## Git 로그 업로드
+
+### `POST /api/v1/projects/{project_id}/git`
+
+Git 로그 텍스트를 동기 처리해 메모리로 추출·적재한다. (최소 역할: member)
+문서 상태 추적(`documents.status`)은 없다.
+
+**요청 Body**
+```json
+{ "content": "커밋 로그 텍스트", "source": "git log", "date": "2026-07-05" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `content` | string | ✅ | git 로그 원문 |
+| `source` | string | - | 출처 라벨 (기본 `git log`) |
+| `date` | string | - | `YYYY-MM-DD` |
+
+**응답 `201`**
+```json
+{ "doc_id": 42, "extracted": { "decision": 1, "action": 3, "issue": 0, "risk": 0 } }
+```
+
+**응답 `400`** — 빈 content  
+**응답 `404`** — 프로젝트 없음
 
 ---
 
@@ -640,7 +1078,7 @@ Memory 항목 삭제.
 
 ### `POST /api/v1/projects/{project_id}/query`
 
-프로젝트 기반 자연어 질의.
+프로젝트 기반 자연어 질의. (최소 역할: viewer)
 
 **요청 Body**
 ```json
@@ -649,33 +1087,68 @@ Memory 항목 삭제.
   "history": [
     { "role": "user", "content": "이전 질문" },
     { "role": "assistant", "content": "이전 답변" }
+  ],
+  "attachments": [
+    { "filename": "meeting.md", "content_base64": "<base64>" }
   ]
 }
 ```
 
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `question` | string | ✅ | 질문 |
+| `history` | array | - | `{role, content}` 대화 이력 |
+| `attachments` | array | - | 첨부 자료 `{filename, content_base64}`. `.md`/`.txt`/`.pdf`, 파일당 최대 10 MB |
+
+> **`attachments`**: 첨부가 있으면 라우터를 우회해 항상 `route: "semantic"`으로
+> 처리된다. 형식 미지원 시 **400**, 10 MB 초과 시 **413**.
+
 **응답 `200`**
 ```json
 {
-  "answer": "현재 가장 큰 리스크는 API 계약 변경 가능성입니다.",
+  "answer": "현재 가장 큰 리스크는 API 계약 변경 가능성입니다. (출처: planning.pdf)",
   "plan": [
     "API 계약 변경 사항을 프론트엔드 팀과 공유한다",
     "영향받는 엔드포인트 목록을 작성한다"
   ],
   "sources": ["planning.pdf", "meeting_notes.md"],
-  "route": "both",
+  "route": "semantic",
   "debug": {
     "filters": { "category": null },
     "mysql_rows": [
-      { "category": "risk", "content": "...", "source": "planning.pdf" }
+      { "category": "risk", "content": "...", "source": "planning.pdf", "source_label": "planning.pdf" }
     ],
     "chroma_chunks": [
-      { "text": "...(200자)", "source": "planning.pdf", "date": "2026-06-30" }
+      { "text": "...(200자)", "source": "planning.pdf", "source_label": "planning.pdf", "date": "2026-06-30" }
     ]
   }
 }
 ```
 
+> **`route`**: 질문 분류 결과. `semantic`(RAG 검색·첨부) \| `filter_lookup`
+> (구조화 조회 템플릿) \| `overview`(프로젝트 조망 요약) 중 하나. (구 `both`
+> 값은 더 이상 사용하지 않는다.) 세 경로 모두 `answer`·`plan`·`sources`·
+> `route`·`debug`를 반환한다(필드 생략 없음). 다만 **route별로 내용이 다르다**:
+> `filter_lookup`·`overview`는 `plan`이 항상 빈 배열 `[]`이고, `debug`에
+> `mysql_rows`/`chroma_chunks`가 없으며(각각 `rows` 개수 / `overview` 통계),
+> 답변이 템플릿·요약이라 인라인 `(출처:)` 마커가 없을 수 있다. `semantic`만
+> `debug.mysql_rows`/`chroma_chunks`와 마커를 제공한다 — 상세는
+> [HANDOVER_CITATION_FRONTEND.md](HANDOVER_CITATION_FRONTEND.md).
+>
 > **`plan`**: LLM이 답변을 근거로 생성한 다음 할 일 목록 (best-effort — 생성 실패 시 빈 배열 `[]` 반환).
+>
+> **`answer` 출처 마커 (2026-07-22 추가)**: 답변 본문에 근거의 출처가
+> `(출처: 파일명)` 형태로 포함된다. 프론트는 이 마커를 파싱해 출처 칩/링크로
+> 렌더링하거나 그대로 표시할 수 있다(선택). 저장소 연결 파일은 동명 충돌
+> 방지를 위해 `(출처: 파일명 (repo#N))` 형태가 될 수 있다. 상세는 프론트
+> 핸드오버 [HANDOVER_CITATION_FRONTEND.md](HANDOVER_CITATION_FRONTEND.md).
+>
+> **`sources`**: 변경 없음 — 답변 근거로 검색된 출처 파일명 리스트. `answer`
+> 마커와 별개로 그대로 제공된다.
+>
+> **`debug.*.source_label` (2026-07-22 추가)**: `mysql_rows[]`·`chroma_chunks[]`에
+> 충돌 없는 출처 라벨이 추가됐다(additive — 무시 가능). `answer` 마커가 이
+> 라벨을 사용한다.
 
 **응답 `503`**
 ```json
@@ -684,20 +1157,167 @@ Memory 항목 삭제.
 
 ---
 
+## GitHub App 연동
+
+GitHub App 설치 세션 흐름. **경로에 `/api/v1` prefix가 없다** (`/github/app/*`).
+`callback`을 제외한 4개는 jwt 모드에서 **로그인(Bearer)** 이 필요하다. 세션 state는
+서버 메모리에 보관되며 TTL이 지나면 만료된다.
+
+### `POST /github/app/sessions`
+
+설치 세션 생성. (jwt 모드 로그인 필요, state 입력 없음)
+
+**응답 `201`**
+```json
+{
+  "state": "<opaque-token>",
+  "status": "pending",
+  "installUrl": "https://github.com/apps/.../installations/new?state=...",
+  "expiresIn": 1800
+}
+```
+
+---
+
+### `GET /github/app/sessions/{state}`
+
+세션 상태 조회. (jwt 모드 로그인 필요 + state 필수)
+
+**응답 `200`**
+```json
+{ "state": "<token>", "status": "connected", "setupAction": "install" }
+```
+> `status`는 설치 완료 전 `pending`, 완료 후 `connected`.
+
+**응답 `404`** — 존재하지 않는 state · **응답 `410`** — 만료된 state
+
+---
+
+### `GET /github/app/sessions/{state}/repositories`
+
+설치된 저장소 목록. (jwt 모드 로그인 필요 + state 필수)
+
+**응답 `200`**
+```json
+{
+  "repositories": [
+    {
+      "fullName": "org/repo",
+      "name": "repo",
+      "private": false,
+      "defaultBranch": "main",
+      "url": "https://github.com/org/repo",
+      "owner": { "login": "org", "avatarUrl": "https://...", "htmlUrl": "https://github.com/org", "name": null }
+    }
+  ],
+  "user": { "login": "org", "avatarUrl": "https://...", "htmlUrl": "https://github.com/org", "name": null }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `repositories[].owner` | 소유자 프로필 `{login, avatarUrl, htmlUrl, name}`. login 없으면 `null` |
+| `user` | 대표 소유자 프로필(위와 동일 구조). **선택된 저장소가 없으면 `repositories: []`, `user: null`** — 프론트는 null 가드 필요 |
+
+**응답 `404`** 미지 state · **`410`** 만료 state · **`409`** 설치 미완료
+(`GitHub App installation is not complete` — callback 전이라 installation_id 없음)
+
+---
+
+### `POST /github/app/repository-preview`
+
+저장소 미리보기(최근 활동 요약). (jwt 모드 로그인 필요, state 선택)
+
+**요청 Body**
+```json
+{ "repository_url": "https://github.com/org/repo", "state": "<token-선택>" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `repository_url` | string | ✅ | GitHub repo URL |
+| `state` | string | - | 있으면 설치 토큰으로 private repo 접근 |
+
+**응답 `200`**
+```json
+{
+  "events": [
+    { "id": "commit-abc123", "type": "commit", "title": "커밋 메시지", "createdAt": 1719900000000, "status": "abc123", "url": "https://github.com/org/repo/commit/abc123" }
+  ],
+  "repository": {
+    "path": "https://github.com/org/repo",
+    "name": "repo",
+    "branch": "main",
+    "isDirty": false,
+    "remoteRepo": "org/repo",
+    "issuePrStatus": "2 open issues · 1 open PRs",
+    "visibility": "public",
+    "authProvider": "public"
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `events[]` | 최근 commit/issue/pull_request 이벤트 최대 10건. `type`은 `commit`/`issue`/`pull_request`, `createdAt`은 epoch ms |
+| `repository.visibility` | `public` \| `private` |
+| `repository.authProvider` | `public`(무토큰) \| `github_app`(state로 설치 토큰 사용) |
+
+**응답 `400`** — 잘못된 repo URL  
+**응답 `401`**
+```json
+{ "detail": "Private repository requires GitHub App login" }
+```
+> private repo인데 `state`(설치 토큰)가 없으면 401.
+
+**응답 `404`** 미지 state · **`410`** 만료 state · **`409`** 설치 미완료 —
+`state`를 넘긴 경우 위 세션 오류가 그대로 전파된다(설치 토큰 발급 단계).
+
+---
+
+### `GET /github/app/callback`
+
+GitHub 설치 완료 후 리다이렉트되는 콜백. **공개(무인증)이나 `state` 쿼리
+파라미터가 필수**다. 사용자 브라우저에서 직접 열리므로 `Authorization` 헤더가
+붙지 않는다. 응답은 `text/html`(JSON 아님).
+
+**Query Parameters**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `state` | string | ✅ | 세션 state. 없으면 400 |
+| `installation_id` | integer | ✅ | GitHub 설치 ID. 없으면 400 |
+| `setup_action` | string | - | GitHub이 전달하는 설치 액션 |
+
+**응답 `200`** — `text/html` (앱으로 복귀 안내 페이지)
+
+**응답 `400`**
+```json
+{ "detail": "state is required" }
+```
+> `installation_id` 누락 시에도 400. **`404`** — 존재하지 않는 state,
+> **`410`** — 만료된 state(TTL 초과).
+
+---
+
 ## 공통 에러 코드
 
 | 상태 코드 | 의미 |
 |----------|------|
 | `400` | 잘못된 요청 (빈 content, 잘못된 날짜 형식 등) |
+| `401` | 인증 실패 (토큰 없음/무효/만료, 로그인 실패) |
+| `403` | 권한 없음 (프로젝트 비멤버 또는 최소 역할 미달) |
 | `404` | 리소스 없음 |
+| `409` | 충돌 (중복 멤버, supersede 경합, 동시 해소 등) |
 | `422` | Pydantic 유효성 검사 실패 |
-| `503` | LLM / 외부 서비스 오류 |
+| `503` | LLM / 외부 서비스 오류, 또는 `PAIM_JWT_SECRET` 미설정/약함 |
 
 ---
 
 ## 구현 현황
 
-> 갱신: 2026-07-02 (`feature/api-build-on-main` 기준 — origin/main 병합 완료)
+> 갱신: 2026-07-22 (TASK-010 반영 — 누락 20 operation·인증/권한·query
+> attachments·memory 필드 문서화. 전체 46 operation, origin/main `5240f40` 기준)
 
 | 엔드포인트 | 상태 |
 |-----------|------|
@@ -727,6 +1347,26 @@ Memory 항목 삭제.
 | `DELETE /api/v1/projects/{id}/sessions/{sid}` | ✅ 구현 완료 (messages + summaries cascade) |
 | `GET /api/v1/projects/{id}/sessions/{sid}/messages` | ✅ 구현 완료 (AES-256-GCM 복호화) |
 | `POST /api/v1/projects/{id}/sessions/{sid}/query` | ✅ 구현 완료 (롤링 요약, 토큰 예산 관리) |
+| `POST /api/v1/auth/signup` | ✅ 구현 완료 (공개) |
+| `POST /api/v1/auth/login` | ✅ 구현 완료 (공개) |
+| `GET /api/v1/auth/me` | ✅ 구현 완료 (인증) |
+| `PATCH /api/v1/projects/{id}` | ✅ 구현 완료 (member) |
+| `DELETE /api/v1/projects/{id}` | ✅ 구현 완료 (owner) |
+| `GET /api/v1/projects/{id}/members` | ✅ 구현 완료 (viewer) |
+| `POST /api/v1/projects/{id}/members` | ✅ 구현 완료 (owner) |
+| `PATCH /api/v1/projects/{id}/members/{member_user_id}` | ✅ 구현 완료 (owner) |
+| `DELETE /api/v1/projects/{id}/members/{member_user_id}` | ✅ 구현 완료 (본인 탈퇴 member / 타인 제거 owner) |
+| `GET /api/v1/projects/{id}/suggestions` | ✅ 구현 완료 (viewer) |
+| `POST /api/v1/projects/{id}/suggestions/{sid}/accept` | ✅ 구현 완료 (member) |
+| `POST /api/v1/projects/{id}/suggestions/{sid}/reject` | ✅ 구현 완료 (member) |
+| `GET /api/v1/projects/{id}/delta` | ✅ 구현 완료 (viewer) |
+| `POST /api/v1/projects/{id}/briefing/delta` | ✅ 구현 완료 (member) |
+| `POST /api/v1/projects/{id}/git` | ✅ 구현 완료 (member) |
+| `POST /github/app/sessions` | ✅ 구현 완료 (로그인) |
+| `GET /github/app/sessions/{state}` | ✅ 구현 완료 (로그인 + state) |
+| `GET /github/app/sessions/{state}/repositories` | ✅ 구현 완료 (로그인 + state) |
+| `POST /github/app/repository-preview` | ✅ 구현 완료 (로그인) |
+| `GET /github/app/callback` | ✅ 구현 완료 (공개 + state, text/html) |
 
 ---
 
@@ -830,4 +1470,4 @@ POST /repositories 또는 /repositories/{id}/sync → { "status": "syncing" }
 
 1. `sync_warning`은 JSON-encoded string (null 또는 `"[{...}]"`) — 프론트에서 파싱 필요
 2. 서버 재시작 시 30분 이상 stale `processing`/`syncing` → 자동으로 `failed`로 전환 (`BACKGROUND_TASK_STALE_MINUTES` 설정)
-3. 현재 인증은 `DEV_USER_ID` env 기반 fallback. 운영 도입 시 토큰 헤더 추가 예정
+3. 인증·권한 정책은 상단 [인증·권한](#인증권한) 섹션이 정본이다(중복 서술 금지).
