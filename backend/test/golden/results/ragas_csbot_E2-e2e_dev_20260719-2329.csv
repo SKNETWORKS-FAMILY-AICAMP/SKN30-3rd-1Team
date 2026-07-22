@@ -1,0 +1,31 @@
+﻿qid,tag,question,n_contexts,context_precision,context_recall,faithfulness,response_relevancy,history_mode,history_rows_added,history_truncated,chain_included,abstained
+A1,decision,파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?,17,0.1583,1.0,,,False,,,,
+A2,decision,챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?,17,0.1674,1.0,,,False,,,,
+A3,decision,chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?,18,0.3842,1.0,,,True,1,False,,
+A4,decision,re-ranking을 정식 도입하기로 결정한 근거 수치는?,24,0.0925,1.0,,,False,,,,
+A5,decision,"1차 개선 배포일은 언제로, 왜 그 날짜로 정했는가?",17,0.342,1.0,,,False,,,,
+A6,decision,멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는?,17,0.3858,1.0,,,False,,,,
+A7,decision,LLM 모델을 최신 버전으로 업데이트하기로 한 이유와 예상 비용 증가는?,17,0.3986,1.0,,,False,,,,
+A8,decision,진단 스프린트를 먼저 진행하기로 한 이유는?,17,0.4654,1.0,,,False,,,,
+A9,decision,회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는?,17,0.3895,1.0,,,False,,,,
+A10,decision,배포 후 모니터링 계획은 구체적으로 무엇인가?,17,0.4935,1.0,,,False,,,,
+B1,decision,"최종(6/27 기준) 전체 정답률은 몇 %이며, 개선 전 대비 몇 %p 향상됐는가?",17,0.1051,1.0,,,False,,,,
+B2,decision,영역별 정답률 변화 중 re-ranking 도입 효과가 가장 명확하게 나타난 영역은?,17,0.4458,1.0,,,False,,,,
+B3,conflict_negative,[충돌 탐지] 파인튜닝에 대한 팀의 입장은 6/16과 6/27에 동일한가?,17,0.3858,1.0,,,False,,,,
+B4,conflict,[충돌 탐지] re-ranking 도입 여부는 회의마다 어떻게 바뀌었는가?,17,0.5919,1.0,,,False,,,True,
+B5,decision,반품 영역의 정답률은 개선 전부터 최종까지 어떻게 변화했는가?,17,0.5769,1.0,,,False,,,,
+B6,decision,응답 시간은 1차 개선 후와 re-ranking 도입 후 각각 어떻게 변했는가?,17,0.3289,0.0,,,False,,,,
+B7,conflict_negative,[충돌 탐지] 멀티턴 맥락 유지 기능의 우선순위나 처리 방향이 회의마다 달라졌는가?,17,0.4659,1.0,,,False,,,,
+B8,decision,테스트 중 발견된 할루시네이션 사례는 몇 건이며 원인은?,17,0.33,1.0,,,False,,,,
+B9,decision,자체 QA 테스트(6/9)에서 측정한 오답률은 몇 %였는가?,17,0.5667,1.0,,,False,,,,
+B10,decision,하루 평균 질의 건수와 fallback 응답 비율(개선 전)은 얼마였는가?,17,0.4936,1.0,,,False,,,,
+C1,action,지식 베이스 전면 갱신과 semantic chunking 구현은 각각 누가 담당했는가?,17,0.1928,1.0,,,False,,,,
+C2,action,2차 개선 항목 중 우선순위가 '높음'으로 분류된 항목은 무엇인가?,17,0.0769,1.0,,,False,,,,
+C3,action,"1차 개선 프로덕션 배포는 누가, 언제 담당했는가?",17,0.1399,1.0,,,False,,,,
+C6,action,멀티턴 기능 설계 문서 작성은 누가 담당하며 마감은 언제인가?,17,0.1934,1.0,,,False,,,,
+C8,action,"회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 누가, 언제까지 담당했는가?",40,0.3789,1.0,,,False,,,,
+C10,action,배포 후 3일 시점 QA 재측정은 누가 담당하며 언제 실시되는가?,17,0.2661,1.0,,,False,,,,
+C4,hallucination,"[문서에 없음] 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 무엇인가?",17,,,,,,,,,True
+C5,hallucination,[문서에 없음] 그린커머스의 계약 연장 여부는 최종적으로 어떻게 결정되었는가?,24,,,,,,,,,False
+C7,hallucination,[문서에 없음] 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는?,17,,,,,,,,,True
+C9,hallucination,[문서에 없음] 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 얼마인가?,17,,,,,,,,,True

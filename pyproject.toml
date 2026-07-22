@@ -40,6 +40,10 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+eval = [
+    "ragas>=0.4.3",
+    "openpyxl>=3.1",   # EVAL_REPORT.xlsx export(pandas ExcelWriter 엔진)
+]
 
 [project.scripts]
 paim-server = "backend.main:serve"

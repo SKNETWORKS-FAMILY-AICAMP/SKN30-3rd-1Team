@@ -175,7 +175,8 @@ def test_filter_predicates_combine_with_supersede_mode(
 
 def test_fetch_supersede_graph_sql_limits_to_participating_decisions():
     """전용 조회는 관계 참여 decision만 대상 — superseded_by 보유 행 OR 참조되는 행,
-    category='decision' 한정, LIMIT 없는 search()와 달리 memory_sources JOIN 없음."""
+    category='decision' 한정. 체인 행에도 충돌 없는 출처 라벨을 만들려면
+    memory_sources JOIN이 필요하다(리뷰 C-002)."""
     conn, cursor = _make_conn()
 
     with patch("backend.retriever.mysql_search.get_connection", return_value=conn):
@@ -185,9 +186,32 @@ def test_fetch_supersede_graph_sql_limits_to_participating_decisions():
     assert "m.category = 'decision'" in sql
     assert "m.superseded_by IS NOT NULL" in sql
     assert "m.id IN (SELECT s.superseded_by FROM memory s" in sql
-    assert "LEFT JOIN memory_sources" not in sql
+    assert "LEFT JOIN memory_sources" in sql          # C-002: 출처 식별자 조인
+    assert "ms.repo_id" in sql
     assert "ORDER BY m.id ASC" in sql
     assert params == [7, 7]
+
+
+def test_fetch_supersede_graph_attaches_source_info():
+    """C-002: 체인 행이 source_info(repo_id·path)를 실어, 다른 저장소의 동명
+    파일이 repo#N으로 구분되도록 한다 — 없으면 이력 인용 근거성이 깨진다."""
+    from backend.retriever import qa_engine
+    row = {"id": 1, "category": "decision", "content": "정비", "superseded_by": None,
+           "source": "README.md", "source_kind": "repository", "ms_doc_id": None,
+           "ms_repo_id": 3, "source_type": "readme", "source_path": "README.md",
+           "source_ref": "abc", "source_url": ""}
+    cursor = MagicMock()
+    cursor.fetchall.return_value = [dict(row)]
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+
+    with patch("backend.retriever.mysql_search.get_connection", return_value=conn):
+        [out] = mysql_search.fetch_supersede_graph(1)
+
+    assert out["source_info"]["repo_id"] == 3
+    assert out["source_info"]["path"] == "README.md"
+    # 체인 행 라벨도 일반 검색 행처럼 repo#N으로 충돌 방지
+    assert qa_engine._row_source_label(out) == "README.md (repo#3)"
 
 
 class _GraphCursor:

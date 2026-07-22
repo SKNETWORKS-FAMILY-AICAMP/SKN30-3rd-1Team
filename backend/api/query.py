@@ -67,7 +67,9 @@ def _prepare_attachment_context(attachments: List[QueryAttachment]) -> tuple[str
         text = _extract_text(filename, data).strip() or "(텍스트를 추출할 수 없습니다.)"
         text = _clip_attachment_text(text, _ATTACHMENT_MAX_CHARS_PER_FILE, "첨부 내용 잘림")
         text = _clip_attachment_text(text, remaining, "전체 첨부 한도 초과로 잘림")
-        sections.append(f"### {filename}\n{text}")
+        # 표준 출처 마커를 붙여 SYSTEM_QA의 인용 규칙이 첨부에도 적용되도록 한다
+        # (구조화 기록·원문 맥락과 동일 형식, 리뷰 R-004).
+        sections.append(f"### {filename}\n(출처: {filename})\n{text}")
         sources.append(filename)
         used_chars += len(text)
 

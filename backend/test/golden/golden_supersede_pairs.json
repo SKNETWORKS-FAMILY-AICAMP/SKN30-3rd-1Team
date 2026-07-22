@@ -1,0 +1,51 @@
+{
+  "_설명": "골든 supersede pair — E1 상태 전환의 결정론적 근거. positive는 pairs 적용 대상(old/new 각각 정확히 1개 활성 decision에 매칭돼야 함), negative는 판별기가 제안하면 오탐인 관계(적용 루프에서 구조적 제외, old 존재만 검증). match 문구는 추출된 memory.content 부분 문자열 기준이며, 매칭 실패 시 파이프라인이 후보를 출력하고 중단한다 — 이 파일의 match 문구만 보정 가능(QA·라벨 판정값은 불변).",
+  "_참고": "modu '소셜 로그인 제외→포함'은 3/9 [결정 3] 한 행(이메일 확정 + 소셜 미룸)이 3/23 [결정 1]로 대체되는 P-M1과 동일 관계다. 추출기가 3/9 결정 3을 두 행으로 분리 추출하면 매칭 검증이 실패하며, 그때 pair를 분할한다.",
+  "pairs": [
+    {
+      "pair_id": "P-M1",
+      "corpus": "modu",
+      "kind": "positive",
+      "old_match": "비밀번호 방식으로 확정",
+      "new_match": "카카오",
+      "old_source": "3/9 회의록 [결정 3] 로그인 방식을 이메일+비밀번호로 확정, 소셜은 2차로 미룸",
+      "new_source": "3/23 회의록 [결정 1] 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가"
+    },
+    {
+      "pair_id": "P-M2",
+      "corpus": "modu",
+      "kind": "positive",
+      "old_match": "목표일",
+      "new_match": "5월 18일로 1주 연기",
+      "old_source": "3/2 회의록 [결정 3] 출시 목표일 5월 11일 설정",
+      "new_source": "4/6 회의록 [결정 1] 출시일 5월 11일 → 5월 18일 1주 연기"
+    },
+    {
+      "pair_id": "P-C1",
+      "corpus": "csbot",
+      "kind": "positive",
+      "old_match": "도입 여부",
+      "new_match": "정식 도입",
+      "old_source": "6/16 회의록 [결정 2] re-ranking은 QA 검증 결과를 보고 도입 여부 결정(보류)",
+      "new_source": "6/23 회의록 [결정 1] re-ranking(cross-encoder) 정식 도입"
+    },
+    {
+      "pair_id": "N-C1",
+      "corpus": "csbot",
+      "kind": "negative",
+      "old_match": "파인튜닝",
+      "new_match": null,
+      "old_source": "6/16 회의록 [결정 1] 파인튜닝 이번 유지보수 제외 + 추후 조건부 재검토",
+      "note": "6/27 2차 항목 등재는 같은 방침의 구체화 — 판별기가 이 결정에 supersede를 제안하면 오탐 (골든셋 csbot B3 문항과 연동)"
+    },
+    {
+      "pair_id": "N-M1",
+      "corpus": "modu",
+      "kind": "negative",
+      "old_match": "게시판형",
+      "new_match": null,
+      "old_source": "3/9 회의록 [결정 4] 채팅은 실시간 대신 게시판형 댓글로 MVP 구현",
+      "note": "5/11 실시간 채팅 1.1 편입은 대체가 아니라 후속 추가 — 제안하면 오탐 (골든셋 modu B4 문항과 연동)"
+    }
+  ]
+}

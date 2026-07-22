@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaiM — RAG 품질 평가 테스트셋 & 인물 타임라인</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --paper:#f6f3ec;
+    --paper2:#efe9dd;
+    --ink:#1c1a16;
+    --ink-soft:#55504a;
+    --rule:#d9d2c2;
+    --rule-strong:#bdb39c;
+    --accent:#a8462e;       /* terracotta-rust, used sparingly */
+    --accent-soft:#e8d9c9;
+    --tag-decision:#3c5a45; --tag-decision-bg:#e3ecdf;
+    --tag-conflict:#a8462e; --tag-conflict-bg:#f3e0d6;
+    --tag-hallu:#5b4b8a;    --tag-hallu-bg:#e7e1f3;
+    --tag-action:#2f5a73;   --tag-action-bg:#dfe9ee;
+    --mono: 'IBM Plex Mono', monospace;
+    --serif: 'Spectral', serif;
+    --sans: 'Inter', sans-serif;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.6;
+    font-size:15px;
+  }
+
+  ::selection{background:var(--accent-soft);}
+
+  /* ───────── layout shell ───────── */
+  .shell{max-width:980px;margin:0 auto;padding:0 28px;}
+
+  /* ───────── header / masthead ───────── */
+  header.masthead{
+    border-bottom:3px solid var(--ink);
+    padding:48px 0 22px;
+    position:relative;
+  }
+  .masthead .kicker{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:18px;
+  }
+  .masthead h1{
+    font-family:var(--serif);
+    font-weight:700;
+    font-size:clamp(34px,5vw,52px);
+    letter-spacing:-0.01em;
+    margin:0 0 10px;
+  }
+  .masthead h1 em{
+    font-style:italic;
+    color:var(--accent);
+  }
+  .masthead .sub{
+    font-size:15.5px;
+    color:var(--ink-soft);
+    max-width:640px;
+  }
+  .masthead .meta-row{
+    display:flex;
+    gap:28px;
+    margin-top:24px;
+    flex-wrap:wrap;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-soft);
+  }
+  .masthead .meta-row b{color:var(--ink);font-weight:600;}
+
+  /* ───────── nav / toc ───────── */
+  nav.toc{
+    display:flex;
+    gap:0;
+    border-bottom:1px solid var(--rule);
+    margin-top:0;
+    overflow-x:auto;
+    background:var(--paper);
+    position:sticky;
+    top:0;
+    z-index:50;
+  }
+  nav.toc .shell{display:flex;gap:2px;padding:0 28px;}
+  nav.toc a{
+    font-family:var(--mono);
+    font-size:11.5px;
+    letter-spacing:.04em;
+    color:var(--ink-soft);
+    text-decoration:none;
+    padding:14px 14px;
+    white-space:nowrap;
+    border-bottom:2px solid transparent;
+    transition:color .15s, border-color .15s;
+  }
+  nav.toc a:hover{color:var(--ink);border-bottom-color:var(--rule-strong);}
+  nav.toc a.dl{
+    margin-left:auto;
+    color:var(--accent);
+    font-weight:600;
+  }
+  nav.toc a.dl:hover{border-bottom-color:var(--accent);}
+
+  /* ───────── sections generic ───────── */
+  section{padding:56px 0;border-bottom:1px solid var(--rule);}
+  section:last-of-type{border-bottom:none;}
+
+  .section-head{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+    margin-bottom:28px;
+  }
+  .section-num{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--accent);
+    border:1px solid var(--rule-strong);
+    border-radius:3px;
+    padding:2px 7px;
+  }
+  .section-head h2{
+    font-family:var(--serif);
+    font-size:27px;
+    font-weight:600;
+    margin:0;
+  }
+  .section-desc{
+    color:var(--ink-soft);
+    font-size:14px;
+    max-width:680px;
+    margin:0 0 30px;
+  }
+
+  /* ───────── legend chips ───────── */
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:30px;}
+  .chip{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:4px 10px;
+    border-radius:20px;
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+  }
+  .chip.decision{background:var(--tag-decision-bg);color:var(--tag-decision);}
+  .chip.conflict{background:var(--tag-conflict-bg);color:var(--tag-conflict);}
+  .chip.hallu{background:var(--tag-hallu-bg);color:var(--tag-hallu);}
+  .chip.action{background:var(--tag-action-bg);color:var(--tag-action);}
+
+  /* ───────── QA set tabs ───────── */
+  .set-tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:22px;
+  }
+  .set-tab{
+    font-family:var(--mono);
+    font-size:12.5px;
+    padding:8px 16px;
+    border:1px solid var(--rule-strong);
+    border-radius:4px;
+    background:transparent;
+    color:var(--ink-soft);
+    cursor:pointer;
+    transition:all .15s;
+  }
+  .set-tab:hover{border-color:var(--ink);color:var(--ink);}
+  .set-tab.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
+  .set-panel{display:none;}
+  .set-panel.active{display:block;}
+
+  .set-intro{
+    font-size:13.5px;
+    color:var(--ink-soft);
+    border-left:2px solid var(--rule-strong);
+    padding-left:14px;
+    margin-bottom:22px;
+  }
+
+  /* ───────── QA card ───────── */
+  .qa-card{
+    border:1px solid var(--rule);
+    border-radius:6px;
+    background:#fffdf8;
+    margin-bottom:14px;
+    overflow:hidden;
+  }
+  .qa-card.flag-conflict{border-left:3px solid var(--tag-conflict);}
+  .qa-card.flag-hallu{border-left:3px solid var(--tag-hallu);}
+
+  .qa-head{
+    display:flex;
+    align-items:flex-start;
+    gap:12px;
+    padding:16px 18px;
+    cursor:pointer;
+  }
+  .qa-id{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-soft);
+    background:var(--paper2);
+    border-radius:4px;
+    padding:2px 7px;
+    flex-shrink:0;
+    margin-top:2px;
+  }
+  .qa-q{
+    font-size:14.5px;
+    font-weight:500;
+    flex:1;
+  }
+  .qa-toggle{
+    font-family:var(--mono);
+    color:var(--rule-strong);
+    flex-shrink:0;
+    transition:transform .2s;
+    font-size:13px;
+  }
+  .qa-card.open .qa-toggle{transform:rotate(45deg);color:var(--accent);}
+
+  .qa-body{
+    display:none;
+    padding:0 18px 18px 18px;
+  }
+  .qa-card.open .qa-body{display:block;}
+
+  .qa-row{
+    display:grid;
+    grid-template-columns:74px 1fr;
+    gap:10px;
+    font-size:13.5px;
+    padding:8px 0;
+    border-top:1px solid var(--rule);
+  }
+  .qa-row:first-child{border-top:none;padding-top:4px;}
+  .qa-label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--ink-soft);
+    padding-top:2px;
+  }
+  .qa-row .src{
+    font-family:var(--mono);
+    font-size:12px;
+    color:var(--accent);
+  }
+
+  /* ───────── timeline (person tracking) ───────── */
+  .person-tabs{display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;}
+  .person-tab{
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:13px;
+    padding:9px 18px;
+    border-radius:30px;
+    border:1px solid var(--rule-strong);
+    background:transparent;
+    cursor:pointer;
+    color:var(--ink-soft);
+    transition:all .15s;
+  }
+  .person-tab:hover{border-color:var(--ink);color:var(--ink);}
+  .person-tab.active{
+    background:var(--ink);
+    color:var(--paper);
+    border-color:var(--ink);
+  }
+
+  .person-panel{display:none;}
+  .person-panel.active{display:block;}
+
+  .person-summary{
+    font-family:var(--serif);
+    font-style:italic;
+    font-size:16px;
+    color:var(--ink-soft);
+    border-top:1px solid var(--rule);
+    border-bottom:1px solid var(--rule);
+    padding:18px 0;
+    margin-bottom:32px;
+  }
+
+  .tl{position:relative;padding-left:28px;}
+  .tl::before{
+    content:'';
+    position:absolute;left:5px;top:6px;bottom:6px;
+    width:1px;background:var(--rule-strong);
+  }
+  .tl-item{position:relative;padding-bottom:26px;}
+  .tl-item:last-child{padding-bottom:0;}
+  .tl-item::before{
+    content:'';
+    position:absolute;left:-28px;top:4px;
+    width:10px;height:10px;border-radius:50%;
+    background:var(--paper);border:2px solid var(--ink);
+  }
+  .tl-item.key::before{background:var(--accent);border-color:var(--accent);}
+  .tl-date{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--accent);
+    margin-bottom:4px;
+  }
+  .tl-text{font-size:14px;}
+  .tl-src{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-soft);
+    margin-top:4px;
+  }
+  .tl-item.key .tl-text{font-weight:600;}
+
+  .person-note{
+    margin-top:30px;
+    background:var(--paper2);
+    border-radius:6px;
+    padding:18px 20px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+  }
+  .person-note b{color:var(--ink);}
+
+  /* ───────── download panel ───────── */
+  .dl-panel{
+    background:var(--ink);
+    color:var(--paper);
+    border-radius:10px;
+    padding:36px 36px;
+  }
+  .dl-panel h2{
+    font-family:var(--serif);
+    font-size:24px;
+    margin:0 0 8px;
+    color:var(--paper);
+  }
+  .dl-panel p{
+    color:#c9c4b8;
+    font-size:13.5px;
+    max-width:560px;
+    margin:0 0 26px;
+  }
+  .dl-grid{display:flex;gap:12px;flex-wrap:wrap;}
+  .dl-btn{
+    font-family:var(--mono);
+    font-size:13px;
+    background:var(--paper);
+    color:var(--ink);
+    border:none;
+    border-radius:5px;
+    padding:13px 20px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:9px;
+    transition:transform .12s, background .12s;
+  }
+  .dl-btn:hover{background:var(--accent-soft);transform:translateY(-1px);}
+  .dl-btn .ico{font-size:15px;}
+  .dl-btn.secondary{
+    background:transparent;
+    color:var(--paper);
+    border:1px solid #56524a;
+  }
+  .dl-btn.secondary:hover{border-color:var(--paper);background:rgba(255,255,255,.06);}
+  .dl-status{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:#8a8578;
+    margin-top:16px;
+    min-height:16px;
+  }
+
+  /* ───────── footer ───────── */
+  footer{
+    padding:30px 0 50px;
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-soft);
+    display:flex;
+    justify-content:space-between;
+  }
+
+  @media (max-width:640px){
+    .qa-row{grid-template-columns:1fr;}
+    .qa-label{padding-top:0;}
+    .dl-panel{padding:26px 22px;}
+    .masthead .meta-row{gap:16px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="shell">
+    <div class="kicker">
+      <span>PaiM · INTERNAL EVAL DOCUMENT</span>
+      <span>v1.0 — 2026.06.30</span>
+    </div>
+    <h1>RAG 품질 평가<br><em>테스트셋 & 인물 타임라인</em></h1>
+    <p class="sub">CS-Bot 유지보수 프로젝트 회의록 5건(6/2–6/27)을 기반으로 구성한 PaiM Q&A 엔진 검증용 골드 스탠다드 세트입니다.</p>
+    <div class="meta-row">
+      <span><b>30</b> 문항 · 3 세트</span>
+      <span><b>5</b> 건 회의록 원본</span>
+      <span><b>3</b> 인물 행동 타임라인</span>
+      <span><b>4</b> 할루시네이션 체크 문항</span>
+      <span><b>3</b> 결정 변경 추적 문항</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="shell">
+    <a href="#qa-section">QA 테스트셋</a>
+    <a href="#timeline-section">인물 타임라인</a>
+    <a href="#download-section">다운로드</a>
+    <a href="#download-section" class="dl">⤓ 데이터 받기</a>
+  </div>
+</nav>
+
+<main class="shell">
+
+  <!-- ════════════════ QA SECTION ════════════════ -->
+  <section id="qa-section">
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <h2>QA 테스트셋</h2>
+    </div>
+    <p class="section-desc">각 문항은 질문(Q) · 골드 스탠다드 답변(A) · 출처 회의록(Source)으로 구성됩니다. 카드를 클릭하면 답변과 출처가 펼쳐집니다.</p>
+
+    <div class="legend">
+      <span class="chip decision">● 결정/이유 추적</span>
+      <span class="chip conflict">▲ 결정 변경(충돌) 탐지</span>
+      <span class="chip hallu">✕ 문서에 없음(할루시네이션 체크)</span>
+      <span class="chip action">→ 담당자/액션 추적</span>
+    </div>
+
+    <div class="set-tabs">
+      <button class="set-tab active" data-set="A">SET A — 사실·이유 (10)</button>
+      <button class="set-tab" data-set="B">SET B — 수치·충돌탐지 (10)</button>
+      <button class="set-tab" data-set="C">SET C — 담당자·할루시네이션 (10)</button>
+    </div>
+
+    <div id="qa-panels"></div>
+  </section>
+
+  <!-- ════════════════ TIMELINE SECTION ════════════════ -->
+  <section id="timeline-section">
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <h2>인물 행동 타임라인</h2>
+    </div>
+    <p class="section-desc">담당자 3인의 발화·의견·액션 아이템을 시간순으로 정리했습니다. 진한 점은 이후 의사결정의 직접적 근거가 된 핵심 활동입니다.</p>
+
+    <div class="person-tabs">
+      <button class="person-tab active" data-person="park">박서연 · AI 엔지니어</button>
+      <button class="person-tab" data-person="choi">최민준 · 백엔드</button>
+      <button class="person-tab" data-person="yoon">윤재혁 · QA</button>
+    </div>
+
+    <div id="person-panels"></div>
+  </section>
+
+  <!-- ════════════════ DOWNLOAD SECTION ════════════════ -->
+  <section id="download-section">
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <h2>데이터 내보내기</h2>
+    </div>
+    <p class="section-desc">QA 30문항 전체를 JSON 또는 CSV로 내려받아 PaiM 평가 파이프라인에 바로 사용할 수 있습니다.</p>
+
+    <div class="dl-panel">
+      <h2>QA 테스트셋 다운로드</h2>
+      <p>id / set / question / answer / source / tag 필드를 포함한 30개 레코드입니다. 브라우저에서 즉시 생성되며 서버 전송 없이 로컬에 저장됩니다.</p>
+      <div class="dl-grid">
+        <button class="dl-btn" id="dl-json"><span class="ico">{ }</span> JSON으로 받기</button>
+        <button class="dl-btn secondary" id="dl-csv"><span class="ico">▤</span> CSV로 받기</button>
+        <button class="dl-btn secondary" id="dl-md"><span class="ico">¶</span> Markdown으로 받기</button>
+      </div>
+      <div class="dl-status" id="dl-status"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="shell" style="display:flex;justify-content:space-between;width:100%;">
+    <span>PaiM — 회의록 기반 결정 추적 AI PM</span>
+    <span>출처: 회의록 #1–#5 (2026-06-02 ~ 2026-06-27)</span>
+  </div>
+</footer>
+
+<script>
+/* ───────────────────── DATA ───────────────────── */
+const QA = [
+  {id:"A1",set:"A",tag:"decision",q:"파인튜닝을 이번 유지보수에서 제외하기로 한 이유는?",a:"학습 데이터 준비에 최소 2주 이상 소요되고, 데이터 라벨링·정제 공수가 크며, 현재 팀 가용 리소스로는 2주 내 1차 개선 목표 달성과 병행이 불가능했기 때문.",src:"6/16 회의록 (결정 1)"},
+  {id:"A2",set:"A",tag:"decision",q:"챗봇의 반품 관련 질문 오답률이 높았던 핵심 원인은?",a:"그린커머스가 올해 2월 변경한 반품 정책(7일→14일)이 지식 베이스 문서에 반영되지 않아, 챗봇이 여전히 구 정책(7일) 기준으로 답변했기 때문.",src:"6/9 회의록"},
+  {id:"A3",set:"A",tag:"decision",q:"chunk 분할 방식을 고정 길이에서 의미 단위(semantic)로 바꾼 이유는?",a:"고정 길이 청킹이 정책 문서처럼 조건이 복잡한 텍스트의 맥락을 끊어, 앞뒤 조건이 분리되는 문제가 로그와 테스트에서 확인되었기 때문.",src:"6/9 회의록 (결정 2)"},
+  {id:"A4",set:"A",tag:"decision",q:"re-ranking을 정식 도입하기로 결정한 근거 수치는?",a:"cross-encoder 기반 re-ranking 예비 테스트에서 환불 영역 정확도가 75%에서 88%로 13%p 향상되었고, 응답 지연 증가는 0.6초로 허용 가능한 수준이었음.",src:"6/23 회의록 (결정 1)"},
+  {id:"A5",set:"A",tag:"decision",q:"1차 개선 배포일은 언제로, 왜 그 날짜로 정했는가?",a:"2026년 6월 30일(화) 오후 2시. 고객사 요청 마감일인 7/1보다 하루 앞당겨 예비 시간을 확보하기 위함.",src:"6/27 회의록 (결정 1)"},
+  {id:"A6",set:"A",tag:"decision",q:"멀티턴 맥락 유지 기능을 1차가 아닌 2차 배포로 분리한 이유는?",a:"1차 배포 일정이 타이트했고, 이 기능은 고객사가 명시적으로 요청한 사항이 아니었으며, 무리하게 포함할 경우 배포 품질 리스크가 있었기 때문.",src:"6/23 회의록 (결정 3)"},
+  {id:"A7",set:"A",tag:"decision",q:"LLM 모델을 최신 버전으로 업데이트하기로 한 이유와 예상 비용 증가는?",a:"기존 모델이 납품 이후 업데이트되지 않았고 최신 모델의 응답 품질이 더 우수했기 때문. 비용 증가는 월 3~5만 원 수준으로 추정.",src:"6/16 회의록 (결정 3)"},
+  {id:"A8",set:"A",tag:"decision",q:"진단 스프린트를 먼저 진행하기로 한 이유는?",a:"문제의 원인이 데이터, 모델, 프롬프트, 시스템 중 어디에 있는지 불명확한 상태에서 바로 개선에 들어가면 방향이 틀릴 수 있어, 먼저 원인을 특정해야 했기 때문.",src:"6/2 회의록 (결정 1)"},
+  {id:"A9",set:"A",tag:"decision",q:"회원/포인트 영역의 정답률이 다른 영역보다 낮았던 이유는?",a:"해당 영역의 지식 베이스 문서가 충분하지 않았기 때문(고객사 공개 문서·내부 포인트 적립 기준 문서가 지식 베이스에 미반영).",src:"6/23 회의록"},
+  {id:"A10",set:"A",tag:"decision",q:"배포 후 모니터링 계획은 구체적으로 무엇인가?",a:"배포 후 1주일간 fallback 응답 비율, 응답 시간, 에러율을 집중 모니터링하고, 배포 3일 시점에 동일한 30개 케이스로 QA 재측정을 실시.",src:"6/27 회의록 (결정 2)"},
+
+  {id:"B1",set:"B",tag:"decision",q:"최종(6/27 기준) 전체 정답률은 몇 %이며, 개선 전 대비 몇 %p 향상됐는가?",a:"최종 87%, 개선 전 55% 대비 32%p 향상.",src:"6/27 회의록"},
+  {id:"B2",set:"B",tag:"decision",q:"영역별 정답률 변화 중 re-ranking 도입 효과가 가장 명확하게 나타난 영역은?",a:"환불 영역 — 75%(1차 개선 후) → 88%(최종)로 13%p 상승, re-ranking 도입 효과로 명시됨.",src:"6/27 회의록"},
+  {id:"B3",set:"B",tag:"conflict",q:"[충돌 탐지] 파인튜닝에 대한 팀의 입장은 6/16과 6/27에 동일한가?",a:"동일하지 않음. 6/16에는 \"이번 유지보수에서 제외\"로 결정했으나, 6/27에는 2차 개선 항목 목록에 \"파인튜닝 검토(충분한 데이터 확보 후)\"가 우선순위 '중간'으로 재등재되어, 계약 연장 시 재검토 대상으로 전환됨.",src:"6/16 회의록 (결정 1), 6/27 회의록 (2차 개선 항목 정리)"},
+  {id:"B4",set:"B",tag:"conflict",q:"[충돌 탐지] re-ranking 도입 여부는 회의마다 어떻게 바뀌었는가?",a:"6/16에는 \"QA 검증 결과를 보고 도입 여부 결정\"(보류 상태)이었고, 6/23에 예비 테스트 결과(환불 정확도 +13%p, 지연 +0.6초)를 근거로 \"정식 도입\"으로 확정됨. 결정 자체가 뒤집힌 것이 아니라 조건부 보류가 충족되어 진행된 케이스.",src:"6/16 회의록 (결정 2), 6/23 회의록 (결정 1)"},
+  {id:"B5",set:"B",tag:"decision",q:"반품 영역의 정답률은 개선 전부터 최종까지 어떻게 변화했는가?",a:"55% → 90%(1차 개선 후) → 90%(최종, 변동 없음). 정책 갱신과 semantic chunking 효과로 1차 개선 시점에 이미 가장 크게 상승.",src:"6/23 회의록, 6/27 회의록"},
+  {id:"B6",set:"B",tag:"decision",q:"응답 시간은 1차 개선 후와 re-ranking 도입 후 각각 어떻게 변했는가?",a:"1차 개선 후 평균 1.9초(청킹 개선으로 오히려 단축), re-ranking 도입 후 평균 약 2.5초(+0.6초 증가).",src:"6/23 회의록, 6/16 회의록(사전 예상치)"},
+  {id:"B7",set:"B",tag:"conflict",q:"[충돌 탐지] 멀티턴 맥락 유지 기능의 우선순위나 처리 방향이 회의마다 달라졌는가?",a:"6/9에는 \"미해결 쟁점\"으로만 언급(구현 공수 크므로 별도 검토 필요)되었고, 6/23에 \"2차 배포 항목으로 공식 분리\"되어 명확한 일정상 위치를 부여받음. 결정 번복이 아니라 미정 상태에서 구체화된 흐름.",src:"6/9 회의록 (미해결 쟁점), 6/23 회의록 (결정 3)"},
+  {id:"B8",set:"B",tag:"decision",q:"테스트 중 발견된 할루시네이션 사례는 몇 건이며 원인은?",a:"2건. 모두 지식 베이스에 관련 문서가 없는 질문에 대한 답변에서 발생.",src:"6/27 회의록"},
+  {id:"B9",set:"B",tag:"decision",q:"자체 QA 테스트(6/9)에서 측정한 오답률은 몇 %였는가?",a:"45% (20개 중 9개 오답/불완전 답변).",src:"6/9 회의록"},
+  {id:"B10",set:"B",tag:"decision",q:"하루 평균 질의 건수와 fallback 응답 비율(개선 전)은 얼마였는가?",a:"하루 평균 약 340건, fallback 응답 비율은 전체 18%, 반품·교환 관련 질문에서는 31%까지 상승.",src:"6/9 회의록"},
+
+  {id:"C1",set:"C",tag:"action",q:"지식 베이스 전면 갱신과 semantic chunking 구현은 각각 누가 담당했는가?",a:"두 작업 모두 박서연(AI 엔지니어)이 담당.",src:"6/9 회의록 (액션 아이템), 6/16 회의록 (액션 아이템)"},
+  {id:"C2",set:"C",tag:"action",q:"2차 개선 항목 중 우선순위가 '높음'으로 분류된 항목은 무엇인가?",a:"멀티턴 맥락 유지 기능, 포인트/회원 문서 추가 요청 건 반영.",src:"6/27 회의록 (2차 개선 항목 정리)"},
+  {id:"C3",set:"C",tag:"action",q:"1차 개선 프로덕션 배포는 누가, 언제 담당했는가?",a:"최민준(백엔드)이 2026년 6월 30일 오후 2시에 담당.",src:"6/27 회의록 (최종 액션 아이템)"},
+  {id:"C4",set:"C",tag:"hallu",q:"[문서에 없음] 이 프로젝트에서 사용한 벡터 데이터베이스의 제품명(예: ChromaDB, Pinecone 등)은 무엇인가?",a:"문서에서 확인할 수 없음. 회의록에는 \"벡터 검색\", \"임베딩\", \"재임베딩\" 등의 표현만 있을 뿐 구체적인 벡터 DB 제품명은 언급되지 않음.",src:"해당 없음 (문서 내 미언급)"},
+  {id:"C5",set:"C",tag:"hallu",q:"[문서에 없음] 그린커머스의 계약 연장 여부는 최종적으로 어떻게 결정되었는가?",a:"문서에서 확인할 수 없음. 6/27 회의록 기준 \"계약 연장 협의 착수(7/1~)\"가 액션 아이템으로 잡혀 있을 뿐, 협의 결과나 최종 결정은 7/3 회의(문서 범위 밖)에서 다뤄질 예정으로 되어 있음.",src:"해당 없음 (협의 진행 중, 결과 미기재)"},
+  {id:"C6",set:"C",tag:"action",q:"멀티턴 기능 설계 문서 작성은 누가 담당하며 마감은 언제인가?",a:"강다은(프론트엔드)이 담당, 마감은 7/3(다음 회의 전).",src:"6/27 회의록 (최종 액션 아이템)"},
+  {id:"C7",set:"C",tag:"hallu",q:"[문서에 없음] 그린커머스 CS-Bot에 사용된 임베딩 모델의 정확한 이름과 차원 수는?",a:"문서에서 확인할 수 없음. 임베딩이라는 행위(재임베딩 등)는 언급되지만 구체적인 임베딩 모델명이나 벡터 차원 수는 회의록에 기재되어 있지 않음.",src:"해당 없음 (문서 내 미언급)"},
+  {id:"C8",set:"C",tag:"action",q:"회원/포인트 관련 공개 문서를 지식 베이스에 추가하는 작업은 누가, 언제까지 담당했는가?",a:"강다은(프론트엔드)이 담당, 마감 6/24.",src:"6/23 회의록 (액션 아이템)"},
+  {id:"C9",set:"C",tag:"hallu",q:"[문서에 없음] 이번 유지보수 전체에 투입된 총 인건비 또는 프로젝트 비용은 얼마인가?",a:"문서에서 확인할 수 없음. 모델 교체에 따른 API 비용 증가분(월 3~5만 원)은 언급되나, 전체 프로젝트의 인건비나 총 비용에 대한 정보는 회의록에 없음.",src:"해당 없음 (문서 내 미언급)"},
+  {id:"C10",set:"C",tag:"action",q:"배포 후 3일 시점 QA 재측정은 누가 담당하며 언제 실시되는가?",a:"윤재혁(QA)이 담당, 2026년 7월 3일에 실시 예정.",src:"6/27 회의록 (최종 액션 아이템)"}
+];
+
+const TAG_META = {
+  decision:{cls:"decision",sym:"●"},
+  conflict:{cls:"conflict",sym:"▲"},
+  hallu:{cls:"hallu",sym:"✕"},
+  action:{cls:"action",sym:"→"}
+};
+
+const SET_INTRO = {
+  A:"결정사항과 그 이유를 정확히 짝지어 추출하는지 검증하는 10문항입니다.",
+  B:"수치 일관성과 함께, 동일 안건에 대한 결정이 시간에 따라 어떻게 바뀌었는지(B3·B4·B7)를 추적합니다.",
+  C:"담당자별 액션 추적과, 문서에 없는 정보에 대해 \"확인 불가\"라고 정직하게 답하는지(C4·C5·C7·C9)를 검증합니다."
+};
+
+const PERSON = {
+  park:{
+    name:"박서연 · AI 엔지니어",
+    summary:"진단(6/9)부터 핵심 기술 결정 제안(6/16, 파인튜닝 기각·re-ranking 설계), 구현(6/16~6/25), 사후 모니터링(6/27)까지 — 기술적 의사결정과 실행을 일관되게 주도.",
+    items:[
+      {date:"6/2",key:false,text:"납품 시점 모델(GPT-4o), RAG 파이프라인 구성 보고 / 모델 버전 확인 필요성 제기",src:"6/2 회의록"},
+      {date:"6/2 → 6/5",key:false,text:"[액션] RAG 파이프라인 구성 문서화 및 모델 버전 현황 정리",src:"6/2 회의록"},
+      {date:"6/9",key:false,text:"파이프라인 진단 결과 보고 — 지식 베이스 미갱신·고정 청킹·프롬프트 미수정 3대 원인 정리",src:"6/9 회의록"},
+      {date:"6/9 → 6/13",key:false,text:"[액션] 지식 베이스 전면 갱신 / semantic chunking 방식 조사",src:"6/9 회의록"},
+      {date:"6/16",key:true,text:"파인튜닝 옵션 현실성 분석 제시(데이터량·소요기간) → 파인튜닝 제외 결정의 핵심 근거 제공",src:"6/16 회의록"},
+      {date:"6/16",key:false,text:"RAG 개선 3방향(semantic chunking·하이브리드 검색·re-ranking) 제시",src:"6/16 회의록"},
+      {date:"6/16 → 6/20",key:false,text:"[액션] semantic chunking·하이브리드 검색 모듈 개발 / 모델 업데이트·프롬프트 재설계",src:"6/16 회의록"},
+      {date:"6/23",key:true,text:"re-ranking 예비 테스트 결과 보고(환불 75%→88%) → 정식 도입 결정의 근거 제공",src:"6/23 회의록"},
+      {date:"6/23 → 6/25",key:false,text:"[액션] re-ranking 모듈 정식 통합 + 최종 프롬프트 확정",src:"6/23 회의록"},
+      {date:"6/27",key:false,text:"할루시네이션 2건 원인 분석, fallback 가이드라인 프롬프트 반영 완료",src:"6/27 회의록"},
+      {date:"6/27 → 7/1",key:false,text:"[액션] 배포 후 24시간 LLM 응답 모니터링",src:"6/27 회의록"}
+    ]
+  },
+  choi:{
+    name:"최민준 · 백엔드",
+    summary:"로그·인프라 분석(6/2~6/9) → 파이프라인 구현(6/16~6/21) → 성능 검증(6/23) → 배포 실행 및 사후 모니터링(6/27~7/7)을 담당. 전 구간에서 수치 기반 타당성 검토 역할을 수행.",
+    items:[
+      {date:"6/2",key:false,text:"납품 이후 별도 업데이트 없음, 로그 미분석 상태 보고",src:"6/2 회의록"},
+      {date:"6/2 → 6/5",key:false,text:"[액션] 서버 응답 로그 6개월치 추출 및 기초 통계 작성",src:"6/2 회의록"},
+      {date:"6/9",key:false,text:"로그 분석 결과 보고 — 일평균 340건, fallback 비율 18%(반품 31%)",src:"6/9 회의록"},
+      {date:"6/9 → 6/16",key:false,text:"[액션] 청킹 변경 후 전체 재임베딩 파이프라인 준비",src:"6/9 회의록"},
+      {date:"6/16",key:true,text:"로그 데이터 품질 우려 제기(라벨링 필요) → 파인튜닝 제외 결정에 보조 근거 제공",src:"6/16 회의록"},
+      {date:"6/16",key:false,text:"re-ranking 응답 지연 예상치(+0.5~1초) 제시",src:"6/16 회의록"},
+      {date:"6/16 → 6/21",key:false,text:"[액션] 전체 재임베딩 실행 및 하이브리드 검색 서버 연동",src:"6/16 회의록"},
+      {date:"6/23",key:false,text:"재임베딩 완료 보고 — 응답시간 평균 1.9초로 개선",src:"6/23 회의록"},
+      {date:"6/23 → 6/25",key:false,text:"[액션] re-ranking 서버 연동 및 응답 시간 모니터링",src:"6/23 회의록"},
+      {date:"6/27",key:false,text:"배포 준비 완료 보고, 스테이징 최종 확인 필요성 언급",src:"6/27 회의록"},
+      {date:"6/27 → 6/30",key:true,text:"[액션] 스테이징 최종 확인 및 1차 개선 프로덕션 배포(6/30 오후 2시)",src:"6/27 회의록"},
+      {date:"6/27 → 7/7",key:false,text:"[액션] 서버 로그 모니터링(1주일)",src:"6/27 회의록"}
+    ]
+  },
+  yoon:{
+    name:"윤재혁 · QA",
+    summary:"전 프로젝트 기간 \"검증\" 역할 수행 — 오답률 45%(6/9) → 80%(6/23) → 87%(6/27)로 이어지는 3단계 정량 검증 체인을 직접 구축, 각 수치가 다음 결정의 근거 데이터로 사용됨.",
+    items:[
+      {date:"6/2",key:false,text:"로그 우선 분석 제안, 고객사 실제 불만 사례 요청 제안",src:"6/2 회의록"},
+      {date:"6/2 → 6/5",key:false,text:"[액션] 반품/환불 질문 20개 테스트 및 오답률 측정",src:"6/2 회의록"},
+      {date:"6/9",key:true,text:"테스트 결과 보고 — 오답률 45%(9/20), 구 정책 기반 오답·검색 오류 식별",src:"6/9 회의록"},
+      {date:"6/9 → 6/13",key:false,text:"[액션] 개선 후 재테스트용 QA 케이스 30개 준비",src:"6/9 회의록"},
+      {date:"6/16",key:false,text:"고객사 로그 데이터의 학습 데이터 활용 가능성에 의문 제기",src:"6/16 회의록"},
+      {date:"6/16",key:false,text:"QA 케이스 30개 구성 완료(반품10·환불8·배송6·회원포인트6)",src:"6/16 회의록"},
+      {date:"6/16 → 6/23",key:false,text:"[액션] 30개 케이스로 1차 개선 후 테스트",src:"6/16 회의록"},
+      {date:"6/23",key:true,text:"1차 개선 후 테스트 결과 보고 — 전체 80%, 회원/포인트 취약점 식별",src:"6/23 회의록"},
+      {date:"6/23",key:false,text:"re-ranking 결과 충분 → 추가 테스트 없이 전체 도입 가능 판단",src:"6/23 회의록"},
+      {date:"6/23 → 6/26",key:false,text:"[액션] re-ranking + 문서 보강 후 최종 QA 30개 재실시",src:"6/23 회의록"},
+      {date:"6/27",key:true,text:"최종 결과 보고 — 전체 87%, 할루시네이션 2건 보고",src:"6/27 회의록"},
+      {date:"6/27 → 7/3",key:false,text:"[액션] 배포 후 3일 시점 QA 재측정",src:"6/27 회의록"}
+    ]
+  }
+};
+
+/* ───────────────────── RENDER: QA ───────────────────── */
+const qaPanelsEl = document.getElementById('qa-panels');
+
+function renderSet(setKey){
+  const items = QA.filter(q => q.set === setKey);
+  let html = `<div class="set-panel active" data-panel="${setKey}">
+    <p class="set-intro">${SET_INTRO[setKey]}</p>`;
+  items.forEach(item=>{
+    const meta = TAG_META[item.tag];
+    html += `
+    <div class="qa-card ${item.tag === 'conflict' ? 'flag-conflict' : item.tag === 'hallu' ? 'flag-hallu' : ''}" data-id="${item.id}">
+      <div class="qa-head">
+        <span class="qa-id">${item.id}</span>
+        <span class="qa-q">${meta.sym} ${item.q}</span>
+        <span class="qa-toggle">+</span>
+      </div>
+      <div class="qa-body">
+        <div class="qa-row"><span class="qa-label">Gold A</span><span>${item.a}</span></div>
+        <div class="qa-row"><span class="qa-label">Source</span><span class="src">${item.src}</span></div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function paintQA(active){
+  qaPanelsEl.innerHTML = renderSet(active);
+  qaPanelsEl.querySelectorAll('.qa-card').forEach(card=>{
+    card.querySelector('.qa-head').addEventListener('click', ()=> card.classList.toggle('open'));
+  });
+}
+paintQA('A');
+
+document.querySelectorAll('.set-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.set-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    paintQA(btn.dataset.set);
+  });
+});
+
+/* ───────────────────── RENDER: PERSON TIMELINE ───────────────────── */
+const personPanelsEl = document.getElementById('person-panels');
+
+function renderPerson(key){
+  const p = PERSON[key];
+  let html = `<div class="person-panel active">
+    <p class="person-summary">"${p.summary}"</p>
+    <div class="tl">`;
+  p.items.forEach(it=>{
+    html += `
+      <div class="tl-item ${it.key ? 'key' : ''}">
+        <div class="tl-date">${it.date}</div>
+        <div class="tl-text">${it.text}</div>
+        <div class="tl-src">출처 — ${it.src}</div>
+      </div>`;
+  });
+  html += `</div>
+    <div class="person-note"><b>● 진한 점</b>으로 표시된 항목은 이후 회의에서 실제 의사결정의 직접적 근거로 인용된 핵심 활동입니다.</div>
+  </div>`;
+  return html;
+}
+
+function paintPerson(key){
+  personPanelsEl.innerHTML = renderPerson(key);
+}
+paintPerson('park');
+
+document.querySelectorAll('.person-tab').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.person-tab').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    paintPerson(btn.dataset.person);
+  });
+});
+
+/* ───────────────────── DOWNLOAD ───────────────────── */
+function triggerDownload(content, filename, mime){
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function setStatus(msg){
+  const el = document.getElementById('dl-status');
+  el.textContent = msg;
+  setTimeout(()=>{ if(el.textContent === msg) el.textContent = ''; }, 2600);
+}
+
+document.getElementById('dl-json').addEventListener('click', ()=>{
+  const data = QA.map(({id,set,tag,q,a,src})=>({id,set,tag,question:q,answer:a,source:src}));
+  triggerDownload(JSON.stringify(data, null, 2), 'paim_qa_testset.json', 'application/json');
+  setStatus('✓ paim_qa_testset.json 다운로드 완료 (30 rows)');
+});
+
+function csvEscape(s){
+  if (s == null) return '';
+  const needsQuote = /[",\n]/.test(s);
+  let out = String(s).replace(/"/g, '""');
+  return needsQuote ? `"${out}"` : out;
+}
+
+document.getElementById('dl-csv').addEventListener('click', ()=>{
+  const header = ['id','set','tag','question','answer','source'];
+  const rows = QA.map(q => [q.id,q.set,q.tag,q.q,q.a,q.src].map(csvEscape).join(','));
+  const csv = '\uFEFF' + [header.join(','), ...rows].join('\n');
+  triggerDownload(csv, 'paim_qa_testset.csv', 'text/csv;charset=utf-8');
+  setStatus('✓ paim_qa_testset.csv 다운로드 완료 (30 rows)');
+});
+
+document.getElementById('dl-md').addEventListener('click', ()=>{
+  let md = `# PaiM RAG QA 테스트셋\n\n`;
+  ['A','B','C'].forEach(setKey=>{
+    md += `## SET ${setKey}\n\n`;
+    QA.filter(q=>q.set===setKey).forEach(q=>{
+      md += `**${q.id}.**\nQ: ${q.q}\nA: ${q.a}\nSource: ${q.src}\n\n`;
+    });
+  });
+  triggerDownload(md, 'paim_qa_testset.md', 'text/markdown;charset=utf-8');
+  setStatus('✓ paim_qa_testset.md 다운로드 완료 (30 rows)');
+});
+</script>
+
+</body>
+</html>

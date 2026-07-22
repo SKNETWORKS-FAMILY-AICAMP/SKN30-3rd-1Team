@@ -213,3 +213,12 @@ data/uploads/
 .claude/
 evals/results/
 
+# Office(Excel 등) 임시 잠금 파일 — 문서를 열어두면 생김
+~$*
+
+
+# 골든셋 평가 파이프라인 상태물 (체크포인트·Chroma 스냅샷·컨텍스트 전문 — 로컬 전용)
+backend/test/golden/.eval_state/
+# 실행 로그(as-run trace)만 로컬 전용 — 필수 결과 CSV·METHODS는 추적한다
+# (EVAL_DESIGN §7: results/*.csv 커밋). 리뷰 P1-B.
+backend/test/golden/results/*.log
