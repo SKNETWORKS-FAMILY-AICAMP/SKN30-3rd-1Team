@@ -6,7 +6,12 @@ services:
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-paiM_dev}
       MYSQL_DATABASE: ${DB_NAME:-paiM}
     ports:
-      - "${DB_PORT:-3306}:3306"
+      # 루프백 한정. README.md Quick Start와 start-paim.bat은 MySQL만 컨테이너로
+      # 띄우고 backend를 호스트에서 실행하므로(기본값 localhost:3306) 포트를 완전히
+      # 닫으면 그 흐름이 깨진다. 127.0.0.1로 좁히면 로컬 개발은 그대로이고 LAN
+      # 노출만 사라진다. 운영 스택(docker-compose.prod.yml)은 이 포트를 아예
+      # 공개하지 않는다.
+      - "127.0.0.1:${DB_PORT:-3306}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro

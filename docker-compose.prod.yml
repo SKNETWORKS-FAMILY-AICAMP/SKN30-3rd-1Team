@@ -1,0 +1,133 @@
+# PaiM 운영 스택 — caddy(TLS 종단) + backend + db.
+#
+# 직접 실행하지 말고 deploy/stack.sh를 쓸 것. 그래야 preflight 환경변수 검사가
+# 반드시 선행되고, 프로필별 project·env 파일·포트가 일관되게 적용된다.
+#
+#   deploy/stack.sh prod up -d
+#
+# 명시적 project 이름이 필요한 이유: Compose는 기본적으로 디렉터리명을 project로
+# 쓰므로, 지정하지 않으면 같은 루트의 개발 docker-compose.yml과 동일 project와
+# mysql_data 볼륨을 공유한다. 그러면 리허설 표본이 개발 DB에 섞이고 down이
+# 개발 스택을 중단시킨다.
+name: paim-prod
+
+# 운영 필수값은 여기서 fail-fast 한다. 누락 시 컨테이너가 뜨기 전에 compose가
+# 멈춘다. 값의 형식·placeholder 검사는 deploy/preflight.sh 담당.
+x-required-env: &required-env
+  DB_USER: ${DB_USER:?DB_USER is required}
+  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+  DB_NAME: ${DB_NAME:?DB_NAME is required}
+  PAIM_JWT_SECRET: ${PAIM_JWT_SECRET:?PAIM_JWT_SECRET is required}
+  # 아래 둘은 lazy 경로다 — 누락돼도 기동과 /health를 통과한 뒤 실제 기능 호출에서
+  # 터진다. 그래서 compose 단계 검사가 특히 중요하다.
+  #   SESSION_MEMORY_KEY  → backend/security/session_crypto.py (채팅 암복호화)
+  #   OPENAI_API_KEY      → backend/db/chroma.py (임베딩, LLM_PROVIDER와 무관)
+  SESSION_MEMORY_KEY: ${SESSION_MEMORY_KEY:?SESSION_MEMORY_KEY is required}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    # 컨테이너 로그의 무한 증가만 막는다. 디스크 고갈 전반(업로드·MySQL·Chroma
+    # 볼륨, 이미지·빌드 캐시)은 deploy/README.md의 preflight·임계치 절차 담당.
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    # ports 없음 — 컨테이너 네트워크 내부 전용. WBS "MySQL 외부 포트 비공개".
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME is required}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./backend/db/migrate_v2.sql:/docker-entrypoint-initdb.d/02_migrate_v2.sql:ro
+      - ./backend/db/migrate_v3.sql:/docker-entrypoint-initdb.d/03_migrate_v3.sql:ro
+      - ./backend/db/migrate_v4.sql:/docker-entrypoint-initdb.d/04_migrate_v4.sql:ro
+      - ./backend/db/migrate_v5.sql:/docker-entrypoint-initdb.d/05_migrate_v5.sql:ro
+      - ./backend/db/migrate_v6.sql:/docker-entrypoint-initdb.d/06_migrate_v6.sql:ro
+      - ./backend/db/migrate_v7.sql:/docker-entrypoint-initdb.d/07_migrate_v7.sql:ro
+      - ./backend/db/migrate_v8.sql:/docker-entrypoint-initdb.d/08_migrate_v8.sql:ro
+    healthcheck:
+      # `$$`로 이스케이프해 Compose 보간이 아니라 **컨테이너 안에서** 확장시킨다.
+      # `-p${DB_PASSWORD}`로 쓰면 비밀번호가 `docker compose config` 출력과
+      # Docker 설정에 평문으로 굳는다. MYSQL_PWD를 쓰면 argv에도 남지 않는다.
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h localhost -u root"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${PAIM_IMAGE:-paim-backend:dev}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # ports 없음 — caddy를 통해서만 외부 노출된다.
+    #
+    # env_file은 나머지 설정(LLM_PROVIDER, 모델명, GitHub App 등)을 넘긴다.
+    # Compose의 .env는 YAML 보간용일 뿐 컨테이너 환경으로 자동 주입되지 않으므로
+    # 이 선언이 반드시 필요하다.
+    env_file:
+      - .env
+    environment:
+      # env_file보다 나중에 평가되어 호스트 값 유입을 차단한다.
+      <<: *required-env
+      DB_HOST: db
+      # 호스트 .env에 SSH 터널용 DB_PORT=3307 같은 값이 남아 있어도 컨테이너는
+      # 항상 내부 3306으로 붙어야 한다(backend/db/mysql.py가 클라이언트 포트로 읽음).
+      DB_PORT: "3306"
+      # 두 경로 기본값이 상대경로(data/uploads, .chroma)라 작업 디렉터리에 의존한다.
+      # 마운트 지점과 어긋나면 데이터가 볼륨이 아닌 컨테이너 레이어에 쌓여
+      # 재배포 시 조용히 사라진다.
+      UPLOAD_DIR: /app/data/uploads
+      CHROMA_PERSIST_DIR: /app/.chroma
+      # 운영에서 dev 모드로 뜨는 사고를 원천 차단한다(dev는 JWT 검증을 생략).
+      PAIM_AUTH_MODE: jwt
+      # Dockerfile CMD의 --workers 1과 이중으로 막는다. 이 값이 없으면 uvicorn이
+      # 외부 WEB_CONCURRENCY를 읽어 다중 워커로 뜰 수 있다.
+      WEB_CONCURRENCY: "1"
+    volumes:
+      - chroma_data:/app/.chroma
+      - upload_data:/app/data/uploads
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    # 유일한 외부 노출 지점.
+    ports:
+      - "${PAIM_HTTP_PORT:-80}:80"
+      - "${PAIM_HTTPS_PORT:-443}:443"
+    environment:
+      # Caddyfile의 {$PAIM_DOMAIN::80}는 Caddy 프로세스 환경을 읽는다. 이 선언이
+      # 없으면 도메인을 설정해도 :80 폴백으로 떠서 인증서를 발급하지 않는다.
+      #
+      # 폴백을 여기서 준다(`:-:80`). Caddy의 {$VAR:default}는 변수가 **미설정**일
+      # 때만 default를 쓰는데, `${PAIM_DOMAIN:-}`로 넘기면 "빈 문자열로 설정됨"이
+      # 되어 사이트 주소가 비고 "server block without any key" 오류로 기동에
+      # 실패한다.
+      PAIM_DOMAIN: ${PAIM_DOMAIN:-:80}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # 인증서 영속화 — 없으면 재시작마다 재발급을 시도해 Let's Encrypt 발급
+      # 한도에 걸린다.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    logging: *logging
+
+volumes:
+  mysql_data:
+  chroma_data:
+  upload_data:
+  caddy_data:
+  caddy_config:

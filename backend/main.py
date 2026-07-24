@@ -103,12 +103,14 @@ def health():
 
 def serve():
     import uvicorn
-    # 로컬 데스크톱 전용 백엔드 — LAN 노출을 막기 위해 127.0.0.1에만 바인딩한다.
+    # 기본값은 로컬 데스크톱 sidecar 전용 — LAN 노출을 막기 위해 127.0.0.1에만
+    # 바인딩한다. 컨테이너 배포에서만 PAIM_BIND_HOST=0.0.0.0으로 덮어쓴다(실제
+    # 운영 이미지는 이 함수를 거치지 않고 Dockerfile CMD의 uvicorn을 직접 쓴다).
     # reload는 파일 감시용 개발 옵션. 굳힌 sidecar 실행파일에서는 서브프로세스를 못 띄워
     # 오작동하므로, 개발 중에만 PAIM_DEV_RELOAD=1로 켠다.
     uvicorn.run(
         "backend.main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=os.getenv("PAIM_BIND_HOST", "127.0.0.1"),
+        port=int(os.getenv("PAIM_BIND_PORT", "8000")),
         reload=os.getenv("PAIM_DEV_RELOAD") == "1",
     )
