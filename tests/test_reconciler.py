@@ -1,6 +1,7 @@
 """PR→action Reconciler 단위 테스트."""
 import logging
 import pathlib
+from unittest.mock import MagicMock
 
 from backend.reconciler import pr_actions
 
@@ -92,6 +93,25 @@ def test_reconciler_retries_once_when_empty_with_inputs(monkeypatch, caplog):
     assert llm.calls == 2
     assert result.matches[0].memory_id == 10
     assert "retrying once" in caplog.text
+
+
+def test_fetch_open_actions_excludes_unknown_status(monkeypatch):
+    """Reconciler에는 명시적으로 open인 action만 전달한다."""
+    conn = MagicMock()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.fetchall.return_value = [
+        {"id": 10, "content": "열린 작업", "owner": None, "due_date": None}
+    ]
+    monkeypatch.setattr(pr_actions, "get_connection", lambda: conn)
+
+    rows = pr_actions._fetch_open_actions(1)
+
+    assert rows == [
+        {"id": 10, "content": "열린 작업", "owner": None, "due_date": None}
+    ]
+    sql = cursor.execute.call_args.args[0]
+    assert "completion_status = 'open'" in sql
+    assert "completion_status <>" not in sql
 
 
 def test_migrate_v5_declares_suggestions_and_watermark():

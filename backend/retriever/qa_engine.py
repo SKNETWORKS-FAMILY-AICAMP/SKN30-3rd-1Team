@@ -362,11 +362,17 @@ def _row_line_body(r: Dict) -> str:
         meta.append(f"날짜: {_short_date(r.get('date'))}")
     if _short_date(r.get("due_date")):
         meta.append(f"마감: {_short_date(r.get('due_date'))}")
-    completed_at = _short_date(r.get("completed_at"))
-    if completed_at:
-        meta.append(f"완료: {completed_at}")
-    elif r.get("category") == "action":
-        meta.append("미완료")
+    if r.get("category") == "action":
+        completed_at = _short_date(r.get("completed_at"))
+        status = r.get("completion_status") or ("completed" if completed_at else "unknown")
+        if status == "completed":
+            meta.append(f"완료: {completed_at}" if completed_at else "완료")
+        elif status == "open":
+            meta.append("미완료")
+        else:
+            meta.append("완료 여부 미확인")
+        if r.get("completion_status_source"):
+            meta.append(f"상태 근거: {r['completion_status_source']}")
 
     meta_text = f" ({', '.join(meta)})" if meta else ""
     return f"{r['content']}{meta_text} (출처: {_row_source_label(r)})"
@@ -704,6 +710,10 @@ def _build_context(
             "date": _short_date(r.get("date")),
             "due_date": _short_date(r.get("due_date")),
             "completed": bool(r.get("completed_at")),
+            "completion_status": r.get("completion_status") or (
+                "completed" if r.get("completed_at") else "unknown"
+            ),
+            "completion_status_source": r.get("completion_status_source"),
         }
         for r in rows + [chain_row for chain_row, _ in chain_entries]
     ]

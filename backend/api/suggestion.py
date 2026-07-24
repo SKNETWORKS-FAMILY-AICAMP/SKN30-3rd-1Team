@@ -159,7 +159,8 @@ def _apply_accepted_effect(cursor, project_id: int, row: dict) -> None:
         # 미완료 action 완료 처리.
         if not row.get("memory_completed_at"):
             cursor.execute(
-                "UPDATE memory SET completed_at = NOW(), updated_by = 'user'"
+                "UPDATE memory SET completed_at = NOW(), completion_status = 'completed',"
+                " completion_status_source = 'pr', updated_by = 'user'"
                 " WHERE id = %s AND project_id = %s",
                 (row["memory_id"], project_id),
             )

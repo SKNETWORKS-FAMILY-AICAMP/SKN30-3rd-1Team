@@ -12,7 +12,10 @@ class MemoryItem(BaseModel):
     source: Optional[str] = Field(default=None, description="Document filename or source identifier")
     completed: Optional[bool] = Field(
         default=None,
-        description="True only when the text explicitly says this action is already completed, merged, implemented, or done",
+        description=(
+            "For actions: true only when the text explicitly reports the work is already done; "
+            "false when it is explicitly assigned, pending, or in progress; null when status is unclear"
+        ),
     )
 
 

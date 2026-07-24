@@ -134,13 +134,14 @@ def test_include_superseded_returns_active_and_superseded_rows():
 
 @pytest.mark.parametrize("include_superseded", [False, True])
 @pytest.mark.parametrize(
-    "kwargs, expected_fragments",
+    "kwargs, expected_fragments, expected_params",
     [
-        ({"completed": True}, ["m.completed_at IS NOT NULL"]),
-        ({"completed": False}, ["m.completed_at IS NULL"]),
+        ({"completed": True}, ["m.completion_status = %s"], [1, "completed"]),
+        ({"completed": False}, ["m.completion_status = %s"], [1, "open"]),
         (
             {"overdue": True},
-            ["m.due_date < CURDATE()", "m.completed_at IS NULL"],
+            ["m.due_date < CURDATE()", "m.completion_status = 'open'"],
+            [1],
         ),
         (
             {"due_within_days": 7},
@@ -148,14 +149,15 @@ def test_include_superseded_returns_active_and_superseded_rows():
                 "m.due_date >= CURDATE()",
                 "m.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)",
             ],
+            [1],
         ),
     ],
 )
 def test_filter_predicates_combine_with_supersede_mode(
-    include_superseded, kwargs, expected_fragments
+    include_superseded, kwargs, expected_fragments, expected_params
 ):
-    """completed/overdue/due_within_days 술어가 양쪽 supersede 모드와 독립 조합되고,
-    이들 필터는 값 바인딩이 없으므로 params 순서를 깨지 않는다(params == [project_id])."""
+    """상태/기한 술어가 양쪽 supersede 모드와 독립 조합되고,
+    completion 상태 값도 project_id 뒤에 안전하게 바인딩된다."""
     sql, params = _run(include_superseded=include_superseded, **kwargs)
 
     for fragment in expected_fragments:
@@ -166,8 +168,7 @@ def test_filter_predicates_combine_with_supersede_mode(
     else:
         assert "m.superseded_by IS NULL" in sql
 
-    # 이들 술어는 CURDATE()/리터럴을 쓰므로 추가 파라미터가 없다.
-    assert params == [1]
+    assert params == expected_params
 
 
 # --- TASK-004: fetch_supersede_graph 전용 조회 -----------------------------------

@@ -393,9 +393,15 @@ def create_memory(project_id: int, body: MemoryCreate):
                 raise HTTPException(status_code=404, detail="Project not found")
             cursor.execute(
                 "INSERT INTO memory"
-                " (project_id, doc_id, category, content, reason, topic, owner, date, due_date, created_by, is_user_verified)"
-                " VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, 'user', 1)",
-                (project_id, body.category, body.content, body.reason, body.topic, body.owner, body.date or None, body.due_date or None),
+                " (project_id, doc_id, category, content, reason, topic, owner, date, due_date,"
+                " created_by, is_user_verified, completion_status, completion_status_source)"
+                " VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s, 'user', 1, %s, %s)",
+                (
+                    project_id, body.category, body.content, body.reason, body.topic,
+                    body.owner, body.date or None, body.due_date or None,
+                    "open" if body.category == "action" else "unknown",
+                    "user" if body.category == "action" else None,
+                ),
             )
             memory_id = cursor.lastrowid
         conn.commit()
@@ -449,11 +455,41 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     set_parts = []
     values = []
     if has_completed_update:
+        if fields.get("category") not in (None, "action"):
+            raise HTTPException(
+                status_code=400,
+                detail="completed는 action category에서만 설정할 수 있습니다.",
+            )
         if raw_fields["completed"]:
             set_parts.append("completed_at = NOW()")
+            set_parts.append("completion_status = 'completed'")
         else:
             set_parts.append("completed_at = %s")
             values.append(None)
+            set_parts.append("completion_status = 'open'")
+        set_parts.append("completion_status_source = 'user'")
+    elif "category" in fields:
+        if fields["category"] == "action":
+            # 기존 action의 명시 상태는 유지한다. 비action을 action으로 바꾸는
+            # 사용자 편집만 새로 열린 작업으로 확정한다.
+            set_parts.extend([
+                "completed_at = CASE WHEN category = 'action' THEN completed_at ELSE NULL END",
+                (
+                    "completion_status = CASE WHEN category = 'action'"
+                    " THEN completion_status ELSE 'open' END"
+                ),
+                (
+                    "completion_status_source = CASE WHEN category = 'action'"
+                    " THEN completion_status_source ELSE 'user' END"
+                ),
+            ])
+        else:
+            # 완료 상태는 action 전용 의미이므로 category를 벗어나면 제거한다.
+            set_parts.extend([
+                "completed_at = NULL",
+                "completion_status = 'unknown'",
+                "completion_status_source = NULL",
+            ])
     set_parts.extend(f"{k} = %s" for k in fields)
     values.extend(fields.values())
     values.extend([memory_id, project_id])

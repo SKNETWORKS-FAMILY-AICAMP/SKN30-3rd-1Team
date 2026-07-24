@@ -6,11 +6,20 @@ def search(
     project_id: int,
     category: Optional[str] = None,
     owner: Optional[str] = None,
+    completion_status: Optional[str] = None,
     completed: Optional[bool] = None,
     due_within_days: Optional[int] = None,
     overdue: Optional[bool] = None,
     include_superseded: bool = False,
 ) -> List[Dict]:
+    if completed is not None:
+        legacy_status = "completed" if completed else "open"
+        if completion_status not in (None, legacy_status):
+            raise ValueError("completed and completion_status conflict")
+        completion_status = legacy_status
+    if completion_status not in (None, "open", "completed", "unknown"):
+        raise ValueError("completion_status must be open, completed, or unknown")
+
     conditions = ["m.project_id = %s"]
     params: list = [project_id]
 
@@ -26,14 +35,13 @@ def search(
     if owner:
         conditions.append("m.owner = %s")
         params.append(owner)
-    if completed is True:
-        conditions.append("m.completed_at IS NOT NULL")
-    elif completed is False:
-        conditions.append("m.completed_at IS NULL")
+    if completion_status:
+        conditions.append("m.completion_status = %s")
+        params.append(completion_status)
     if overdue is True:
         conditions.append("m.due_date IS NOT NULL")
         conditions.append("m.due_date < CURDATE()")
-        conditions.append("m.completed_at IS NULL")
+        conditions.append("m.completion_status = 'open'")
     if due_within_days is not None:
         days = max(0, min(int(due_within_days), 365))
         conditions.append("m.due_date IS NOT NULL")
@@ -83,7 +91,8 @@ def fetch_supersede_graph(project_id: int) -> List[Dict]:
     """
     sql = (
         "SELECT m.id, m.project_id, m.category, m.content, m.reason, m.topic,"
-        " m.owner, m.date, m.due_date, m.completed_at, m.source,"
+        " m.owner, m.date, m.due_date, m.completed_at,"
+        " m.completion_status, m.completion_status_source, m.source,"
         " m.superseded_by, m.superseded_at,"
         " ms.source_kind, ms.doc_id AS ms_doc_id, ms.repo_id AS ms_repo_id,"
         " ms.source_type, ms.source_path, ms.source_ref, ms.source_url"

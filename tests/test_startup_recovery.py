@@ -55,7 +55,7 @@ def test_ensure_schema_v8_failure_does_not_block_startup():
 
 # ── ensure_runtime_schema (PR #49 백엔드 통합) ───────────────────────────────
 
-def test_runtime_schema_adds_upload_progress_columns_when_missing():
+def test_runtime_schema_adds_upload_progress_and_completion_columns_when_missing():
     """기존 Docker volume에도 memory_sources/project_memory 테이블과
     documents progress 컬럼을 보정한다."""
     conn, cursor = _make_conn()
@@ -69,6 +69,9 @@ def test_runtime_schema_adds_upload_progress_columns_when_missing():
     assert any("CREATE TABLE IF NOT EXISTS project_memory" in sql for sql in sql_calls)
     assert any("ADD COLUMN progress_done" in sql for sql in sql_calls)
     assert any("ADD COLUMN progress_total" in sql for sql in sql_calls)
+    assert any("ADD COLUMN completion_status" in sql for sql in sql_calls)
+    assert any("ADD COLUMN completion_status_source" in sql for sql in sql_calls)
+    assert any("completed_at IS NOT NULL" in sql and "'legacy'" in sql for sql in sql_calls)
     conn.commit.assert_called_once()
 
 

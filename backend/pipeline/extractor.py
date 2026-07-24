@@ -35,6 +35,9 @@ Rules:
 - reason field is only for decision category, leave null otherwise.
 - topic field: short keyword theme (2-5 words) summarizing what the item is about, e.g. "기술스택 선정", "일정 리스크", "UI 설계". Always fill this in.
 - date field must always be the meeting or document date, not a deadline. Format: YYYY-MM-DD (e.g. 2026-06-02). Never use Korean format like "2026년 6월 2일".
+- For action items, completed is true only for an explicit report that the work is already done,
+  false for assigned/pending/in-progress work, and null only when the status is unclear.
+  Judge this from tense and context, not from the word "complete" alone.
 - For action items, if a deadline is mentioned, append it to content (e.g. "문서 초안 작성 (~6/22까지)"). Do not put the deadline in the date field."""
 
 _REPO_PROMPTS = {

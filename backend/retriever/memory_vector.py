@@ -26,8 +26,19 @@ def format_memory_document(row: Dict) -> str:
         parts.append(f"담당: {row['owner']}")
     if row.get("due_date"):
         parts.append(f"마감: {str(row['due_date'])[:10]}")
-    if row.get("completed_at"):
-        parts.append(f"완료: {str(row['completed_at'])[:10]}")
+    if row.get("category") == "action":
+        status = row.get("completion_status") or (
+            "completed" if row.get("completed_at") else "unknown"
+        )
+        if status == "completed":
+            parts.append(
+                f"완료: {str(row['completed_at'])[:10]}"
+                if row.get("completed_at") else "상태: 완료"
+            )
+        elif status == "open":
+            parts.append("상태: 미완료")
+        else:
+            parts.append("상태: 완료 여부 미확인")
     return "\n".join(parts)
 
 

@@ -18,8 +18,9 @@ from . import mysql_search, qa_engine
 from .query_intent import _fetch_overview_context
 
 
-MemoryCategory = Literal["decision", "action", "issue", "risk"]
+MemoryCategory = Literal["decision", "action", "issue", "risk", "all"]
 MemoryOperation = Literal["list", "count"]
+CompletionStatus = Literal["open", "completed", "unknown"]
 MEMORY_TOOL_MAX_ROWS = 10
 
 
@@ -105,9 +106,26 @@ def query_structured_memory(
     operation: MemoryOperation,
     text_query: str,
     project_id: Annotated[int, InjectedState("project_id")],
+    category: Annotated[
+        MemoryCategory,
+        (
+            "Required category scope. decision: an explicitly agreed or confirmed "
+            "choice, policy, or direction; action: concrete work to be performed; "
+            "issue: a current problem or blocker that needs resolution; risk: a "
+            "potential future problem or uncertainty; all: use only when the request "
+            "intentionally spans categories or names no category."
+        ),
+    ],
     owner: Optional[str] = None,
-    category: Optional[MemoryCategory] = None,
-    completed: Optional[bool] = None,
+    completion_status: Annotated[
+        Optional[CompletionStatus],
+        (
+            "Optional action-only status filter. open: explicitly assigned, pending, "
+            "in progress, or not done; completed: explicitly done, finished, or "
+            "delivered; unknown: the evidence does not establish whether the action "
+            "is complete. Never infer open from a missing completed_at value."
+        ),
+    ] = None,
     due_within_days: Optional[int] = None,
     overdue: Optional[bool] = None,
     limit: int = 8,
@@ -116,14 +134,19 @@ def query_structured_memory(
 
     Use this only for true list/count requests. ``owner`` is a condition already
     present in the question, never the person the user is asking you to discover.
+    ``category`` is required; use ``all`` only when the request intentionally
+    spans categories or names no category.
+    ``completion_status`` is ``open``, ``completed``, or ``unknown``; do not
+    turn an unknown status into open.
     Put the original target phrase in ``text_query`` so records can be ranked.
     Raw SQL is not supported, and list output is always capped at ten rows.
     """
     text_query = str(text_query or "").strip()
     limit = max(1, min(int(limit), MEMORY_TOOL_MAX_ROWS))
+    db_category = None if category == "all" else category
     has_filter = any(
         value is not None
-        for value in (owner, category, completed, due_within_days, overdue)
+        for value in (owner, db_category, completion_status, due_within_days, overdue)
     )
     if not text_query and not has_filter:
         content = (
@@ -140,9 +163,9 @@ def query_structured_memory(
 
     rows = _dedupe_rows(mysql_search.search(
         project_id,
-        category=category,
+        category=db_category,
         owner=owner,
-        completed=completed,
+        completion_status=completion_status,
         due_within_days=due_within_days,
         overdue=overdue,
     ))
@@ -156,7 +179,7 @@ def query_structured_memory(
         payload = {"count": len(rows), "filters": {
             "owner": owner,
             "category": category,
-            "completed": completed,
+            "completion_status": completion_status,
             "due_within_days": due_within_days,
             "overdue": overdue,
         }}
@@ -202,13 +225,18 @@ def query_structured_memory(
 def get_project_overview(
     project_id: Annotated[int, InjectedState("project_id")],
 ) -> tuple[str, dict]:
-    """Return a broad project-wide summary, category counts, and action samples.
+    """Return the current project overview summary and complete active Action Plan.
 
     Use only when the user explicitly asks for a briefing or overall project status.
     A phrase such as "전체 정답률" is a specific metric and must use evidence search.
+    The Action Plan is reference data: select only what the question needs, and list
+    every item only when the user explicitly asks for the complete list.
+    Treat ``completion_status`` as the only status evidence. ``unknown`` means the
+    status is unconfirmed, never open, unfinished, or in progress. ``status_counts``
+    is the authoritative aggregate when summary wording conflicts with action rows.
     """
     context = _fetch_overview_context(project_id)
-    rows = list(context.get("open_actions") or []) + list(context.get("recent_completed_actions") or [])
+    rows = list((context.get("action_plan") or {}).get("items") or [])
     sources = []
     for row in rows:
         source = row.get("source")
@@ -220,8 +248,9 @@ def get_project_overview(
         "tool": "get_project_overview",
         "sources": sources,
         "category_stats": context.get("category_stats") or {},
-        "open_actions": len(context.get("open_actions") or []),
-        "recent_completed_actions": len(context.get("recent_completed_actions") or []),
+        "total_rows": len(rows),
+        "returned_rows": len(rows),
+        "truncated": False,
     }
 
 

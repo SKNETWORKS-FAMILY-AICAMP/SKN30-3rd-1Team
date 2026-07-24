@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, call
 from backend.api.repository import _collect_merged_prs, _collect_repo_sources, _sync_bg
 from backend.llm.base import LLMResponse
 from backend.pipeline.extractor import extract
-from backend.pipeline.ingestor import ingest
+from backend.pipeline.ingestor import _completion_status, ingest
 from backend.pipeline.models import MemoryItem
 from backend.retriever.mysql_search import search
 
@@ -125,7 +125,21 @@ def test_ingest_completed_item_sets_completed_at_from_item_date():
 
     insert_call = cursor.execute.call_args_list[0]
     assert "completed_at" in insert_call.args[0]
-    assert insert_call.args[1][-1] == "2026-07-02 00:00:00"
+    assert insert_call.args[1][-3:] == [
+        "2026-07-02 00:00:00", "completed", "repository",
+    ]
+
+
+def test_completion_status_preserves_true_false_and_unknown():
+    def item(completed):
+        return MemoryItem(category="action", content="작업", completed=completed)
+
+    assert _completion_status(item(True)) == "completed"
+    assert _completion_status(item(False)) == "open"
+    assert _completion_status(item(None)) == "unknown"
+    assert _completion_status(MemoryItem(
+        category="decision", content="결정", completed=False,
+    )) == "unknown"
 
 
 def test_extractor_adds_repo_readme_rules_without_changing_document_prompt(monkeypatch):

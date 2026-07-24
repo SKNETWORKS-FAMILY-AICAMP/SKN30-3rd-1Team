@@ -332,7 +332,9 @@ def test_accept_suggestion_completes_open_action_and_resolves_suggestion():
     assert resp.status_code == 200
     assert resp.json()["status"] == "accepted"
     sql_calls = [call.args[0] for call in cur.execute.call_args_list]
-    assert any("UPDATE memory SET completed_at = NOW()" in sql for sql in sql_calls)
+    completion_sql = next(sql for sql in sql_calls if "UPDATE memory SET completed_at = NOW()" in sql)
+    assert "completion_status = 'completed'" in completion_sql
+    assert "completion_status_source = 'pr'" in completion_sql
     assert any("UPDATE memory_suggestions SET status = %s" in sql for sql in sql_calls)
 
 

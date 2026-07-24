@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
-from backend.agentic_graph import run_agentic_qa
+from backend.agentic_graph import ORCHESTRATOR_SYSTEM_PROMPT, run_agentic_qa
 from backend.retriever import qa_tools
 from backend.retriever.qa_tools import QA_TOOLS, query_structured_memory
 
@@ -43,6 +43,88 @@ def test_tool_schemas_do_not_expose_project_id():
         assert "project_id" not in retrieval_tool.args
 
 
+def test_overview_tool_returns_complete_action_plan(monkeypatch):
+    rows = [
+        {
+            "id": index,
+            "content": f"작업 {index}",
+            "owner": "박현우",
+            "date": "2026-07-22",
+            "due_date": None,
+            "completed_at": None,
+            "completion_status": ("open", "completed", "unknown")[(index - 1) % 3],
+            "completion_status_source": "explicit",
+            "source": "meeting-a.md" if index < 20 else "meeting-b.md",
+        }
+        for index in range(1, 31)
+    ]
+    monkeypatch.setattr(
+        qa_tools,
+        "_fetch_overview_context",
+        lambda project_id: {
+            "overview_summary": "현재 프로젝트 요약",
+            "category_stats": {"decision": 1, "action": 30, "issue": 0, "risk": 0},
+            "action_plan": {
+                "total": len(rows),
+                "status_counts": {"open": 10, "completed": 10, "unknown": 10},
+                "items": rows,
+            },
+        },
+    )
+
+    content, artifact = qa_tools.get_project_overview.func(project_id=1)
+    payload = json.loads(content.removeprefix("[프로젝트 조망]\n"))
+
+    assert payload["overview_summary"] == "현재 프로젝트 요약"
+    assert payload["category_stats"]["risk"] == 0
+    assert payload["action_plan"]["total"] == 30
+    assert payload["action_plan"]["status_counts"]["unknown"] == 10
+    assert payload["action_plan"]["items"][0]["id"] == 1
+    assert payload["action_plan"]["items"][-1]["id"] == 30
+    assert {row["completion_status"] for row in payload["action_plan"]["items"]} == {
+        "open", "completed", "unknown",
+    }
+    assert artifact["sources"] == ["meeting-a.md", "meeting-b.md"]
+    assert artifact["category_stats"]["issue"] == 0
+    assert artifact["returned_rows"] == artifact["total_rows"] == 30
+    assert artifact["truncated"] is False
+
+
+def test_overview_prompt_contract_is_selective_and_preserves_unknown():
+    description = qa_tools.get_project_overview.description
+
+    assert "complete active Action Plan" in description
+    assert "only when the user explicitly asks for the complete list" in description
+    assert "completion_status`` as the only status evidence" in description
+    assert "status_counts" in description and "authoritative aggregate" in description
+    assert "필요한 핵심 액션만 선택" in ORCHESTRATOR_SYSTEM_PROMPT
+    assert "현재 상태는" in ORCHESTRATOR_SYSTEM_PROMPT
+    assert "completion_status만 근거" in ORCHESTRATOR_SYSTEM_PROMPT
+    assert "status_counts가 현재 상태의 권위 있는 집계" in ORCHESTRATOR_SYSTEM_PROMPT
+    assert "현재 상태를 증명하지 않습니다" in ORCHESTRATOR_SYSTEM_PROMPT
+
+
+def test_memory_tool_requires_explicit_category_scope():
+    schema = query_structured_memory.tool_call_schema.model_json_schema()
+
+    assert "category" in schema["required"]
+    assert schema["properties"]["category"]["enum"] == [
+        "decision", "action", "issue", "risk", "all",
+    ]
+    category_description = schema["properties"]["category"]["description"]
+    assert all(
+        f"{category}:" in category_description
+        for category in ("decision", "action", "issue", "risk", "all")
+    )
+
+    status_description = schema["properties"]["completion_status"]["description"]
+    assert all(
+        f"{status}:" in status_description
+        for status in ("open", "completed", "unknown")
+    )
+    assert "Never infer open" in status_description
+
+
 def test_memory_tool_rejects_completely_empty_selector(monkeypatch):
     search = MagicMock()
     monkeypatch.setattr(qa_tools.mysql_search, "search", search)
@@ -51,6 +133,7 @@ def test_memory_tool_rejects_completely_empty_selector(monkeypatch):
         operation="list",
         text_query="",
         project_id=1,
+        category="all",
     )
 
     search.assert_not_called()
@@ -71,6 +154,7 @@ def test_memory_tool_caps_rows_and_preserves_total(monkeypatch):
         operation="list",
         text_query="SDK 연동",
         project_id=1,
+        category="all",
         limit=999,
     )
 
@@ -78,6 +162,21 @@ def test_memory_tool_caps_rows_and_preserves_total(monkeypatch):
     assert artifact["returned_rows"] == 10
     assert artifact["truncated"] is True
     assert content.count("[action]") == 10
+
+
+def test_memory_tool_all_scope_omits_sql_category(monkeypatch):
+    search = MagicMock(return_value=[])
+    monkeypatch.setattr(qa_tools.mysql_search, "search", search)
+
+    content, _ = query_structured_memory.func(
+        operation="count",
+        text_query="전체 기록",
+        project_id=1,
+        category="all",
+    )
+
+    assert json.loads(content)["filters"]["category"] == "all"
+    assert search.call_args.kwargs["category"] is None
 
 
 def test_memory_count_deduplicates_join_expanded_rows(monkeypatch):
