@@ -1,0 +1,1006 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Modu Agentic Routing 평가</title><style>
+:root{--bg:#f3f5f8;--paper:#fff;--ink:#182230;--muted:#667085;--line:#d9dee7;--pass:#16794c;--partial:#a76608;--fail:#b73535;--accent:#315be8}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;line-height:1.55}main{max-width:1540px;margin:auto;padding:32px}header,.panel,.item{background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 3px 18px #17243a0b}header,.panel{padding:24px;margin-bottom:16px}h1{margin:0 0 8px}h2{margin:0 0 12px}.muted,.meta{color:var(--muted)}.scores{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}.score{padding:14px;border:1px solid var(--line);border-radius:10px}.score b{display:block;font-size:26px}.score.agent b{color:var(--accent)}table{width:100%;border-collapse:collapse}th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}.item{margin:12px 0;overflow:hidden}.item.pass{border-left:5px solid var(--pass)}.item.partial{border-left:5px solid var(--partial)}.item.fail{border-left:5px solid var(--fail)}summary{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:center;padding:16px;cursor:pointer}.badge{color:white;border-radius:99px;padding:3px 9px;font-size:12px}.badge.pass{background:var(--pass)}.badge.partial{background:var(--partial)}.badge.fail{background:var(--fail)}.gold{padding:18px;border-top:1px solid var(--line);background:#f8f9fb}.compare{display:grid;grid-template-columns:1fr 1fr}.answer{padding:18px;min-width:0}.answer+.answer{border-left:1px solid var(--line)}h3{margin-top:0}h4{margin:16px 0 5px;color:var(--muted)}pre{white-space:pre-wrap;word-break:break-word;background:#f8f9fb;border:1px solid var(--line);border-radius:9px;padding:13px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.why{margin:0;padding:16px 18px;border-top:1px solid var(--line);background:#fffdf5}.tool{font-size:12px;color:var(--muted);word-break:break-word}.notice{border-left:5px solid var(--accent)}@media(max-width:900px){main{padding:14px}.scores{grid-template-columns:1fr 1fr}.compare{grid-template-columns:1fr}.answer+.answer{border-left:0;border-top:1px solid var(--line)}summary{grid-template-columns:auto auto auto 1fr}}
+</style></head><body><main>
+<header><h1>Modu Agentic Tool Routing 평가</h1><p class="muted">동일하게 적재한 코퍼스에 기존 방식과 agentic 방식을 순차 실행한 30문항 원문 비교 보고서입니다. 부분일치는 엄격 정답률에서 실패로 셉니다.</p>
+<div class="scores"><div class="score"><span>기존 엄격 정답률</span><b>19/30</b><small>63.3%</small></div><div class="score agent"><span>Agentic 엄격 정답률</span><b>28/30</b><small>93.3%</small></div><div class="score"><span>기존 평균 길이</span><b>1511자</b><small>1000자 초과 8건</small></div><div class="score agent"><span>Agentic 평균 길이</span><b>229자</b><small>1000자 초과 0건</small></div></div></header>
+<section class="panel notice"><h2>읽는 법</h2><p>각 문항을 열면 <strong>골든 질문·답변·참고문항</strong>, <strong>기존 실제 답변</strong>, <strong>agentic 실제 답변</strong>, 반환 출처와 수동 판정 근거를 나란히 볼 수 있습니다. 이 파일은 결과 JSONL의 평가 당시 스냅샷이며, 아래 결과를 본 뒤 제안된 수정은 포함하지 않습니다.</p><p class="meta">평가 코드 기준: base HEAD eff0f3fd9229 + 실험 working tree · backend/agentic_graph.py=d24c13ad19da · backend/retriever/qa_tools.py=c770647230ee · backend/retriever/qa_engine.py=da52b27fd221 · backend/api/query.py=2b6388bc4c6e</p></section>
+<section class="panel"><h2>요약</h2><table><thead><tr><th>방식</th><th>일치</th><th>부분</th><th>불일치</th><th>평균/중앙 응답시간</th><th>평균/최대 길이</th><th>덤프 문구</th></tr></thead><tbody><tr><td>기존</td><td>19</td><td>4</td><td>7</td><td>7.50/8.36초</td><td>1511/7360자</td><td>11</td></tr><tr><td>Agentic</td><td>28</td><td>0</td><td>2</td><td>5.96/5.27초</td><td>229/491자</td><td>0</td></tr></tbody></table></section>
+
+<details class="item pass">
+ <summary><strong>A1</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>Modu 앱의 핵심 콘셉트는 무엇인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> Modu 앱의 핵심 콘셉트는 무엇인가?</p><pre>동네 500m 반경 초근접 모임 매칭. 취미·운동·스터디 모임을 동네 기반으로 매칭해주는 앱.</pre><p class="meta"><strong>참고문항</strong> 3/2 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>Modu 앱의 핵심 콘셉트는 **‘동네 500m 반경 초근접 모임 매칭’**이다.
+
+근거:
+- [프로젝트 메모리]에서 앱 콘셉트가 ‘동네 500m 반경 초근접 모임 매칭’으로 확정되었음이 명시되어 있다.
+- [구조화 기록]의 2026-03-02 결정사항에서 “앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다”는 내용이 최신 결정으로 기록되어 있다.
+- [원문 맥락] 2026년 3월 2일 킥오프 회의록에서도 김태호 PM이 “기존 경쟁 앱과의 명확한 차별점이 필요하며, 초근접 매칭이 1인 가구 타깃에 가장 소구력이 있다고 판단”하여 이 콘셉트를 확정했다고 설명하고 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">route=semantic · 18.16초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>Modu 앱의 핵심 콘셉트는 **&#x27;동네 500m 반경 초근접 모임 매칭&#x27;**이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">tools=search_project_evidence · 6.76초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;Modu 앱 핵심 콘셉트&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A2</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>앱 개발 프레임워크로 Flutter를 선택한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 앱 개발 프레임워크로 Flutter를 선택한 이유는?</p><pre>iOS/Android 동시 개발이 가능해 10주 일정에 맞고, 팀의 러닝커브가 크지 않기 때문.</pre><p class="meta"><strong>참고문항</strong> 3/9 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**앱 개발 프레임워크로 Flutter를 선택한 이유는 iOS와 Android 동시 개발이 가능해 일정 단축이 가능하고, 팀의 러닝커브가 낮기 때문입니다.**
+
+근거:
+- 2026-03-09 회의에서 박현우가 Flutter를 추천하며, &quot;iOS/Android 동시 개발이 가능해서 10주 일정에 맞고, 우리 팀 러닝커브도 크지 않다&quot;고 설명함.
+- 김태호 PM도 이 점을 반영해 Flutter를 확정 결정함.
+- 원문 맥락에서도 &quot;iOS/Android 동시 개발로 일정 단축 가능, 팀 러닝커브 낮음&quot;이 선택 이유로 명시되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-06_출시일조정_개발중간점검.md</p><p class="meta">route=semantic · 7.70초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>앱 개발 프레임워크로 Flutter를 선택한 이유는 **iOS와 Android 동시 개발로 일정 단축이 가능하고, 팀의 러닝커브가 낮기 때문**이다.
+
+근거:
+- 2026년 3월 9일 회의에서 Flutter를 확정하며, iOS/Android 동시 개발로 10주 일정에 맞출 수 있고 팀이 빠르게 적응할 수 있다는 점이 주요 이유로 제시되었다.
+- Flutter는 크로스플랫폼 개발 방식으로, 네이티브 개발 대비 개발 기간을 단축할 수 있어 MVP 출시 일정 준수에 유리하다.
+- 팀 내에서 Flutter 프로젝트 셋업과 공통 컴포넌트 구성을 담당하는 박현우가 3월 13일까지 작업을 진행하기로 계획되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">tools=search_project_evidence · 5.49초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;Flutter 선택 이유&quot;, &quot;alternate_queries&quot;: [&quot;앱 개발 프레임워크 Flutter 결정 배경&quot;, &quot;Flutter를 앱 개발에 선택한 이유&quot;, &quot;왜 Flutter를 앱 개발에 사용하나&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A3</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 백엔드에 PostgreSQL(PostGIS)을 선택한 이유는?</p><pre>500m 반경 위치 기반 검색을 효율적으로 처리하기 위해. PostGIS 확장이 반경 검색에 적합.</pre><p class="meta"><strong>참고문항</strong> 3/9 회의록 (결정 2)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>백엔드에 PostgreSQL(PostGIS)을 선택한 이유는 **500m 반경 위치 기반 검색을 효율적으로 처리하기 위해서**이다.
+
+근거:
+- 구조화 기록 [decision]에 &quot;백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다&quot;라고 명시되어 있다.
+- 원문 맥락에서 이수진(백엔드)이 &quot;위치 기반 쿼리가 많을 텐데 PostGIS 확장을 쓰면 500m 반경 검색을 효율적으로 처리할 수 있습니다&quot;라고 설명하였다.
+- 프로젝트 메모리에서 앱 콘셉트가 ‘동네 500m 반경 초근접 모임 매칭’임을 고려할 때, 위치 기반 반경 검색 성능이 핵심 요구사항임이 확인된다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-04-20_출시전최종개발점검.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md</p><p class="meta">route=semantic · 8.91초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>백엔드에 PostgreSQL(PostGIS)을 선택한 이유는 **위치 기반 반경 검색에 PostGIS가 적합하기 때문**이다.
+
+근거:
+- 2026년 3월 9일 기술 스택 확정 회의에서 이수진 백엔드 담당자가 &quot;위치 기반 쿼리가 많을 텐데 PostGIS 확장을 쓰면 500m 반경 검색을 효율적으로 처리할 수 있다&quot;고 설명했다.
+- 프로젝트 앱 콘셉트가 ‘동네 500m 반경 초근접 모임 매칭’으로, 위치 기반 검색이 핵심 기능이므로 PostGIS가 적합한 기술로 판단되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-09_기술스택확정_로그인방식결정.md, 2026-04-20_출시전최종개발점검.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">tools=search_project_evidence · 5.78초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;백엔드 PostgreSQL PostGIS 선택 이유&quot;, &quot;alternate_queries&quot;: [&quot;PostgreSQL PostGIS를 백엔드에 선택한 이유&quot;, &quot;왜 백엔드에 PostgreSQL과 PostGIS를 사용했나&quot;, &quot;PostgreSQL PostGIS 선택 배경&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A4</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>이메일 발송 서비스로 AWS SES를 선택한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 이메일 발송 서비스로 AWS SES를 선택한 이유는?</p><pre>비용이 저렴하고 기존 인프라가 AWS 기반이라 연동이 쉽기 때문.</pre><p class="meta"><strong>참고문항</strong> 3/16 회의록 (결정 2)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>이메일 발송 서비스로 **AWS SES를 선택한 이유는 비용 효율적이고 기존 AWS 인프라와 연동이 용이하기 때문**이다.
+
+근거:
+- 2026-03-16 회의록에서 이수진이 &quot;비용이 저렴하고 우리 인프라가 이미 AWS 기반이라 연동이 쉽다&quot;고 설명함.
+- 결정사항에도 &quot;이메일 발송 서비스를 AWS SES로 확정한다. 이유: 비용 효율적이며 기존 AWS 인프라와 연동 용이&quot;라고 명시되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-30_소셜로그인점검_일정리스크평가.md</p><p class="meta">route=semantic · 7.75초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>이메일 발송 서비스로 AWS SES를 선택한 이유는 **비용 효율적이며 기존 AWS 인프라와 연동이 용이하기 때문**이다.
+
+근거:
+- 2026-03-16 결정사항에서 &quot;이메일 발송 서비스를 AWS SES로 확정한다&quot;는 내용과 함께 &quot;비용 효율적이며 기존 AWS 인프라와 연동 용이&quot;라는 이유가 명시되어 있다.
+- 이메일 인증 스팸 문제 등 리스크는 존재하지만, 서비스 선정 이유와는 별개로 관리되고 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-30_소셜로그인점검_일정리스크평가.md</p><p class="meta">tools=search_project_evidence · 4.66초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;AWS SES 이메일 발송 서비스 선택 이유&quot;, &quot;alternate_queries&quot;: [&quot;이메일 발송 서비스로 AWS SES를 선택한 배경&quot;, &quot;왜 AWS SES를 이메일 발송 서비스로 결정했나?&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A5</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>관심사 카테고리는 어떻게 구성되었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 관심사 카테고리는 어떻게 구성되었는가?</p><pre>6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 항목 최대 5개.</pre><p class="meta"><strong>참고문항</strong> 3/16 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>관심사 카테고리는 **6개 대분류(운동, 스터디, 취미, 문화, 푸드, 반려동물)로 확정되었고, 각 대분류당 하위 항목은 최대 5개로 제한**되었다.
+
+근거:
+- 2026-03-16 회의에서 초기 사용자 선택 피로를 줄이기 위해 대분류는 6개로 유지하고, 하위 항목은 너무 세분화하지 않도록 최대 5개로 제한하기로 결정됨.
+- [구조화 기록]의 2026-03-16 결정사항과 원문 맥락에서 동일하게 확인됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">route=semantic · 8.87초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>관심사 카테고리는 **6개 대분류(운동, 스터디, 취미, 문화, 푸드, 반려동물)로 구성되고, 각 대분류당 하위 항목은 최대 5개로 제한**하여 확정되었다.
+
+근거:
+- 2026년 3월 16일 회의에서 초기 사용자 선택 피로를 줄이기 위해 대분류는 6개로 유지하고, 하위 항목은 너무 세분화하지 않도록 최대 5개로 제한하기로 결정함.
+- 담당 김태호가 결정 주체이며, 정예린이 디자인을 맡고 박현우가 구현을 담당함.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-16_회원시스템점검_관심사확정.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md</p><p class="meta">tools=search_project_evidence · 4.21초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;관심사 카테고리 구성&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A6</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>애플 로그인을 추가하게 된 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 애플 로그인을 추가하게 된 이유는?</p><pre>iOS 앱스토어 심사 정책상 소셜 로그인을 제공하면 애플 로그인도 반드시 함께 제공해야 하기 때문. 선택이 아닌 심사 통과 조건.</pre><p class="meta"><strong>참고문항</strong> 3/30 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**애플 로그인을 추가하게 된 이유는 iOS 앱스토어 심사 정책상 소셜 로그인 제공 시 애플 로그인이 필수여서, 심사 통과를 위해 반드시 포함해야 하기 때문이다.**
+
+근거:
+- 원문 맥락에서 박현우가 &quot;애플 앱스토어 심사 정책상 소셜 로그인을 제공하면 &#x27;애플 로그인&#x27;도 반드시 함께 제공해야 한다. 안 그러면 iOS 심사에서 리젝된다&quot;고 설명함.
+- 김태호 PM도 &quot;애플 로그인도 필수&quot;라며 &quot;선택이 아니라 심사 통과 조건&quot;임을 확인함.
+- 구조화 기록의 결정(2026-03-30)에도 &quot;애플 로그인을 소셜 로그인에 추가한다&quot;는 내용과 함께 &quot;iOS 앱스토어 심사 정책상 소셜 로그인 제공 시 애플 로그인이 필수&quot;라는 이유가 명시되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-04-20_출시전최종개발점검.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=semantic · 9.57초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>애플 로그인을 추가한 이유는 **iOS 앱스토어 심사 정책상 소셜 로그인 제공 시 애플 로그인이 필수여서 심사 통과를 위해 반드시 포함해야 했기 때문**입니다.
+
+근거:
+- iOS 심사 정책에 따라 소셜 로그인 기능이 있으면 애플 로그인을 반드시 제공해야 하며, 그렇지 않으면 심사에서 리젝될 위험이 있음.
+- 초기에는 이메일+비밀번호 방식만 고려했으나, 이메일 인증 스팸 문제로 인해 소셜 로그인을 MVP 핵심으로 포함하기로 결정하면서 애플 로그인도 함께 추가됨.
+- 소셜 로그인 3종(카카오/구글/애플) 추가로 인해 일정 지연 리스크가 발생했으나, 정책상 필수라 선택이 아닌 심사 통과 조건으로 반영됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-04-20_출시전최종개발점검.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">tools=search_project_evidence · 15.98초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;애플 로그인 추가 이유&quot;, &quot;alternate_queries&quot;: [&quot;애플 로그인 도입 배경&quot;, &quot;왜 애플 로그인 기능을 추가했나?&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A7</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>모임 생성 시 인원 제한은 어떻게 정해졌는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 모임 생성 시 인원 제한은 어떻게 정해졌는가?</p><pre>최소 2명, 최대 20명. 초근접 소규모 모임 콘셉트에 부합하도록.</pre><p class="meta"><strong>참고문항</strong> 3/23 회의록 (결정 3)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**모임 생성 시 인원 제한은 최소 2명, 최대 20명으로 결정되었다.**
+
+근거 및 상세:
+- 2026년 3월 23일 회의에서 김태호 PM과 팀원들이 모임 기능 착수 논의 중에, 초근접 소규모 모임 콘셉트에 부합하도록 인원 제한을 두기로 결정함.
+- 결정 내용: &quot;모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정&quot; (구조화 기록, 2026-03-23)
+- 이유: 앱 콘셉트인 ‘동네 500m 반경 초근접 모임 매칭’에 맞춰 소규모 모임을 지향하기 때문임 (원문 맥락).</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">route=semantic · 8.11초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>모임 생성 시 인원 제한은 **초근접 소규모 모임 콘셉트에 부합하도록 최소 2명, 최대 20명으로 정해졌다**.
+
+근거:
+- 2026-03-23 회의에서 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정되었으며, 그 이유는 &quot;초근접 소규모 모임 콘셉트에 부합&quot;하기 때문이라고 명시되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md</p><p class="meta">tools=search_project_evidence · 3.65초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;모임 생성 인원 제한 결정 이유&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A8</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는?</p><pre>초근접 매칭 특성상 사용자가 밀집해야 500m 반경 매칭이 유의미하게 작동하는지 검증할 수 있기 때문.</pre><p class="meta"><strong>참고문항</strong> 4/13 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;이라는 앱 콘셉트 특성상 사용자가 밀집해야 유의미한 테스트가 가능하기 때문**이다.
+
+근거:
+- 원문 맥락에서 한지민(QA·마케팅)이 특정 동네(강남/판교) 한정으로 진행하면 초근접 매칭이 실제로 작동하는지 검증할 수 있다고 제안함.
+- 정예린(디자이너)도 특정 동네 한정이 좋은 아이디어라고 동의하며, 사용자가 흩어져 있으면 500m 반경 매칭 테스트가 불가능하다고 언급.
+- 결정사항에 &quot;초근접 매칭 특성상 사용자가 밀집해야 유의미한 테스트가 가능. 특정 지역 한정이 필수&quot;라고 명시됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-04-20_출시전최종개발점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">route=semantic · 9.95초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>클로즈드 베타 테스트를 강남·판교 지역으로 한정한 이유는 **초근접 매칭 특성상 사용자가 밀집해야 유의미한 테스트가 가능하기 때문**이다.
+
+근거:
+- 베타 테스트를 특정 동네(강남/판교) 한정으로 진행하면 500m 반경 초근접 매칭이 실제로 작동하는지 검증할 수 있다.
+- 사용자가 흩어져 있으면 500m 반경 매칭 테스트가 어려워 특정 지역 한정이 필수라는 의견이 있었다.
+- 이 결정은 2026-04-13 회의에서 김태호 PM과 한지민 QA·마케팅, 정예린 디자이너 등이 논의하여 확정되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md</p><p class="meta">tools=search_project_evidence · 5.73초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;클로즈드 베타 테스트 강남 판교 지역 한정 이유&quot;, &quot;alternate_queries&quot;: [&quot;클로즈드 베타 테스트 지역 제한 이유&quot;, &quot;강남 판교 지역 클로즈드 베타 테스트 배경&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A9</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>마케팅 푸시 알림을 MVP에서 제외한 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 마케팅 푸시 알림을 MVP에서 제외한 이유는?</p><pre>초기 사용자에게 마케팅 푸시는 이탈 요인이 될 수 있고, 알림 동의 관리 부담도 크기 때문. MVP에서는 모임 참여 알림만 제공.</pre><p class="meta"><strong>참고문항</strong> 4/13 회의록 (결정 3)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>마케팅 푸시 알림을 MVP에서 제외한 이유는 **초기 사용자에게 마케팅 푸시가 이탈 요인이 될 수 있고, 알림 동의 관리 부담이 크기 때문**이다.
+
+근거:
+- 원문 맥락에서 &quot;초기 사용자에게 마케팅 푸시는 이탈 요인이 될 수 있으며, 알림 동의 관리 부담도 큼&quot;이라고 명확히 설명됨.
+- 구조화 기록의 결정사항(2026-04-13)에서도 &quot;푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다&quot;는 정책이 확정됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">route=semantic · 9.27초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>마케팅 푸시 알림을 MVP에서 제외한 이유는 **초기 사용자에게 마케팅 푸시는 이탈 요인이 될 수 있고, 알림 동의 관리 부담이 크기 때문**이다.
+
+근거:
+- 2026-04-13 결정에 따르면, 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고 마케팅 알림은 출시 후로 미루기로 하였다.
+- 원문 맥락에서 &quot;초기 사용자에게 마케팅 푸시는 이탈 요인이 될 수 있으며, 알림 동의 관리 부담도 큼&quot;이 명확한 이유로 제시되었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-20_출시전최종개발점검.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">tools=search_project_evidence · 3.73초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;마케팅 푸시 알림 제외 이유&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>A10</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>모임 탐색 화면은 어떤 방식으로 구현하기로 했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 모임 탐색 화면은 어떤 방식으로 구현하기로 했는가?</p><pre>지도 뷰 + 리스트 뷰 토글 방식. 위치 기반 앱 특성상 지도가 직관적이나 목록 선호 사용자를 위해 리스트도 제공.</pre><p class="meta"><strong>참고문항</strong> 3/23 회의록 (결정 2)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**모임 탐색 화면은 지도 뷰와 리스트 뷰를 토글 방식으로 구현하기로 결정되었다.**
+
+근거:
+- [구조화 기록]의 2026-03-23 결정: &quot;모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정&quot; (담당: 김태호)
+- [원문 맥락] 정예린 디자이너가 &quot;모임 탐색 화면은 지도 뷰와 리스트 뷰 두 가지로 제안&quot;했고, 김태호 PM이 이를 결정으로 확정함.
+- 이유는 위치 기반 앱 특성상 지도가 직관적이지만, 목록 선호 사용자를 위해 리스트도 제공하는 것이 적합하기 때문임.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">route=semantic · 8.15초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**모임 탐색 화면은 지도 뷰와 리스트 뷰를 토글하는 방식으로 구현하기로 결정되었다.**
+
+근거:
+- 2026-03-23 회의에서 김태호 PM이 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정함.
+- 이유는 위치 기반 앱 특성상 지도가 직관적이지만, 목록 선호 사용자를 위해 리스트 뷰도 제공하기 위함임.
+- 이수진이 모임 위치 검색 API를 설계 및 구현 중이며, 박현우가 모임 탐색 화면(지도/리스트) 구현을 담당하고 있음.
+- 2026-04-13 회의에서 박현우가 모임 탐색 화면 구현을 완료했다고 보고함.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">tools=search_project_evidence · 4.86초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;모임 탐색 화면 구현 방식&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B1</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>로그인 방식에 대한 결정은 프로젝트 진행 중 어떻게 바뀌었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 로그인 방식에 대한 결정은 프로젝트 진행 중 어떻게 바뀌었는가?</p><pre>3/9에는 &quot;이메일+비밀번호 방식으로 확정, 소셜 로그인은 출시 후로 미룸&quot;이었으나, 3/23에 &quot;소셜 로그인(카카오/구글)을 MVP 핵심으로 추가, 이메일은 보조로&quot; 변경됨. 이메일 인증 메일의 스팸함 유입·미도착 문제(테스트 20건 중 9건)로 가입 이탈 리스크가 확인되었기 때문.</pre><p class="meta"><strong>참고문항</strong> 3/9 회의록 (결정 3), 3/23 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>로그인 방식 결정은 **초기에는 이메일+비밀번호 단독으로 확정했으나, 이메일 인증 문제 심각성으로 인해 소셜 로그인(카카오/구글)을 MVP 핵심에 추가하는 것으로 변경되었다**.
+
+근거 및 경과:
+- 2026-03-09 회의에서 이메일+비밀번호 방식으로 로그인 방식을 확정하고, 소셜 로그인은 출시 후 2차 업데이트로 미루기로 결정함(구조화 기록, 원문).
+- 이후 3월 중 이메일 인증 스팸 및 미도착 문제가 심각하게 드러나면서(테스트 20건 중 9건 문제 발생), 가입 단계 이탈 위험이 커짐(원문 3/23 회의).
+- 이에 2026-03-23 회의에서 소셜 로그인을 MVP 핵심 기능으로 추가하는 것으로 결정 변경함. 이메일 방식은 보조 수단으로 유지함(구조화 기록, 원문).
+- 3월 30일 회의에서는 소셜 로그인 3종(카카오/구글/애플) 추가에 따른 일정 리스크를 평가하고, 애플 로그인도 심사 통과를 위해 필수임을 확인함(구조화 기록, 원문).
+- 따라서 로그인 방식은 이메일+비밀번호 단독 → 소셜 로그인(카카오/구글/애플) 포함으로 변경되어 MVP에 반영 중임.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-20_출시전최종개발점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=semantic · 11.62초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>로그인 방식 결정은 초기에는 **이메일 + 비밀번호 방식으로 확정하고 소셜 로그인은 출시 후 2차 업데이트로 미루는 것으로 결정**되었으나, 이메일 인증 문제(스팸함 유입 및 미도착 등 가입 이탈 리스크)가 심각해지면서 3월 23일에 **소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하고 이메일 방식은 보조 수단으로 유지하는 것으로 변경**되었다.
+
+근거:
+- 2026-03-09 회의에서 이메일 + 비밀번호 방식으로 로그인 방식을 확정하고 소셜 로그인은 출시 후로 미루기로 결정함.
+- 이후 이메일 인증 문제로 가입 이탈 위험이 확인되어 2026-03-23에 소셜 로그인을 MVP에 포함하는 것으로 결정 변경.
+- 소셜 로그인 추가로 인한 일정 지연 위험도 공식 리스크로 등록됨.
+- 2026-03-30에는 애플 로그인도 소셜 로그인에 추가하기로 결정함.
+
+즉, 프로젝트 진행 중 이메일 인증 문제로 인해 로그인 방식이 이메일 단독에서 소셜 로그인 포함 방식으로 바뀌었다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">tools=search_project_evidence · 13.79초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;로그인 방식 결정 변경&quot;, &quot;alternate_queries&quot;: [&quot;로그인 방식 결정 변화&quot;, &quot;로그인 방식 결정 경위&quot;, &quot;로그인 방식 관련 결정 변경 내역&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>B2</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>출시 목표일은 처음 언제였고, 최종적으로 언제로 바뀌었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 출시 목표일은 처음 언제였고, 최종적으로 언제로 바뀌었는가?</p><pre>처음 3/2에 5월 11일로 설정했으나, 4/6에 5월 18일로 1주 연기됨. 소셜 로그인 3종 추가로 모임 탐색 화면이 약 1주 지연되고 QA 기간이 부족해졌기 때문.</pre><p class="meta"><strong>참고문항</strong> 3/2 회의록 (결정 3), 4/6 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 26건입니다.** _(분류=decision)_
+
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 1.62초</p><p><strong>판정 근거</strong> 최초 5/11과 변경 5/18 행은 포함됐지만 최초→최종 관계와 변경 이유를 직접 종합하지 못했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>출시 목표일은 처음에 2026년 5월 11일이었으나, **최종적으로 2026년 5월 18일로 1주 연기**되었다.
+
+근거:
+- 3월 2일 회의에서 5월 11일로 출시 목표일이 설정되었음.
+- 소셜 로그인 3종 추가와 모임 탐색 화면 지연으로 QA 기간이 부족해지는 리스크가 있어 4월 6일과 5월 15일 회의에서 5월 18일로 1주 연기하는 결정이 내려짐.
+- 1주 연기는 밀린 일정 흡수와 QA 기간 확보를 위한 현실적인 조치로, 2주 연기는 과도하다고 판단됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md</p><p class="meta">tools=search_project_evidence · 12.22초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;출시 목표일 변경&quot;, &quot;alternate_queries&quot;: [&quot;출시 목표일 처음&quot;, &quot;출시 목표일 최종 변경&quot;, &quot;출시 일정 변경 내역&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B3</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>출시일이 연기된 근본 원인을 거슬러 올라가면 어떤 결정 때문인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 출시일이 연기된 근본 원인을 거슬러 올라가면 어떤 결정 때문인가?</p><pre>3/23의 로그인 방식 변경(이메일→소셜) 때문. 소셜 로그인 추가 → 애플 로그인 필수 추가(3/30) → 소셜 3종 공수로 모임 탐색 화면 지연 → 출시일 연기(4/6)로 이어지는 연쇄 구조. 즉 로그인 방식 변경이 출시일 연기의 근본 원인.</pre><p class="meta"><strong>참고문항</strong> 3/23 회의록, 3/30 회의록, 4/6 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**출시일 연기의 근본 원인은 소셜 로그인 3종(카카오/구글/애플) 추가 결정 때문이다.**
+
+근거:
+- 2026-03-09 결정에서 로그인 방식을 이메일+비밀번호 단독에서 소셜 로그인(카카오/구글) MVP 핵심으로 추가하는 것으로 변경함.
+- 2026-03-30 결정에서 애플 로그인도 소셜 로그인에 추가하기로 결정하고, 이로 인한 일정 부담을 리스크로 공식 등록함.
+- 2026-04-06 회의에서 소셜 로그인 작업으로 인해 모임 탐색 화면 개발이 약 1주 밀렸고, 이에 따라 출시일 시나리오 3안(원안 유지, 1주 연기, 2주 연기)을 준비함.
+- 2026-04-06 결정으로 출시일을 5월 11일에서 5월 18일로 1주 연기함.
+
+즉, 소셜 로그인 3종 추가가 개발 일정에 부담을 주어 출시일 연기로 이어진 것이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-20_출시전최종개발점검.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">route=semantic · 10.05초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**출시일 연기의 근본 원인은 소셜 로그인 3종 추가로 인해 모임 탐색 화면 개발 일정이 약 1주 지연된 결정 때문이다.**
+
+근거:
+- 3월 2일에 5월 11일 출시 목표가 설정되었으나,
+- 3월 30일에 소셜 로그인 3종(카카오, 구글, 애플) 추가로 인한 일정 부담이 공식 리스크로 등록되었고,
+- 4월 6일 회의에서 모임 탐색 화면이 소셜 로그인 작업 때문에 약 1주 밀린 점을 반영해,
+- 5월 11일에서 5월 18일로 출시일을 1주 연기하는 결정이 내려졌다.
+- 이 결정은 QA 기간 확보와 출시 품질 리스크 완화를 위해 2주 연기 대신 1주 연기를 선택한 것이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-06_출시일조정_개발중간점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">tools=search_project_evidence · 8.55초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;출시일 연기 근본 원인 결정&quot;, &quot;alternate_queries&quot;: [&quot;출시일 연기 이유 결정&quot;, &quot;출시일 변경 결정 배경&quot;, &quot;출시일 연기 관련 결정 내역&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B4</strong><span class="badge pass">일치</span><span class="badge fail">불일치</span><span>실시간 채팅 기능은 결정이 번복되었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 실시간 채팅 기능은 결정이 번복되었는가?</p><pre>완전한 번복은 아님. 3/9에 &quot;실시간 대신 게시판형 댓글로 구현&quot;한 결정은 유지되며(5/18 출시엔 여전히 게시판형), 5/11에 실시간 채팅을 &quot;1.1 업데이트 최우선 기능으로 편입&quot;한 것. 즉 게시판형 대체 결정을 뒤집은 게 아니라, 보류했던 실시간 채팅을 후속 버전 일정에 편입한 조건부 진행에 가까움.</pre><p class="meta"><strong>참고문항</strong> 3/9 회의록 (결정 4), 5/11 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**실시간 채팅 기능 결정은 번복되지 않고, 초기에는 비실시간 게시판형 댓글로 대체하되 베타 피드백 반영을 위해 5월 18일 출시에는 제외하고, 6월 8일 1.1 업데이트의 최우선 기능으로 확정되었다.**
+
+근거:
+- 2026-03-09 결정에서 채팅 기능을 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현하기로 확정함.
+- 베타 테스트(5/2~5/8)에서 실시간 채팅 요구가 23명이나 나와 니즈가 확인되었으나, 실시간 채팅을 지금 구현하면 출시일(5/18)을 또 미뤄야 하는 상황임.
+- 2026-05-11 결정에서 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정함.
+- 2026-05-15 결정에서 1.1 업데이트(실시간 채팅 포함)를 6월 8일 목표로 확정함.
+- 원문 맥락에서도 &quot;게시판형 댓글로 대체했던 2/9 결정은 유지하되, 실시간 채팅을 1.1로 명시 편입&quot;이라고 명확히 언급됨.
+
+따라서 실시간 채팅 기능은 초기 계획대로 비실시간으로 대체하되, 베타 피드백과 일정 리스크를 고려해 출시 후 빠른 시점에 실시간 기능으로 추가하는 방향으로 결정이 유지되었으며, 번복된 적은 없다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-20_출시전최종개발점검.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">route=semantic · 11.06초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge fail">불일치</span></h3><pre>실시간 채팅 기능 결정은 번복되었으며, **초기에는 비실시간 게시판형 댓글로 MVP에 구현하기로 했으나, 베타 테스트 후 실시간 채팅을 5월 18일 출시에는 포함하지 않고, 출시 직후 1.1 업데이트(6월 8일 목표)의 최우선 기능으로 확정**한 상태입니다.
+
+근거:
+- 2026-03-09 결정: 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현하기로 결정.
+- 2026-05-11 결정: 베타 테스트에서 실시간 채팅 요구가 많아졌으나, 출시일 재연기 리스크로 5/18 출시에는 포함하지 않고, 1.1 업데이트의 최우선 기능으로 확정.
+- 베타 반응과 팀 내 일정·마케팅 리스크 고려로 실시간 채팅 도입 시점이 변경됨.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-13_모임핵심기능점검_베타준비.md</p><p class="meta">tools=search_project_evidence · 5.31초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;실시간 채팅 기능 결정 번복&quot;, &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 게시판형 MVP 결정은 유지되고 실시간 채팅이 1.1에 추가됐는데, 이를 기존 결정의 번복으로 잘못 종합했다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B5</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>이메일 인증 방식의 어떤 문제가 로그인 방식 변경을 촉발했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 이메일 인증 방식의 어떤 문제가 로그인 방식 변경을 촉발했는가?</p><pre>회원가입 QA에서 테스트 계정 20개 중 7개는 인증 메일이 스팸함으로, 2개는 아예 도착하지 않음(총 9건 문제). SPF/DKIM 설정 후에도 신규 도메인이라 발신 신뢰도가 낮아 출시 전 완전 해결이 어려웠음.</pre><p class="meta"><strong>참고문항</strong> 3/23 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>이메일 인증 방식의 **인증 메일이 스팸함으로 7건, 미도착 2건 등 20건 중 9건에서 문제가 발생하여 가입 단계 이탈 위험이 커진 점**이 로그인 방식을 이메일+비밀번호 단독에서 소셜 로그인(카카오/구글) 포함으로 변경하는 계기가 되었다.
+
+근거:
+- 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않아 실제 사용자 가입 이탈 우려가 심각함(2026-03-23_로그인방식재논의_모임기능착수.md).
+- SPF/DKIM 설정 등 개선 시도에도 불구하고 근본적 해결이 어려워 출시 전 완전 해결 불가(원문 맥락).
+- 소셜 로그인은 이메일 인증 과정이 없어 이 문제를 근본적으로 우회할 수 있어 MVP에 포함하는 것이 타당하다는 판단(원문 맥락).
+- 이에 따라 3/9 결정(이메일+비밀번호 단독, 소셜 로그인 출시 후 도입)을 3/23에 변경하여 소셜 로그인을 MVP 핵심으로 추가하고 이메일 인증은 보조 수단으로 유지하기로 결정함(구조화 기록, 원문 맥락).</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-20_출시전최종개발점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">route=semantic · 10.88초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>이메일 인증 방식의 문제는 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 가고 2개는 아예 도착하지 않는 심각한 스팸 및 미도착 문제로, 실제 사용자 가입 단계에서 이탈 우려가 커서 로그인 방식을 변경하게 된 것이다.
+
+근거:
+- 이메일 인증 메일의 스팸함 유입 및 미도착 문제로 가입 이탈 리스크가 확인됨(테스트 20건 중 9건 문제 발생).
+- SPF/DKIM 설정 등 개선 시도에도 신규 도메인 특성상 발신 신뢰도 부족으로 완전 해결이 어려움.
+- 이 문제로 인해 소셜 로그인을 MVP 핵심으로 추가하는 것으로 로그인 방식 결정이 변경됨.
+- 소셜 로그인은 이메일 인증 과정을 우회하여 이 문제를 근본적으로 해결할 수 있음.
+
+따라서 **이메일 인증 메일의 스팸함 유입과 미도착 문제로 인한 가입 이탈 위험이 로그인 방식 변경을 촉발했다**.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md</p><p class="meta">tools=search_project_evidence · 5.49초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;이메일 인증 방식 문제 로그인 방식 변경 촉발 이유&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B6</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>출시일 조정 시 검토한 3가지 시나리오는 무엇이었고 왜 B안이 선택되었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 출시일 조정 시 검토한 3가지 시나리오는 무엇이었고 왜 B안이 선택되었는가?</p><pre>A안(5/11 원안 유지), B안(5/18 1주 연기), C안(5/25 2주 연기). A안은 QA 기간이 3일로 부족해 위험, C안은 2주까지 밀 필요 없음, B안이 밀린 일정 흡수와 QA 기간 확보에 현실적이라 선택됨.</pre><p class="meta"><strong>참고문항</strong> 4/6 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>출시일 조정 시 검토한 3가지 시나리오는 A안(5/11 원안 유지), B안(5/18 1주 연기), C안(5/25 2주 연기)이며, **B안이 선택된 이유는 1주 연기로 밀린 일정과 QA 기간을 확보해 출시 품질 리스크를 줄이면서도 마케팅 일정에 큰 영향을 주지 않기 때문**이다.
+
+근거 상세:
+- **A안(원안 유지, 5/11)**: 모임 탐색 화면 품질 희생과 QA 기간이 3일로 매우 짧아 출시 후 버그 폭탄 위험이 높음(한지민 QA·마케팅 의견).
+- **B안(1주 연기, 5/18)**: 밀린 모임 탐색 화면 일정을 흡수하고 QA 기간을 정상 확보 가능(이수진 백엔드 의견). 마케팅 일정도 1주 조정 가능(김태호 PM 의견).
+- **C안(2주 연기, 5/25)**: QA 기간은 충분하지만 마케팅 일정에 과도한 영향이 있음(정예린 디자이너 의견).
+- 최종 결정은 2026-04-06 회의에서 B안으로 확정되었으며, 이는 3/2 회의록의 5/11 출시 목표를 변경한 것임.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-20_출시전최종개발점검.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">route=semantic · 11.53초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>출시일 조정 시 검토한 3가지 시나리오는 A안(5월 11일 원안 유지), B안(5월 18일 1주 연기), C안(5월 25일 2주 연기)이며, **B안이 선택된 이유는 1주 연기로 밀린 모임 탐색 화면 일정을 흡수하고 QA 기간을 확보할 수 있어 현실적이고, A안은 QA 기간이 너무 짧아 품질 리스크가 크며, C안은 마케팅 일정에 부정적 영향을 주기 때문**이다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">tools=search_project_evidence · 4.02초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;출시일 조정 시 검토한 3가지 시나리오 및 B안 선택 이유&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B7</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>소셜 로그인은 MVP 포함에서 제외되었다가 다시 포함되었는가, 아니면 처음부터 포함이었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 소셜 로그인은 MVP 포함에서 제외되었다가 다시 포함되었는가, 아니면 처음부터 포함이었는가?</p><pre>처음부터 포함이 아니었음. 3/9에 &quot;출시 후 2차 업데이트로 미룸&quot;(제외)이었다가, 3/23에 &quot;MVP 핵심으로 추가&quot;(포함)로 바뀐 것. 제외 → 포함으로 변경된 케이스.</pre><p class="meta"><strong>참고문항</strong> 3/9 회의록 (결정 3), 3/23 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**소셜 로그인은 처음에 MVP에서 제외되었다가 이메일 인증 문제로 인해 다시 MVP에 포함되었다.**
+
+근거:
+- 2026-03-09 결정에서는 로그인 방식을 이메일+비밀번호 단독으로 확정하고 소셜 로그인은 출시 후 2차 업데이트로 미루기로 하였다.
+- 이후 이메일 인증 메일의 스팸함 유입 및 미도착 문제로 가입 이탈 리스크가 확인되어, 2026-03-23 결정에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경되었다.
+- 원문 맥락에서도 3/9 회의 당시 소셜 로그인 미포함 결정과 이후 이메일 인증 문제로 인한 재검토 및 소셜 로그인 포함 결정이 명확히 드러난다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-20_출시전최종개발점검.md</p><p class="meta">route=semantic · 8.57초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**소셜 로그인은 처음에는 MVP에서 제외되었다가, 이메일 인증 문제로 인해 이후에 MVP 핵심 기능으로 포함되도록 결정이 변경되었다.**
+
+근거:
+- 3월 9일 회의에서는 개발 속도와 외부 플랫폼 심사 부담을 이유로 소셜 로그인을 출시 후 2차 업데이트로 미루고 이메일+비밀번호 방식만 MVP에 포함하기로 확정함.
+- 그러나 이메일 인증 과정에서 스팸함 유입 및 미도착 문제가 심각하게 발생하여 가입 이탈 리스크가 커지자, 3월 23일 회의에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경 결정함.
+- 이 결정은 3월 9일의 결정을 공식적으로 변경한 것임.
+- 애플 로그인도 iOS 심사 정책상 필수여서 소셜 로그인에 추가하기로 결정됨.
+- 소셜 로그인 추가로 인해 출시 일정이 1주 연기되는 등 일정 부담이 발생함.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-20_출시전최종개발점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">tools=search_project_evidence · 4.77초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;소셜 로그인 MVP 포함 여부 변경&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B8</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>베타 테스트 결과 중 리텐션(7일 유지율)은 몇 %였는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 베타 테스트 결과 중 리텐션(7일 유지율)은 몇 %였는가?</p><pre>64%.</pre><p class="meta"><strong>참고문항</strong> 5/11 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 103건입니다.** _(필터 없음)_
+
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[action]** 앱스토어 심사 결과 추적 및 마케팅 최종 세팅 (5/17까지) — 담당: **한지민** · **미완료**
+- **[action]** 5/18 안드로이드 출시 실행 — 담당: **박현우** · **미완료**
+- **[action]** 출시 후 서버 부하 모니터링 체계 준비 (5/17까지) — 담당: **이수진** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 개발 착수 (5/19까지) — 담당: **이수진** · **미완료**
+- **[action]** 5/29 출시 회고 회의 준비 (5/28까지) — 담당: **김태호** · **미완료**
+- **[action]** 1.1 실시간 채팅 UI 디자인 (5/25까지) — 담당: **정예린** · **미완료**
+- **[issue]** iOS 출시 정확한 시점 (앱스토어 승인 대기 중) — 담당: **김태호**
+- **[issue]** 정식 출시 서버 부하 규모 예측치 불확실 (실측 후 스케일링 판단) — 담당: **김태호**
+- **[issue]** 1.1 이후 2.0 방향성 (출시 회고에서 논의 예정) — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[action]** 모임 알림 지연 원인 분석 및 개선 — 담당: **이수진** · **미완료**
+- **[action]** 베타 발견 잔여 버그 수정 및 스토어 빌드 준비 — 담당: **박현우** · **미완료**
+- **[action]** 앱스토어/플레이스토어 심사 제출 — 담당: **한지민** · **미완료**
+- **[action]** 스토어 등록용 스크린샷 및 소개 이미지 — 담당: **정예린** · **미완료**
+- **[action]** 1.1 업데이트(실시간 채팅) 로드맵 작성 — 담당: **김태호** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 기술 사전 조사 — 담당: **이수진** · **미완료**
+- **[risk]** 애플 심사 리젝 시 5/18 출시 영향 (리스크 — 심사 결과 대기 중) — 담당: **한지민**
+- **[issue]** 1.1 업데이트 출시 시점 미정 (출시 후 몇 주 내로 할지 미정) — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[action]** 이수진이 소셜 로그인 프로필 누락 버그 수정하겠습니다 (마감 4/27) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 지도 마커 미표시 버그 수정하겠습니다 (마감 4/27) — 담당: **박현우** · **미완료**
+- **[action]** 박현우가 게시판형 댓글 기능 완료하겠습니다 (마감 4/24) — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 베타 테스터 100명 모집 완료 및 보통 버그 6건 재검증하겠습니다 (마감 4/27) — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 베타 운영 계획 최종화하겠습니다 (마감 4/29) — 담당: **김태호** · **미완료**
+- **[issue]** 보통(major) 버그 6건 중 일부가 베타 전 미해결 시 대응 방안 논의 필요 — 담당: **한지민**
+- **[issue]** 앱스토어·플레이스토어 심사 제출 시점 결정 필요 (베타와 병행할지 베타 후 할지) — 담당: **한지민**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[action]** 모임 생성/참여 기능 완료 — 담당: **박현우** · **미완료**
+- **[action]** 푸시 알림(모임 참여) 연동 완료 — 담당: **이수진** · **미완료**
+- **[action]** 게시판형 댓글 기능 구현 — 담당: **박현우** · **미완료**
+- **[action]** 베타 테스터 100명 모집 및 온보딩 안내 준비 — 담당: **한지민** · **미완료**
+- **[action]** 베타용 온보딩 튜토리얼 화면 디자인 — 담당: **정예린** · **미완료**
+- **[action]** 베타 피드백 수집 폼 및 채널 구성 — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글의 실시간 채팅 전환은 베타 반응 보고 결정 — 담당: **김태호**
+- **[risk]** 베타에서 큰 결함 발견 시 출시일 재조정 가능성 — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[action]** 모임 탐색 화면(지도/리스트) 완료 (마감 4/13) — 담당: **박현우** · **미완료**
+- **[action]** 모임 생성/참여 기능 구현 (마감 4/17) — 담당: **박현우** · **미완료**
+- **[action]** 모임 참여 인원 관리 및 알림 로직 구현 (마감 4/17) — 담당: **이수진** · **미완료**
+- **[action]** 모임 상세 화면 및 댓글 UI 디자인 (마감 4/10) — 담당: **정예린** · **미완료**
+- **[action]** 완료 기능(로그인/회원/관심사) 정식 QA (마감 4/13) — 담당: **한지민** · **미완료**
+- **[action]** 마케팅 출시 일정 5/18 기준 재조정 (마감 4/8) — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글로 충분할지, 사용자 반응 보고 실시간 채팅 검토할지 결정 미정 — 담당: **김태호**
+- **[issue]** 푸시 알림 범위(모임 참여 알림만 vs 마케팅 알림 포함) 미정 — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[risk]** 소셜 로그인 추가로 인한 출시일 지연 가능성 — 담당: **한지민**
+- **[risk]** 이메일 인증 스팸 문제(여전히 완전 해결 안 됨) — 담당: **한지민**
+- **[risk]** 애플 심사 리젝 가능성(첫 제출은 대개 한두 번 리젝됨) — 담당: **한지민**
+- **[action]** 박현우가 구글·애플 로그인 연동 완료 (마감 4/3) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트 진행 (마감 4/3) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 밀린 모임 탐색 화면 일정 재산정 (마감 4/1) — 담당: **박현우** · **미완료**
+- **[action]** 김태호가 출시일 조정 시나리오 3안 준비 (원안 유지/1주 연기/2주 연기, 마감 4/6) — 담당: **김태호** · **미완료**
+- **[action]** 한지민이 소셜 로그인 3종 통합 QA 진행 (마감 4/6) — 담당: **한지민** · **미완료**
+- **[issue]** 이메일 인증 문제 심화: 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않음. 실제 사용자 가입 단계 이탈 우려. — 담당: **한지민**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[action]** 카카오/구글 소셜 로그인 SDK 연동 진행 (마감 3/30). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 백엔드 인증 처리(OAuth) 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색 위치 검색 API 구현 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색/생성 화면 디자인 진행 (마감 3/27). — 담당: **정예린** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 구현 진행 (마감 4/3). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 QA 시나리오 작성 진행 (마감 3/30). — 담당: **한지민** · **미완료**
+- **[risk]** 소셜 로그인 추가로 인한 일정 영향 평가 필요. — 담당: **김태호**
+- **[risk]** 애플 로그인 추가 여부 미확정, iOS 심사 시 소셜 로그인 있으면 애플 로그인 필수일 수 있음. — 담당: **김태호**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[action]** 이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다 (마감 3/20) — 담당: **이수진** · **미완료**
+- **[action]** 정예린이 관심사 설정 화면 디자인 확정하겠습니다 (마감 3/20) — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 관심사 설정 화면 구현하겠습니다 (마감 3/23) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 모임 데이터 모델 및 위치 검색 API 설계하겠습니다 (마감 3/23) — 담당: **이수진** · **미완료**
+- **[action]** 한지민이 회원가입 플로우 QA 테스트하겠습니다 (마감 3/23) — 담당: **한지민** · **미완료**
+- **[risk]** 이메일 인증 스팸함 유입 문제 — 개선은 하되 근본 해결은 어려움 — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[action]** 이수진이 이메일 인증 기반 회원 시스템 설계 및 DB 스키마를 3/13까지 진행하겠습니다. — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 Flutter 프로젝트 셋업 및 공통 컴포넌트 구성을 3/13까지 진행하겠습니다. — 담당: **박현우** · **미완료**
+- **[action]** 정예린이 회원가입/로그인 화면 디자인을 3/13까지 진행하겠습니다. — 담당: **정예린** · **미완료**
+- **[action]** 한지민이 QA 테스트 시나리오 초안 작성을 3/16까지 진행하겠습니다. — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 기능 명세서 확정본 배포를 3/11까지 진행하겠습니다. — 담당: **김태호** · **미완료**
+- **[issue]** 이메일 인증 시 이메일 발송 서비스(SendGrid vs AWS SES) 선정 필요. — 담당: **정예린**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[action]** 전체 기능 명세서 초안 작성 — 담당: **김태호** · **미완료**
+- **[action]** 사용자 플로우 및 와이어프레임 초안 작성 — 담당: **정예린** · **미완료**
+- **[action]** 기술 스택 검토 및 서버 아키텍처 초안 작성 — 담당: **이수진** · **미완료**
+- **[action]** 앱 개발 프레임워크 조사(네이티브 vs 크로스플랫폼) — 담당: **박현우** · **미완료**
+- **[action]** 경쟁 앱 3종 분석 및 타깃 리서치 — 담당: **한지민** · **미완료**
+- **[issue]** 채팅 기능을 실시간으로 구현할지, 비실시간(게시판형)으로 대체할지 미정 — 담당: **김태호**
+- **[issue]** 앱 개발을 네이티브로 할지 크로스플랫폼(Flutter/React Native)으로 할지 미정 — 담당: **김태호**
+- **[issue]** 로그인 방식(이메일 / 소셜 / 휴대폰 인증) 아직 논의 안 됨 — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 1.61초</p><p><strong>판정 근거</strong> 질문이 요구한 리텐션 64%가 답변에 없다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>베타 테스트의 7일 리텐션(유지율)은 **64%**였다.
+
+근거:
+- 2026년 5월 11일 회의록에 따르면, 베타 테스트(5/2~5/8, 96명 참여) 결과 7일 유지율이 64%로 보고되었으며, PM 김태호도 이 수치를 초기 앱치고 나쁘지 않다고 평가하였다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-04-06_출시일조정_개발중간점검.md</p><p class="meta">tools=search_project_evidence · 7.62초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;베타 테스트 리텐션 7일 유지율&quot;, &quot;alternate_queries&quot;: [&quot;베타 테스트 7일 리텐션 비율&quot;, &quot;베타 테스트 7일 유지율 수치&quot;], &quot;include_history&quot;: false}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>B9</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는?</p><pre>베타에서 니즈(23명 언급)가 확인됐으나, 지금 구현하면 WebSocket 서버 구축에 최소 1주가 필요해 출시일을 재차 연기해야 함. 두 번의 연기는 마케팅·팀 신뢰도 리스크가 크다고 판단.</pre><p class="meta"><strong>참고문항</strong> 5/11 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는, 실시간 채팅 구현 시 출시일(5/18)을 재차 연기해야 하고, 두 번의 연기는 마케팅 일정과 팀 신뢰도에 큰 리스크가 있기 때문이다.**
+
+근거 상세:
+- 베타 테스트에서 실시간 채팅 요구가 23명이나 나와 니즈는 분명했으나, WebSocket 서버 구축에 최소 1주가 필요해 출시일을 맞추기 어렵다는 기술적 제약이 있었다.
+- 팀 내에서는 추가 출시 연기에 반대 의견이 강했으며, 마케팅 일정이 이미 5/18 기준으로 세팅되어 있어 두 번째 연기는 팀 신뢰도에도 부정적 영향을 미칠 우려가 컸다.
+- 따라서 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 첫 업데이트(1.1 버전)의 최우선 기능으로 확정하여 빠르게 대응하기로 결정했다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-20_출시전최종개발점검.md, 2026-03-16_회원시스템점검_관심사확정.md</p><p class="meta">route=semantic · 9.70초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>5/11 시점에 실시간 채팅을 출시에 넣지 않기로 한 결정적 이유는 **실시간 채팅을 지금 구현하면 출시일(5/18)을 재차 연기해야 하고, 두 번의 연기는 마케팅과 팀 신뢰도에 큰 리스크가 있기 때문**이다.
+
+근거:
+- 베타 테스트에서 실시간 채팅 요구가 23명으로 확인되었으나, WebSocket 서버 구축에 최소 1주가 필요해 출시일을 맞추기 어렵다.
+- 마케팅 일정이 5/18로 이미 세팅되어 있어 추가 연기는 반대 의견이 강했다.
+- 따라서 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정했다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md</p><p class="meta">tools=search_project_evidence · 5.59초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;5/11 실시간 채팅 출시 제외 이유&quot;, &quot;alternate_queries&quot;: [&quot;5월 11일 실시간 채팅 미포함 결정 배경&quot;, &quot;5/11 회의 실시간 채팅 제외 사유&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>B10</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>5/18 출시일은 4/6 이후 또 바뀌었는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 5/18 출시일은 4/6 이후 또 바뀌었는가?</p><pre>바뀌지 않음. 5/11 회의에서 베타 지표(가입률 91%, 리텐션 64%)가 출시 가능 수준이고 추가 연기 리스크가 크다는 이유로 5/18을 유지하기로 재확인함. 실시간 채팅 요구에도 불구하고 출시일은 지킴.</pre><p class="meta"><strong>참고문항</strong> 5/11 회의록 (결정 3), 5/15 회의록 (결정 1)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록이 없습니다.** _(분류=issue · 미완료 · 기한 초과)_</pre><p class="meta"><strong>반환 출처</strong> 반환 없음</p><p class="meta">route=filter_lookup · 1.59초</p><p><strong>판정 근거</strong> 5/18 유지가 정답인데 조건에 맞는 기록이 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**5월 18일 출시일은 4월 6일 이후에 변경되지 않고 유지되었다.**
+
+근거:
+- 4월 6일 회의에서 출시일을 5월 11일에서 5월 18일로 1주 연기하는 결정이 내려졌다.
+- 이후 5월 11일 회의에서 베타 테스트 결과를 검토한 후 5월 18일 출시일을 유지하기로 결정하였다.
+- 5월 18일 이후로는 출시일 변경에 관한 추가 결정 기록이 없다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-06_출시일조정_개발중간점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-05-15_출시최종점검_1.1로드맵확정.md</p><p class="meta">tools=search_project_evidence · 6.29초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;출시일 변경 4/6 이후&quot;, &quot;alternate_queries&quot;: [&quot;출시일 4월 6일 이후 변경 여부&quot;, &quot;5월 18일 출시일 변경 내역&quot;, &quot;출시일 변경 기록 4월 6일 이후&quot;], &quot;include_history&quot;: true}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C1</strong><span class="badge partial">부분일치</span><span class="badge fail">불일치</span><span>카카오/구글/애플 소셜 로그인 SDK 연동은 누가 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 카카오/구글/애플 소셜 로그인 SDK 연동은 누가 담당했는가?</p><pre>박현우(프론트/앱)가 담당.</pre><p class="meta"><strong>참고문항</strong> 3/23 회의록, 3/30 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 103건입니다.** _(필터 없음)_
+
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[action]** 앱스토어 심사 결과 추적 및 마케팅 최종 세팅 (5/17까지) — 담당: **한지민** · **미완료**
+- **[action]** 5/18 안드로이드 출시 실행 — 담당: **박현우** · **미완료**
+- **[action]** 출시 후 서버 부하 모니터링 체계 준비 (5/17까지) — 담당: **이수진** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 개발 착수 (5/19까지) — 담당: **이수진** · **미완료**
+- **[action]** 5/29 출시 회고 회의 준비 (5/28까지) — 담당: **김태호** · **미완료**
+- **[action]** 1.1 실시간 채팅 UI 디자인 (5/25까지) — 담당: **정예린** · **미완료**
+- **[issue]** iOS 출시 정확한 시점 (앱스토어 승인 대기 중) — 담당: **김태호**
+- **[issue]** 정식 출시 서버 부하 규모 예측치 불확실 (실측 후 스케일링 판단) — 담당: **김태호**
+- **[issue]** 1.1 이후 2.0 방향성 (출시 회고에서 논의 예정) — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[action]** 모임 알림 지연 원인 분석 및 개선 — 담당: **이수진** · **미완료**
+- **[action]** 베타 발견 잔여 버그 수정 및 스토어 빌드 준비 — 담당: **박현우** · **미완료**
+- **[action]** 앱스토어/플레이스토어 심사 제출 — 담당: **한지민** · **미완료**
+- **[action]** 스토어 등록용 스크린샷 및 소개 이미지 — 담당: **정예린** · **미완료**
+- **[action]** 1.1 업데이트(실시간 채팅) 로드맵 작성 — 담당: **김태호** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 기술 사전 조사 — 담당: **이수진** · **미완료**
+- **[risk]** 애플 심사 리젝 시 5/18 출시 영향 (리스크 — 심사 결과 대기 중) — 담당: **한지민**
+- **[issue]** 1.1 업데이트 출시 시점 미정 (출시 후 몇 주 내로 할지 미정) — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[action]** 이수진이 소셜 로그인 프로필 누락 버그 수정하겠습니다 (마감 4/27) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 지도 마커 미표시 버그 수정하겠습니다 (마감 4/27) — 담당: **박현우** · **미완료**
+- **[action]** 박현우가 게시판형 댓글 기능 완료하겠습니다 (마감 4/24) — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 베타 테스터 100명 모집 완료 및 보통 버그 6건 재검증하겠습니다 (마감 4/27) — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 베타 운영 계획 최종화하겠습니다 (마감 4/29) — 담당: **김태호** · **미완료**
+- **[issue]** 보통(major) 버그 6건 중 일부가 베타 전 미해결 시 대응 방안 논의 필요 — 담당: **한지민**
+- **[issue]** 앱스토어·플레이스토어 심사 제출 시점 결정 필요 (베타와 병행할지 베타 후 할지) — 담당: **한지민**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[action]** 모임 생성/참여 기능 완료 — 담당: **박현우** · **미완료**
+- **[action]** 푸시 알림(모임 참여) 연동 완료 — 담당: **이수진** · **미완료**
+- **[action]** 게시판형 댓글 기능 구현 — 담당: **박현우** · **미완료**
+- **[action]** 베타 테스터 100명 모집 및 온보딩 안내 준비 — 담당: **한지민** · **미완료**
+- **[action]** 베타용 온보딩 튜토리얼 화면 디자인 — 담당: **정예린** · **미완료**
+- **[action]** 베타 피드백 수집 폼 및 채널 구성 — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글의 실시간 채팅 전환은 베타 반응 보고 결정 — 담당: **김태호**
+- **[risk]** 베타에서 큰 결함 발견 시 출시일 재조정 가능성 — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[action]** 모임 탐색 화면(지도/리스트) 완료 (마감 4/13) — 담당: **박현우** · **미완료**
+- **[action]** 모임 생성/참여 기능 구현 (마감 4/17) — 담당: **박현우** · **미완료**
+- **[action]** 모임 참여 인원 관리 및 알림 로직 구현 (마감 4/17) — 담당: **이수진** · **미완료**
+- **[action]** 모임 상세 화면 및 댓글 UI 디자인 (마감 4/10) — 담당: **정예린** · **미완료**
+- **[action]** 완료 기능(로그인/회원/관심사) 정식 QA (마감 4/13) — 담당: **한지민** · **미완료**
+- **[action]** 마케팅 출시 일정 5/18 기준 재조정 (마감 4/8) — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글로 충분할지, 사용자 반응 보고 실시간 채팅 검토할지 결정 미정 — 담당: **김태호**
+- **[issue]** 푸시 알림 범위(모임 참여 알림만 vs 마케팅 알림 포함) 미정 — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[risk]** 소셜 로그인 추가로 인한 출시일 지연 가능성 — 담당: **한지민**
+- **[risk]** 이메일 인증 스팸 문제(여전히 완전 해결 안 됨) — 담당: **한지민**
+- **[risk]** 애플 심사 리젝 가능성(첫 제출은 대개 한두 번 리젝됨) — 담당: **한지민**
+- **[action]** 박현우가 구글·애플 로그인 연동 완료 (마감 4/3) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트 진행 (마감 4/3) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 밀린 모임 탐색 화면 일정 재산정 (마감 4/1) — 담당: **박현우** · **미완료**
+- **[action]** 김태호가 출시일 조정 시나리오 3안 준비 (원안 유지/1주 연기/2주 연기, 마감 4/6) — 담당: **김태호** · **미완료**
+- **[action]** 한지민이 소셜 로그인 3종 통합 QA 진행 (마감 4/6) — 담당: **한지민** · **미완료**
+- **[issue]** 이메일 인증 문제 심화: 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않음. 실제 사용자 가입 단계 이탈 우려. — 담당: **한지민**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[action]** 카카오/구글 소셜 로그인 SDK 연동 진행 (마감 3/30). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 백엔드 인증 처리(OAuth) 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색 위치 검색 API 구현 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색/생성 화면 디자인 진행 (마감 3/27). — 담당: **정예린** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 구현 진행 (마감 4/3). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 QA 시나리오 작성 진행 (마감 3/30). — 담당: **한지민** · **미완료**
+- **[risk]** 소셜 로그인 추가로 인한 일정 영향 평가 필요. — 담당: **김태호**
+- **[risk]** 애플 로그인 추가 여부 미확정, iOS 심사 시 소셜 로그인 있으면 애플 로그인 필수일 수 있음. — 담당: **김태호**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[action]** 이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다 (마감 3/20) — 담당: **이수진** · **미완료**
+- **[action]** 정예린이 관심사 설정 화면 디자인 확정하겠습니다 (마감 3/20) — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 관심사 설정 화면 구현하겠습니다 (마감 3/23) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 모임 데이터 모델 및 위치 검색 API 설계하겠습니다 (마감 3/23) — 담당: **이수진** · **미완료**
+- **[action]** 한지민이 회원가입 플로우 QA 테스트하겠습니다 (마감 3/23) — 담당: **한지민** · **미완료**
+- **[risk]** 이메일 인증 스팸함 유입 문제 — 개선은 하되 근본 해결은 어려움 — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[action]** 이수진이 이메일 인증 기반 회원 시스템 설계 및 DB 스키마를 3/13까지 진행하겠습니다. — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 Flutter 프로젝트 셋업 및 공통 컴포넌트 구성을 3/13까지 진행하겠습니다. — 담당: **박현우** · **미완료**
+- **[action]** 정예린이 회원가입/로그인 화면 디자인을 3/13까지 진행하겠습니다. — 담당: **정예린** · **미완료**
+- **[action]** 한지민이 QA 테스트 시나리오 초안 작성을 3/16까지 진행하겠습니다. — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 기능 명세서 확정본 배포를 3/11까지 진행하겠습니다. — 담당: **김태호** · **미완료**
+- **[issue]** 이메일 인증 시 이메일 발송 서비스(SendGrid vs AWS SES) 선정 필요. — 담당: **정예린**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[action]** 전체 기능 명세서 초안 작성 — 담당: **김태호** · **미완료**
+- **[action]** 사용자 플로우 및 와이어프레임 초안 작성 — 담당: **정예린** · **미완료**
+- **[action]** 기술 스택 검토 및 서버 아키텍처 초안 작성 — 담당: **이수진** · **미완료**
+- **[action]** 앱 개발 프레임워크 조사(네이티브 vs 크로스플랫폼) — 담당: **박현우** · **미완료**
+- **[action]** 경쟁 앱 3종 분석 및 타깃 리서치 — 담당: **한지민** · **미완료**
+- **[issue]** 채팅 기능을 실시간으로 구현할지, 비실시간(게시판형)으로 대체할지 미정 — 담당: **김태호**
+- **[issue]** 앱 개발을 네이티브로 할지 크로스플랫폼(Flutter/React Native)으로 할지 미정 — 담당: **김태호**
+- **[issue]** 로그인 방식(이메일 / 소셜 / 휴대폰 인증) 아직 논의 안 됨 — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 1.84초</p><p><strong>판정 근거</strong> 정답 행은 섞여 있으나 앱 SDK 세 종류의 담당자를 하나로 직접 답하지 못했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge fail">불일치</span></h3><pre>**카카오와 구글 소셜 로그인 SDK 연동은 박현우가 담당했으며, 애플 로그인 연동은 이수진이 담당했다.**
+
+근거:
+- 박현우가 카카오 로그인 연동을 완료했고, 구글 로그인도 진행 중임(60% 완료).
+- 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트를 진행 중임.
+- 백엔드 OAuth 처리도 이수진이 담당하고 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-04-20_출시전최종개발점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">tools=search_project_evidence · 4.56초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;카카오 소셜 로그인 SDK 연동 담당자&quot;, &quot;alternate_queries&quot;: [&quot;구글 소셜 로그인 SDK 연동 담당자&quot;, &quot;애플 소셜 로그인 SDK 연동 담당자&quot;]}}]</p><p><strong>판정 근거</strong> 앱 SDK 담당 박현우와 백엔드 OAuth 담당 이수진을 섞어 Apple 담당자를 잘못 배정했다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C2</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>이메일 인증 스팸 문제 개선(SPF/DKIM 설정)은 누가 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 이메일 인증 스팸 문제 개선(SPF/DKIM 설정)은 누가 담당했는가?</p><pre>이수진(백엔드)이 담당.</pre><p class="meta"><strong>참고문항</strong> 3/16 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 14건입니다.** _(분류=issue)_
+
+- **[issue]** iOS 출시 정확한 시점 (앱스토어 승인 대기 중) — 담당: **김태호**
+- **[issue]** 정식 출시 서버 부하 규모 예측치 불확실 (실측 후 스케일링 판단) — 담당: **김태호**
+- **[issue]** 1.1 이후 2.0 방향성 (출시 회고에서 논의 예정) — 담당: **김태호**
+- **[issue]** 1.1 업데이트 출시 시점 미정 (출시 후 몇 주 내로 할지 미정) — 담당: **김태호**
+- **[issue]** 보통(major) 버그 6건 중 일부가 베타 전 미해결 시 대응 방안 논의 필요 — 담당: **한지민**
+- **[issue]** 앱스토어·플레이스토어 심사 제출 시점 결정 필요 (베타와 병행할지 베타 후 할지) — 담당: **한지민**
+- **[issue]** 게시판형 댓글의 실시간 채팅 전환은 베타 반응 보고 결정 — 담당: **김태호**
+- **[issue]** 게시판형 댓글로 충분할지, 사용자 반응 보고 실시간 채팅 검토할지 결정 미정 — 담당: **김태호**
+- **[issue]** 푸시 알림 범위(모임 참여 알림만 vs 마케팅 알림 포함) 미정 — 담당: **김태호**
+- **[issue]** 이메일 인증 문제 심화: 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않음. 실제 사용자 가입 단계 이탈 우려. — 담당: **한지민**
+- **[issue]** 이메일 인증 시 이메일 발송 서비스(SendGrid vs AWS SES) 선정 필요. — 담당: **정예린**
+- **[issue]** 채팅 기능을 실시간으로 구현할지, 비실시간(게시판형)으로 대체할지 미정 — 담당: **김태호**
+- **[issue]** 앱 개발을 네이티브로 할지 크로스플랫폼(Flutter/React Native)으로 할지 미정 — 담당: **김태호**
+- **[issue]** 로그인 방식(이메일 / 소셜 / 휴대폰 인증) 아직 논의 안 됨 — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 0.97초</p><p><strong>판정 근거</strong> SPF/DKIM 작업과 이수진의 관계를 만들지 못하고 관련 이슈 목록을 반환했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**이메일 인증 스팸 문제 개선(SPF/DKIM 설정)은 이수진이 담당했다.**
+
+근거:
+- 2026-03-16 액션 기록에 &quot;이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다&quot;라고 명시되어 있음.
+- 원문 맥락에서도 이수진이 SPF/DKIM 설정을 마쳤다고 언급되어 있음.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md</p><p class="meta">tools=search_project_evidence · 3.77초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;이메일 인증 스팸 문제 개선 담당자 SPF DKIM 설정&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C3</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>베타 테스터 100명 모집은 누가 담당했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 베타 테스터 100명 모집은 누가 담당했는가?</p><pre>한지민(QA·마케팅)이 담당.</pre><p class="meta"><strong>참고문항</strong> 4/13 회의록, 4/20 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 103건입니다.** _(필터 없음)_
+
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[action]** 앱스토어 심사 결과 추적 및 마케팅 최종 세팅 (5/17까지) — 담당: **한지민** · **미완료**
+- **[action]** 5/18 안드로이드 출시 실행 — 담당: **박현우** · **미완료**
+- **[action]** 출시 후 서버 부하 모니터링 체계 준비 (5/17까지) — 담당: **이수진** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 개발 착수 (5/19까지) — 담당: **이수진** · **미완료**
+- **[action]** 5/29 출시 회고 회의 준비 (5/28까지) — 담당: **김태호** · **미완료**
+- **[action]** 1.1 실시간 채팅 UI 디자인 (5/25까지) — 담당: **정예린** · **미완료**
+- **[issue]** iOS 출시 정확한 시점 (앱스토어 승인 대기 중) — 담당: **김태호**
+- **[issue]** 정식 출시 서버 부하 규모 예측치 불확실 (실측 후 스케일링 판단) — 담당: **김태호**
+- **[issue]** 1.1 이후 2.0 방향성 (출시 회고에서 논의 예정) — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[action]** 모임 알림 지연 원인 분석 및 개선 — 담당: **이수진** · **미완료**
+- **[action]** 베타 발견 잔여 버그 수정 및 스토어 빌드 준비 — 담당: **박현우** · **미완료**
+- **[action]** 앱스토어/플레이스토어 심사 제출 — 담당: **한지민** · **미완료**
+- **[action]** 스토어 등록용 스크린샷 및 소개 이미지 — 담당: **정예린** · **미완료**
+- **[action]** 1.1 업데이트(실시간 채팅) 로드맵 작성 — 담당: **김태호** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 기술 사전 조사 — 담당: **이수진** · **미완료**
+- **[risk]** 애플 심사 리젝 시 5/18 출시 영향 (리스크 — 심사 결과 대기 중) — 담당: **한지민**
+- **[issue]** 1.1 업데이트 출시 시점 미정 (출시 후 몇 주 내로 할지 미정) — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[action]** 이수진이 소셜 로그인 프로필 누락 버그 수정하겠습니다 (마감 4/27) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 지도 마커 미표시 버그 수정하겠습니다 (마감 4/27) — 담당: **박현우** · **미완료**
+- **[action]** 박현우가 게시판형 댓글 기능 완료하겠습니다 (마감 4/24) — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 베타 테스터 100명 모집 완료 및 보통 버그 6건 재검증하겠습니다 (마감 4/27) — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 베타 운영 계획 최종화하겠습니다 (마감 4/29) — 담당: **김태호** · **미완료**
+- **[issue]** 보통(major) 버그 6건 중 일부가 베타 전 미해결 시 대응 방안 논의 필요 — 담당: **한지민**
+- **[issue]** 앱스토어·플레이스토어 심사 제출 시점 결정 필요 (베타와 병행할지 베타 후 할지) — 담당: **한지민**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[action]** 모임 생성/참여 기능 완료 — 담당: **박현우** · **미완료**
+- **[action]** 푸시 알림(모임 참여) 연동 완료 — 담당: **이수진** · **미완료**
+- **[action]** 게시판형 댓글 기능 구현 — 담당: **박현우** · **미완료**
+- **[action]** 베타 테스터 100명 모집 및 온보딩 안내 준비 — 담당: **한지민** · **미완료**
+- **[action]** 베타용 온보딩 튜토리얼 화면 디자인 — 담당: **정예린** · **미완료**
+- **[action]** 베타 피드백 수집 폼 및 채널 구성 — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글의 실시간 채팅 전환은 베타 반응 보고 결정 — 담당: **김태호**
+- **[risk]** 베타에서 큰 결함 발견 시 출시일 재조정 가능성 — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[action]** 모임 탐색 화면(지도/리스트) 완료 (마감 4/13) — 담당: **박현우** · **미완료**
+- **[action]** 모임 생성/참여 기능 구현 (마감 4/17) — 담당: **박현우** · **미완료**
+- **[action]** 모임 참여 인원 관리 및 알림 로직 구현 (마감 4/17) — 담당: **이수진** · **미완료**
+- **[action]** 모임 상세 화면 및 댓글 UI 디자인 (마감 4/10) — 담당: **정예린** · **미완료**
+- **[action]** 완료 기능(로그인/회원/관심사) 정식 QA (마감 4/13) — 담당: **한지민** · **미완료**
+- **[action]** 마케팅 출시 일정 5/18 기준 재조정 (마감 4/8) — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글로 충분할지, 사용자 반응 보고 실시간 채팅 검토할지 결정 미정 — 담당: **김태호**
+- **[issue]** 푸시 알림 범위(모임 참여 알림만 vs 마케팅 알림 포함) 미정 — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[risk]** 소셜 로그인 추가로 인한 출시일 지연 가능성 — 담당: **한지민**
+- **[risk]** 이메일 인증 스팸 문제(여전히 완전 해결 안 됨) — 담당: **한지민**
+- **[risk]** 애플 심사 리젝 가능성(첫 제출은 대개 한두 번 리젝됨) — 담당: **한지민**
+- **[action]** 박현우가 구글·애플 로그인 연동 완료 (마감 4/3) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트 진행 (마감 4/3) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 밀린 모임 탐색 화면 일정 재산정 (마감 4/1) — 담당: **박현우** · **미완료**
+- **[action]** 김태호가 출시일 조정 시나리오 3안 준비 (원안 유지/1주 연기/2주 연기, 마감 4/6) — 담당: **김태호** · **미완료**
+- **[action]** 한지민이 소셜 로그인 3종 통합 QA 진행 (마감 4/6) — 담당: **한지민** · **미완료**
+- **[issue]** 이메일 인증 문제 심화: 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않음. 실제 사용자 가입 단계 이탈 우려. — 담당: **한지민**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[action]** 카카오/구글 소셜 로그인 SDK 연동 진행 (마감 3/30). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 백엔드 인증 처리(OAuth) 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색 위치 검색 API 구현 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색/생성 화면 디자인 진행 (마감 3/27). — 담당: **정예린** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 구현 진행 (마감 4/3). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 QA 시나리오 작성 진행 (마감 3/30). — 담당: **한지민** · **미완료**
+- **[risk]** 소셜 로그인 추가로 인한 일정 영향 평가 필요. — 담당: **김태호**
+- **[risk]** 애플 로그인 추가 여부 미확정, iOS 심사 시 소셜 로그인 있으면 애플 로그인 필수일 수 있음. — 담당: **김태호**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[action]** 이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다 (마감 3/20) — 담당: **이수진** · **미완료**
+- **[action]** 정예린이 관심사 설정 화면 디자인 확정하겠습니다 (마감 3/20) — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 관심사 설정 화면 구현하겠습니다 (마감 3/23) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 모임 데이터 모델 및 위치 검색 API 설계하겠습니다 (마감 3/23) — 담당: **이수진** · **미완료**
+- **[action]** 한지민이 회원가입 플로우 QA 테스트하겠습니다 (마감 3/23) — 담당: **한지민** · **미완료**
+- **[risk]** 이메일 인증 스팸함 유입 문제 — 개선은 하되 근본 해결은 어려움 — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[action]** 이수진이 이메일 인증 기반 회원 시스템 설계 및 DB 스키마를 3/13까지 진행하겠습니다. — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 Flutter 프로젝트 셋업 및 공통 컴포넌트 구성을 3/13까지 진행하겠습니다. — 담당: **박현우** · **미완료**
+- **[action]** 정예린이 회원가입/로그인 화면 디자인을 3/13까지 진행하겠습니다. — 담당: **정예린** · **미완료**
+- **[action]** 한지민이 QA 테스트 시나리오 초안 작성을 3/16까지 진행하겠습니다. — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 기능 명세서 확정본 배포를 3/11까지 진행하겠습니다. — 담당: **김태호** · **미완료**
+- **[issue]** 이메일 인증 시 이메일 발송 서비스(SendGrid vs AWS SES) 선정 필요. — 담당: **정예린**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[action]** 전체 기능 명세서 초안 작성 — 담당: **김태호** · **미완료**
+- **[action]** 사용자 플로우 및 와이어프레임 초안 작성 — 담당: **정예린** · **미완료**
+- **[action]** 기술 스택 검토 및 서버 아키텍처 초안 작성 — 담당: **이수진** · **미완료**
+- **[action]** 앱 개발 프레임워크 조사(네이티브 vs 크로스플랫폼) — 담당: **박현우** · **미완료**
+- **[action]** 경쟁 앱 3종 분석 및 타깃 리서치 — 담당: **한지민** · **미완료**
+- **[issue]** 채팅 기능을 실시간으로 구현할지, 비실시간(게시판형)으로 대체할지 미정 — 담당: **김태호**
+- **[issue]** 앱 개발을 네이티브로 할지 크로스플랫폼(Flutter/React Native)으로 할지 미정 — 담당: **김태호**
+- **[issue]** 로그인 방식(이메일 / 소셜 / 휴대폰 인증) 아직 논의 안 됨 — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 0.95초</p><p><strong>판정 근거</strong> 한지민·베타 테스터 100명 행은 있으나 질문에 대한 직접 답으로 종합하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>베타 테스터 100명 모집은 **한지민(QA·마케팅)**이 담당했다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-20_출시전최종개발점검.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">tools=search_project_evidence · 3.62초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;베타 테스터 100명 모집 담당자&quot;, &quot;alternate_queries&quot;: [&quot;베타 테스터 모집 담당자&quot;, &quot;100명 베타 테스터 모집 책임자&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C4</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>Modu 앱의 개발에 투입된 총 예산은 얼마인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> Modu 앱의 개발에 투입된 총 예산은 얼마인가?</p><pre>문서에서 확인할 수 없음. 회의록에는 개발 일정과 인력 배정은 나오지만 프로젝트 예산이나 비용에 대한 정보는 언급되지 않음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (문서 내 미언급)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 26건입니다.** _(분류=decision)_
+
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 1.50초</p><p><strong>판정 근거</strong> 예산 기록이 없다고 기권해야 하지만 관련 없는 결정을 반환했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>Modu 앱 개발에 투입된 총 예산은 기록에서 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md</p><p class="meta">tools=search_project_evidence · 3.02초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;Modu 앱 개발 예산 총액&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C5</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>정식 출시 후 실제 다운로드 수나 가입자 수는 얼마였는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 정식 출시 후 실제 다운로드 수나 가입자 수는 얼마였는가?</p><pre>문서에서 확인할 수 없음. 문서 범위(5/15)는 출시 전까지이며, 정식 출시(5/18) 후 실제 지표는 5/29 회고 회의(문서 범위 밖)에서 다뤄질 예정. 베타 지표(96명, 가입률 91%)는 있으나 정식 출시 지표는 없음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (출시 전, 지표 미기재)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록 103건입니다.** _(필터 없음)_
+
+- **[decision]** 5월 18일 안드로이드 정식 출시를 확정한다. iOS는 앱스토어 승인 즉시 순차 오픈한다. — 담당: **김태호**
+- **[decision]** 1.1 업데이트(실시간 채팅 포함)를 출시 3주 후인 6월 8일 목표로 확정한다. — 담당: **김태호**
+- **[decision]** 출시 후 2주간 사용자 지표 및 리뷰를 집중 모니터링하고, 5/29에 출시 회고 회의를 진행한다. — 담당: **김태호**
+- **[action]** 앱스토어 심사 결과 추적 및 마케팅 최종 세팅 (5/17까지) — 담당: **한지민** · **미완료**
+- **[action]** 5/18 안드로이드 출시 실행 — 담당: **박현우** · **미완료**
+- **[action]** 출시 후 서버 부하 모니터링 체계 준비 (5/17까지) — 담당: **이수진** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 개발 착수 (5/19까지) — 담당: **이수진** · **미완료**
+- **[action]** 5/29 출시 회고 회의 준비 (5/28까지) — 담당: **김태호** · **미완료**
+- **[action]** 1.1 실시간 채팅 UI 디자인 (5/25까지) — 담당: **정예린** · **미완료**
+- **[issue]** iOS 출시 정확한 시점 (앱스토어 승인 대기 중) — 담당: **김태호**
+- **[issue]** 정식 출시 서버 부하 규모 예측치 불확실 (실측 후 스케일링 판단) — 담당: **김태호**
+- **[issue]** 1.1 이후 2.0 방향성 (출시 회고에서 논의 예정) — 담당: **김태호**
+- **[decision]** 실시간 채팅은 5/18 출시에는 포함하지 않고, 출시 직후 1.1 업데이트의 최우선 기능으로 확정한다. — 담당: **김태호**
+- **[decision]** 모임 알림 지연 문제(11명 언급)를 출시 전까지 개선한다. — 담당: **김태호**
+- **[decision]** 5월 18일 출시일을 유지한다. — 담당: **김태호**
+- **[action]** 모임 알림 지연 원인 분석 및 개선 — 담당: **이수진** · **미완료**
+- **[action]** 베타 발견 잔여 버그 수정 및 스토어 빌드 준비 — 담당: **박현우** · **미완료**
+- **[action]** 앱스토어/플레이스토어 심사 제출 — 담당: **한지민** · **미완료**
+- **[action]** 스토어 등록용 스크린샷 및 소개 이미지 — 담당: **정예린** · **미완료**
+- **[action]** 1.1 업데이트(실시간 채팅) 로드맵 작성 — 담당: **김태호** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 기술 사전 조사 — 담당: **이수진** · **미완료**
+- **[risk]** 애플 심사 리젝 시 5/18 출시 영향 (리스크 — 심사 결과 대기 중) — 담당: **한지민**
+- **[issue]** 1.1 업데이트 출시 시점 미정 (출시 후 몇 주 내로 할지 미정) — 담당: **김태호**
+- **[decision]** 심각(critical) 버그 2건을 베타 시작 전(5/2)까지 반드시 해결한다. — 담당: **김태호**
+- **[decision]** 경미(minor) 버그 4건은 베타 기간 중 병행 수정하고, 정식 출시 전까지만 해결하면 되는 것으로 우선순위를 낮춘다. — 담당: **김태호**
+- **[action]** 이수진이 소셜 로그인 프로필 누락 버그 수정하겠습니다 (마감 4/27) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 지도 마커 미표시 버그 수정하겠습니다 (마감 4/27) — 담당: **박현우** · **미완료**
+- **[action]** 박현우가 게시판형 댓글 기능 완료하겠습니다 (마감 4/24) — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 베타 테스터 100명 모집 완료 및 보통 버그 6건 재검증하겠습니다 (마감 4/27) — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 베타 운영 계획 최종화하겠습니다 (마감 4/29) — 담당: **김태호** · **미완료**
+- **[issue]** 보통(major) 버그 6건 중 일부가 베타 전 미해결 시 대응 방안 논의 필요 — 담당: **한지민**
+- **[issue]** 앱스토어·플레이스토어 심사 제출 시점 결정 필요 (베타와 병행할지 베타 후 할지) — 담당: **한지민**
+- **[decision]** 클로즈드 베타 테스트를 100명 규모, 강남·판교 지역 한정으로 진행한다. — 담당: **김태호**
+- **[decision]** 베타 기간을 5월 2일부터 5월 8일까지 1주로 설정한다. — 담당: **김태호**
+- **[decision]** 푸시 알림은 MVP에서 모임 참여 관련 알림만 제공하고, 마케팅 알림은 출시 후로 미룬다. — 담당: **김태호**
+- **[action]** 모임 생성/참여 기능 완료 — 담당: **박현우** · **미완료**
+- **[action]** 푸시 알림(모임 참여) 연동 완료 — 담당: **이수진** · **미완료**
+- **[action]** 게시판형 댓글 기능 구현 — 담당: **박현우** · **미완료**
+- **[action]** 베타 테스터 100명 모집 및 온보딩 안내 준비 — 담당: **한지민** · **미완료**
+- **[action]** 베타용 온보딩 튜토리얼 화면 디자인 — 담당: **정예린** · **미완료**
+- **[action]** 베타 피드백 수집 폼 및 채널 구성 — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글의 실시간 채팅 전환은 베타 반응 보고 결정 — 담당: **김태호**
+- **[risk]** 베타에서 큰 결함 발견 시 출시일 재조정 가능성 — 담당: **김태호**
+- **[decision]** 출시일을 5월 11일에서 5월 18일로 1주 연기한다. — 담당: **김태호**
+- **[action]** 모임 탐색 화면(지도/리스트) 완료 (마감 4/13) — 담당: **박현우** · **미완료**
+- **[action]** 모임 생성/참여 기능 구현 (마감 4/17) — 담당: **박현우** · **미완료**
+- **[action]** 모임 참여 인원 관리 및 알림 로직 구현 (마감 4/17) — 담당: **이수진** · **미완료**
+- **[action]** 모임 상세 화면 및 댓글 UI 디자인 (마감 4/10) — 담당: **정예린** · **미완료**
+- **[action]** 완료 기능(로그인/회원/관심사) 정식 QA (마감 4/13) — 담당: **한지민** · **미완료**
+- **[action]** 마케팅 출시 일정 5/18 기준 재조정 (마감 4/8) — 담당: **김태호** · **미완료**
+- **[issue]** 게시판형 댓글로 충분할지, 사용자 반응 보고 실시간 채팅 검토할지 결정 미정 — 담당: **김태호**
+- **[issue]** 푸시 알림 범위(모임 참여 알림만 vs 마케팅 알림 포함) 미정 — 담당: **김태호**
+- **[decision]** 애플 로그인을 소셜 로그인에 추가한다. — 담당: **김태호**
+- **[decision]** 소셜 로그인 3종 추가로 인한 일정 부담을 반영하여, 리스크로 공식 등록하고 다음 회의에서 출시일 조정 여부를 결정한다. — 담당: **김태호**
+- **[risk]** 소셜 로그인 추가로 인한 출시일 지연 가능성 — 담당: **한지민**
+- **[risk]** 이메일 인증 스팸 문제(여전히 완전 해결 안 됨) — 담당: **한지민**
+- **[risk]** 애플 심사 리젝 가능성(첫 제출은 대개 한두 번 리젝됨) — 담당: **한지민**
+- **[action]** 박현우가 구글·애플 로그인 연동 완료 (마감 4/3) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트 진행 (마감 4/3) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 밀린 모임 탐색 화면 일정 재산정 (마감 4/1) — 담당: **박현우** · **미완료**
+- **[action]** 김태호가 출시일 조정 시나리오 3안 준비 (원안 유지/1주 연기/2주 연기, 마감 4/6) — 담당: **김태호** · **미완료**
+- **[action]** 한지민이 소셜 로그인 3종 통합 QA 진행 (마감 4/6) — 담당: **한지민** · **미완료**
+- **[issue]** 이메일 인증 문제 심화: 테스트 계정 20개 중 7개가 인증 메일이 스팸함으로 갔고, 2개는 아예 도착하지 않음. 실제 사용자 가입 단계 이탈 우려. — 담당: **한지민**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 단독에서 소셜 로그인(카카오/구글)을 MVP 핵심으로 추가하는 것으로 변경. 이메일 방식은 보조 수단으로 유지. — 담당: **김태호**
+- **[decision]** 모임 탐색 화면을 지도 뷰 + 리스트 뷰 토글 방식으로 구현하기로 결정. — 담당: **김태호**
+- **[decision]** 모임 생성 시 최소 2명, 최대 20명으로 인원을 제한하기로 결정. — 담당: **김태호**
+- **[action]** 카카오/구글 소셜 로그인 SDK 연동 진행 (마감 3/30). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 백엔드 인증 처리(OAuth) 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색 위치 검색 API 구현 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색/생성 화면 디자인 진행 (마감 3/27). — 담당: **정예린** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 구현 진행 (마감 4/3). — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 QA 시나리오 작성 진행 (마감 3/30). — 담당: **한지민** · **미완료**
+- **[risk]** 소셜 로그인 추가로 인한 일정 영향 평가 필요. — 담당: **김태호**
+- **[risk]** 애플 로그인 추가 여부 미확정, iOS 심사 시 소셜 로그인 있으면 애플 로그인 필수일 수 있음. — 담당: **김태호**
+- **[decision]** 관심사 카테고리를 6개 대분류(운동/스터디/취미/문화/푸드/반려동물), 대분류당 하위 최대 5개로 확정한다. — 담당: **김태호**
+- **[decision]** 이메일 발송 서비스를 AWS SES로 확정한다. — 담당: **이수진**
+- **[action]** 이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다 (마감 3/20) — 담당: **이수진** · **미완료**
+- **[action]** 정예린이 관심사 설정 화면 디자인 확정하겠습니다 (마감 3/20) — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 관심사 설정 화면 구현하겠습니다 (마감 3/23) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 모임 데이터 모델 및 위치 검색 API 설계하겠습니다 (마감 3/23) — 담당: **이수진** · **미완료**
+- **[action]** 한지민이 회원가입 플로우 QA 테스트하겠습니다 (마감 3/23) — 담당: **한지민** · **미완료**
+- **[risk]** 이메일 인증 스팸함 유입 문제 — 개선은 하되 근본 해결은 어려움 — 담당: **이수진**
+- **[decision]** 앱 개발 프레임워크를 Flutter로 확정한다. — 담당: **김태호**
+- **[decision]** 백엔드를 Node.js + PostgreSQL(PostGIS)로 확정한다. — 담당: **이수진**
+- **[decision]** 로그인 방식을 이메일 + 비밀번호 방식으로 확정한다. 소셜 로그인은 출시 후 2차 업데이트로 미룬다. — 담당: **김태호**
+- **[decision]** 채팅 기능은 실시간(WebSocket) 대신 비실시간 게시판형 댓글로 MVP에 구현한다. — 담당: **김태호**
+- **[action]** 이수진이 이메일 인증 기반 회원 시스템 설계 및 DB 스키마를 3/13까지 진행하겠습니다. — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 Flutter 프로젝트 셋업 및 공통 컴포넌트 구성을 3/13까지 진행하겠습니다. — 담당: **박현우** · **미완료**
+- **[action]** 정예린이 회원가입/로그인 화면 디자인을 3/13까지 진행하겠습니다. — 담당: **정예린** · **미완료**
+- **[action]** 한지민이 QA 테스트 시나리오 초안 작성을 3/16까지 진행하겠습니다. — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 기능 명세서 확정본 배포를 3/11까지 진행하겠습니다. — 담당: **김태호** · **미완료**
+- **[issue]** 이메일 인증 시 이메일 발송 서비스(SendGrid vs AWS SES) 선정 필요. — 담당: **정예린**
+- **[decision]** 앱 콘셉트를 &#x27;동네 500m 반경 초근접 모임 매칭&#x27;으로 확정한다. — 담당: **김태호**
+- **[decision]** MVP 핵심 기능을 회원가입, 관심사 설정, 모임 탐색, 모임 참여/생성, 채팅 5가지로 잠정 확정한다. — 담당: **김태호**
+- **[decision]** 출시 목표일을 2026년 5월 11일로 설정한다. — 담당: **김태호**
+- **[action]** 전체 기능 명세서 초안 작성 — 담당: **김태호** · **미완료**
+- **[action]** 사용자 플로우 및 와이어프레임 초안 작성 — 담당: **정예린** · **미완료**
+- **[action]** 기술 스택 검토 및 서버 아키텍처 초안 작성 — 담당: **이수진** · **미완료**
+- **[action]** 앱 개발 프레임워크 조사(네이티브 vs 크로스플랫폼) — 담당: **박현우** · **미완료**
+- **[action]** 경쟁 앱 3종 분석 및 타깃 리서치 — 담당: **한지민** · **미완료**
+- **[issue]** 채팅 기능을 실시간으로 구현할지, 비실시간(게시판형)으로 대체할지 미정 — 담당: **김태호**
+- **[issue]** 앱 개발을 네이티브로 할지 크로스플랫폼(Flutter/React Native)으로 할지 미정 — 담당: **김태호**
+- **[issue]** 로그인 방식(이메일 / 소셜 / 휴대폰 인증) 아직 논의 안 됨 — 담당: **김태호**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 7.51초</p><p><strong>판정 근거</strong> 정식 출시 후 지표가 없다고 기권해야 하지만 관련 없는 전체 기록을 반환했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>기록에서 정식 출시 후 실제 다운로드 수나 가입자 수에 대한 구체적인 수치는 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-23_로그인방식재논의_모임기능착수.md</p><p class="meta">tools=search_project_evidence · 4.52초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;정식 출시 다운로드 수 가입자 수&quot;, &quot;alternate_queries&quot;: [&quot;출시 후 실제 다운로드 수와 가입자 수&quot;, &quot;정식 출시 이후 다운로드 및 가입자 수 통계&quot;, &quot;출시 후 사용자 수와 다운로드 수&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C6</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>지도 마커 미표시 버그와 소셜 로그인 프로필 누락 버그는 각각 누가 수정했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 지도 마커 미표시 버그와 소셜 로그인 프로필 누락 버그는 각각 누가 수정했는가?</p><pre>지도 마커 미표시 버그는 박현우(프론트/앱), 소셜 로그인 프로필 누락 버그는 이수진(백엔드)이 수정. 프로필 누락은 OAuth 응답 파싱 문제였음.</pre><p class="meta"><strong>참고문항</strong> 4/20 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록이 없습니다.** _(분류=issue · 완료됨)_</pre><p class="meta"><strong>반환 출처</strong> 반환 없음</p><p class="meta">route=filter_lookup · 0.91초</p><p><strong>판정 근거</strong> 박현우·이수진이라는 근거가 있는데도 기록이 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**지도 마커 미표시 버그는 박현우가, 소셜 로그인 프로필 누락 버그는 이수진이 수정했다.**
+
+근거:
+- 구조화 기록에 따르면 박현우가 &quot;지도 마커 미표시 버그 수정&quot;을 담당했고, 이수진이 &quot;소셜 로그인 프로필 누락 버그 수정&quot;을 담당하는 액션이 각각 2026-04-20에 등록되어 있다.
+- 원문 맥락에서도 박현우가 지도 마커 버그를, 이수진이 소셜 로그인 프로필 누락 버그를 각각 확인하고 수정하기로 한 내용이 명시되어 있다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-20_출시전최종개발점검.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">tools=search_project_evidence · 5.79초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;지도 마커 미표시 버그 수정 담당자&quot;, &quot;alternate_queries&quot;: [&quot;지도 마커 버그 수정자&quot;, &quot;지도 마커 문제 해결 담당자&quot;]}}, {&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;소셜 로그인 프로필 누락 버그 수정 담당자&quot;, &quot;alternate_queries&quot;: [&quot;소셜 로그인 프로필 버그 수정자&quot;, &quot;소셜 로그인 문제 해결 담당자&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>C7</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>Modu 앱의 경쟁 앱 3종의 구체적인 이름은 무엇인가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> Modu 앱의 경쟁 앱 3종의 구체적인 이름은 무엇인가?</p><pre>문서에서 확인할 수 없음. 3/2 회의에서 한지민이 &quot;경쟁 앱 3종 분석&quot;을 액션으로 맡았고 3/9에 분석 결과(이메일+소셜 로그인 함께 제공하는 추세)를 보고했으나, 구체적인 경쟁 앱 이름은 회의록에 기재되지 않음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (문서 내 미언급)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**Modu 앱의 경쟁 앱 3종의 구체적인 이름은 기록에서 확인되지 않는다.**
+
+- [구조화 기록]과 [원문 맥락] 모두 경쟁 앱 3종 분석 및 타깃 리서치가 필요하다는 액션 아이템(한지민 담당, 3/2일자)이 있으나, 구체적인 앱 이름이나 상세 내용은 명시되어 있지 않다.
+- 원문 맥락 3/2일 회의록에서도 &quot;경쟁 앱들이 이미 있지만&quot;이라는 일반적 언급만 있을 뿐, 특정 앱 명칭은 나오지 않는다.
+- 따라서, 현재까지 프로젝트 기록 내에서는 경쟁 앱 3종의 구체적 이름과 세부 내용이 제공되지 않았다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-03-09_기술스택확정_로그인방식결정.md</p><p class="meta">route=semantic · 17.46초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>Modu 앱의 경쟁 앱 3종의 구체적인 이름은 기록에서 확인되지 않는다.</pre><p class="meta"><strong>반환 출처</strong> 2026-03-02_킥오프_앱방향정의.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-23_로그인방식재논의_모임기능착수.md</p><p class="meta">tools=search_project_evidence · 4.36초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;Modu 앱 경쟁 앱 3종 이름&quot;, &quot;alternate_queries&quot;: [&quot;Modu 앱 경쟁 앱 이름 3가지&quot;, &quot;Modu 앱과 경쟁하는 앱 3종&quot;, &quot;Modu 앱 경쟁 앱 구체적 명칭&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item fail">
+ <summary><strong>C8</strong><span class="badge fail">불일치</span><span class="badge pass">일치</span><span>모임 알림 지연 문제는 누가, 어떻게 해결했는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 모임 알림 지연 문제는 누가, 어떻게 해결했는가?</p><pre>이수진(백엔드)이 해결. 원인은 푸시 큐 처리 방식 문제였고, 개선 후 알림 지연이 평균 8초에서 1초 이내로 줄었음.</pre><p class="meta"><strong>참고문항</strong> 5/15 회의록</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge fail">불일치</span></h3><pre>**조건에 맞는 기록이 없습니다.** _(분류=issue · 완료됨)_</pre><p class="meta"><strong>반환 출처</strong> 반환 없음</p><p class="meta">route=filter_lookup · 1.71초</p><p><strong>판정 근거</strong> 이수진과 푸시 큐 개선 근거가 있는데도 기록이 없다고 잘못 기권했다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>**모임 알림 지연 문제는 이수진이 푸시 큐 처리 방식 문제를 분석하고 개선하여 해결했다.**
+
+근거:
+- 이수진(백엔드)이 2026-05-11에 모임 알림 지연 원인 분석 및 개선 작업을 담당했으며, 이 작업은 미완료 상태였다가 5월 중에 해결됨.
+- 원문 맥락에 따르면, 푸시 큐 처리 방식 문제를 찾아 개선한 결과 알림 지연이 평균 8초에서 1초 이내로 줄었다고 명시되어 있다.
+- 박현우(프론트/앱)는 베타 잔여 버그를 모두 수정 완료했고 스토어 빌드도 최종본으로 준비했다고 보고했다.</pre><p class="meta"><strong>반환 출처</strong> 2026-04-06_출시일조정_개발중간점검.md, 2026-04-20_출시전최종개발점검.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md</p><p class="meta">tools=search_project_evidence · 6.41초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;모임 알림 지연 문제 해결 담당자 및 방법&quot;, &quot;alternate_queries&quot;: [&quot;모임 알림 지연 문제 누가 해결했나&quot;, &quot;모임 알림 지연 문제 해결 방법&quot;, &quot;모임 알림 지연 문제 담당자&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item pass">
+ <summary><strong>C9</strong><span class="badge pass">일치</span><span class="badge pass">일치</span><span>1.1 업데이트 이후 2.0 버전에는 어떤 기능이 들어가는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 1.1 업데이트 이후 2.0 버전에는 어떤 기능이 들어가는가?</p><pre>문서에서 확인할 수 없음. 5/15 회의 미해결 쟁점에 &quot;1.1 이후 2.0 방향성은 출시 회고에서 논의 예정&quot;으로만 되어 있고, 구체적인 2.0 기능은 회의록에 없음.</pre><p class="meta"><strong>참고문항</strong> 해당 없음 (미정, 논의 예정)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge pass">일치</span></h3><pre>**1.1 업데이트 이후 2.0 버전의 구체 기능 내용은 기록에서 확인되지 않는다.**
+
+근거 및 상세:
+- [issue] 1.1 이후 2.0 방향성은 2026-05-15일에 출시 회고에서 논의 예정으로만 명시되어 있다.
+- 1.1 업데이트는 실시간 채팅 기능을 포함하여 6월 8일 목표로 확정되었으나, 2.0 버전의 기능 범위나 방향성에 대한 구체 결정이나 계획은 아직 없다.
+- 원문 맥락과 구조화 기록 모두 2.0 버전 관련 구체 기능 내용은 언급하지 않고, 2.0 방향성은 향후 회고에서 논의할 예정임만 확인된다.
+- 따라서 2.0 버전의 기능은 현재 시점에서 기록에 근거해 답변할 수 없다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-03-02_킥오프_앱방향정의.md, 2026-04-20_출시전최종개발점검.md</p><p class="meta">route=semantic · 16.41초</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>1.1 업데이트 이후 2.0 버전의 구체적인 기능 목록은 기록에 명확히 나와 있지 않으나, 1.1 업데이트에서는 실시간 채팅 기능이 최우선으로 포함되며, 2.0 버전 방향성은 2026년 5월 15일 출시 회고에서 논의 예정임이 확인된다.
+
+즉, **2.0 버전의 구체적 기능은 아직 결정되지 않았고, 1.1 업데이트에는 실시간 채팅 기능이 포함된다**는 점이 명확하다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-02_킥오프_앱방향정의.md, 2026-05-11_베타결과리뷰_출시반영사항.md</p><p class="meta">tools=search_project_evidence · 5.23초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;2.0 버전 기능&quot;, &quot;alternate_queries&quot;: [&quot;2.0 버전 업데이트 내용&quot;, &quot;버전 2.0에 포함된 기능&quot;, &quot;1.1 이후 2.0 버전 기능&quot;]}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details>
+<details class="item partial">
+ <summary><strong>C10</strong><span class="badge partial">부분일치</span><span class="badge pass">일치</span><span>실시간 채팅 WebSocket 개발 착수는 누가 담당하며 언제 시작하는가?</span></summary>
+ <div class="gold"><h3>골든</h3><p><strong>질문</strong> 실시간 채팅 WebSocket 개발 착수는 누가 담당하며 언제 시작하는가?</p><pre>이수진(백엔드)이 담당, 2026년 5월 19일 착수. (사전 조사는 5/15까지 완료)</pre><p class="meta"><strong>참고문항</strong> 5/11 회의록, 5/15 회의록 (액션 아이템)</p></div>
+ <div class="compare">
+  <article class="answer"><h3>기존 방식 <span class="badge partial">부분일치</span></h3><pre>**조건에 맞는 기록 55건입니다.** _(분류=action · 미완료)_
+
+- **[action]** 1.1 실시간 채팅 UI 디자인 (5/25까지) — 담당: **정예린** · **미완료**
+- **[action]** 5/29 출시 회고 회의 준비 (5/28까지) — 담당: **김태호** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 개발 착수 (5/19까지) — 담당: **이수진** · **미완료**
+- **[action]** 출시 후 서버 부하 모니터링 체계 준비 (5/17까지) — 담당: **이수진** · **미완료**
+- **[action]** 5/18 안드로이드 출시 실행 — 담당: **박현우** · **미완료**
+- **[action]** 앱스토어 심사 결과 추적 및 마케팅 최종 세팅 (5/17까지) — 담당: **한지민** · **미완료**
+- **[action]** 실시간 채팅 WebSocket 기술 사전 조사 — 담당: **이수진** · **미완료**
+- **[action]** 1.1 업데이트(실시간 채팅) 로드맵 작성 — 담당: **김태호** · **미완료**
+- **[action]** 스토어 등록용 스크린샷 및 소개 이미지 — 담당: **정예린** · **미완료**
+- **[action]** 앱스토어/플레이스토어 심사 제출 — 담당: **한지민** · **미완료**
+- **[action]** 베타 발견 잔여 버그 수정 및 스토어 빌드 준비 — 담당: **박현우** · **미완료**
+- **[action]** 모임 알림 지연 원인 분석 및 개선 — 담당: **이수진** · **미완료**
+- **[action]** 한지민이 베타 테스터 100명 모집 완료 및 보통 버그 6건 재검증하겠습니다 (마감 4/27) — 담당: **한지민** · **미완료**
+- **[action]** 이수진이 소셜 로그인 프로필 누락 버그 수정하겠습니다 (마감 4/27) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 지도 마커 미표시 버그 수정하겠습니다 (마감 4/27) — 담당: **박현우** · **미완료**
+- **[action]** 박현우가 게시판형 댓글 기능 완료하겠습니다 (마감 4/24) — 담당: **박현우** · **미완료**
+- **[action]** 김태호가 베타 운영 계획 최종화하겠습니다 (마감 4/29) — 담당: **김태호** · **미완료**
+- **[action]** 베타 피드백 수집 폼 및 채널 구성 — 담당: **김태호** · **미완료**
+- **[action]** 베타용 온보딩 튜토리얼 화면 디자인 — 담당: **정예린** · **미완료**
+- **[action]** 베타 테스터 100명 모집 및 온보딩 안내 준비 — 담당: **한지민** · **미완료**
+- **[action]** 게시판형 댓글 기능 구현 — 담당: **박현우** · **미완료**
+- **[action]** 푸시 알림(모임 참여) 연동 완료 — 담당: **이수진** · **미완료**
+- **[action]** 모임 생성/참여 기능 완료 — 담당: **박현우** · **미완료**
+- **[action]** 모임 생성/참여 기능 구현 (마감 4/17) — 담당: **박현우** · **미완료**
+- **[action]** 마케팅 출시 일정 5/18 기준 재조정 (마감 4/8) — 담당: **김태호** · **미완료**
+- **[action]** 완료 기능(로그인/회원/관심사) 정식 QA (마감 4/13) — 담당: **한지민** · **미완료**
+- **[action]** 모임 상세 화면 및 댓글 UI 디자인 (마감 4/10) — 담당: **정예린** · **미완료**
+- **[action]** 모임 참여 인원 관리 및 알림 로직 구현 (마감 4/17) — 담당: **이수진** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 완료 (마감 4/13) — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 소셜 로그인 3종 통합 QA 진행 (마감 4/6) — 담당: **한지민** · **미완료**
+- **[action]** 김태호가 출시일 조정 시나리오 3안 준비 (원안 유지/1주 연기/2주 연기, 마감 4/6) — 담당: **김태호** · **미완료**
+- **[action]** 박현우가 밀린 모임 탐색 화면 일정 재산정 (마감 4/1) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 애플 OAuth 처리 및 소셜 로그인 통합 테스트 진행 (마감 4/3) — 담당: **이수진** · **미완료**
+- **[action]** 박현우가 구글·애플 로그인 연동 완료 (마감 4/3) — 담당: **박현우** · **미완료**
+- **[action]** 소셜 로그인 QA 시나리오 작성 진행 (마감 3/30). — 담당: **한지민** · **미완료**
+- **[action]** 모임 탐색 화면(지도/리스트) 구현 진행 (마감 4/3). — 담당: **박현우** · **미완료**
+- **[action]** 모임 탐색/생성 화면 디자인 진행 (마감 3/27). — 담당: **정예린** · **미완료**
+- **[action]** 모임 탐색 위치 검색 API 구현 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 소셜 로그인 백엔드 인증 처리(OAuth) 진행 (마감 3/30). — 담당: **이수진** · **미완료**
+- **[action]** 카카오/구글 소셜 로그인 SDK 연동 진행 (마감 3/30). — 담당: **박현우** · **미완료**
+- **[action]** 한지민이 회원가입 플로우 QA 테스트하겠습니다 (마감 3/23) — 담당: **한지민** · **미완료**
+- **[action]** 이수진이 이메일 인증 스팸 이슈 개선(SPF/DKIM 설정) 진행하겠습니다 (마감 3/20) — 담당: **이수진** · **미완료**
+- **[action]** 정예린이 관심사 설정 화면 디자인 확정하겠습니다 (마감 3/20) — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 관심사 설정 화면 구현하겠습니다 (마감 3/23) — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 모임 데이터 모델 및 위치 검색 API 설계하겠습니다 (마감 3/23) — 담당: **이수진** · **미완료**
+- **[action]** 김태호가 기능 명세서 확정본 배포를 3/11까지 진행하겠습니다. — 담당: **김태호** · **미완료**
+- **[action]** 한지민이 QA 테스트 시나리오 초안 작성을 3/16까지 진행하겠습니다. — 담당: **한지민** · **미완료**
+- **[action]** 정예린이 회원가입/로그인 화면 디자인을 3/13까지 진행하겠습니다. — 담당: **정예린** · **미완료**
+- **[action]** 박현우가 Flutter 프로젝트 셋업 및 공통 컴포넌트 구성을 3/13까지 진행하겠습니다. — 담당: **박현우** · **미완료**
+- **[action]** 이수진이 이메일 인증 기반 회원 시스템 설계 및 DB 스키마를 3/13까지 진행하겠습니다. — 담당: **이수진** · **미완료**
+- **[action]** 전체 기능 명세서 초안 작성 — 담당: **김태호** · **미완료**
+- **[action]** 경쟁 앱 3종 분석 및 타깃 리서치 — 담당: **한지민** · **미완료**
+- **[action]** 앱 개발 프레임워크 조사(네이티브 vs 크로스플랫폼) — 담당: **박현우** · **미완료**
+- **[action]** 기술 스택 검토 및 서버 아키텍처 초안 작성 — 담당: **이수진** · **미완료**
+- **[action]** 사용자 플로우 및 와이어프레임 초안 작성 — 담당: **정예린** · **미완료**</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-04-20_출시전최종개발점검.md, 2026-04-13_모임핵심기능점검_베타준비.md, 2026-04-06_출시일조정_개발중간점검.md, 2026-03-30_소셜로그인점검_일정리스크평가.md, 2026-03-23_로그인방식재논의_모임기능착수.md, 2026-03-16_회원시스템점검_관심사확정.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">route=filter_lookup · 1.10초</p><p><strong>판정 근거</strong> 이수진·5/19 착수 행을 반환했지만 질문의 직접 답으로 종합하지 않았다.</p></article>
+  <article class="answer"><h3>Agentic <span class="badge pass">일치</span></h3><pre>실시간 채팅 WebSocket 개발 착수는 **이수진이 담당하며 5월 19일에 시작**한다.</pre><p class="meta"><strong>반환 출처</strong> 2026-05-15_출시최종점검_1.1로드맵확정.md, 2026-05-11_베타결과리뷰_출시반영사항.md, 2026-03-09_기술스택확정_로그인방식결정.md, 2026-03-02_킥오프_앱방향정의.md</p><p class="meta">tools=search_project_evidence · 2.96초</p><p class="tool">호출: [{&quot;name&quot;: &quot;search_project_evidence&quot;, &quot;args&quot;: {&quot;query&quot;: &quot;실시간 채팅 WebSocket 개발 착수 담당자 및 시작일&quot;}}]</p><p><strong>판정 근거</strong> 질문이 요구한 핵심 사실과 골든 답변이 일치한다.</p></article>
+ </div>
+</details></main></body></html>

@@ -1,0 +1,242 @@
+{
+  "M-OV01": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "5월 18일 출시와 실시간 채팅의 1.1 이관은 언급했지만 6월 8일 목표, iOS 승인 대기, 출시 후 모니터링을 충분히 답하지 않았다. 이미 정리된 소셜 로그인과 이메일 인증도 현재 과제처럼 남겨 시간적 최신성이 낮다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV02": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "결정 26건, 액션 55건, 이슈 16건, 리스크 6건은 정확하다. 그러나 현재 대표 액션으로 3월 2일의 기능 명세서 초안만 골랐고 필수적인 5월 18일 안드로이드 출시 액션을 누락했다.",
+    "failure_codes": ["OUTDATED_ACTION_AS_CURRENT", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV03": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "5월 18일, 소셜 로그인, 애플 심사, 이메일 스팸, 실시간 채팅 1.1이라는 주제는 대부분 포함했다. 다만 베타 모집·QA·버그 수정을 여전히 진행 중으로 서술하고, completion_status가 unknown인 누적 액션을 현재 미완료 상태처럼 사용해 최신 원문과 어긋난다.",
+    "failure_codes": ["STALE_STATE", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV04": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "카테고리 수와 5월 18일 일정, iOS 심사, 서버 부하는 언급했지만 6월 8일 실시간 채팅 일정을 누락했다. 모든 액션이 unknown이라는 DB 상태를 근거로 프로젝트를 베타 단계의 미확인 상태로 축약해 실제 완료된 기능과 버그 개선을 반영하지 못했다.",
+    "failure_codes": ["MISSING_FACT", "UNKNOWN_AS_OPEN", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV05": {
+    "answer_verdict": "FAIL",
+    "rationale": "1분 브리핑에 필요한 가입률 91%, 리텐션 64%, 안드로이드·iOS 출시 상태, 버그와 알림 지연 개선, 2주 모니터링, 5월 29일 회고를 거의 모두 누락했다. 이미 끝난 기능 개발과 베타 준비를 진행 중으로 설명하고 전체 작업에 완료 확인이 없다고 결론냈다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV06": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "iOS 심사와 서버 부하 위험은 일부 맞췄지만 플레이스토어 승인, 앱스토어 리젝 후 재제출, 안드로이드 기능·버그·빌드 준비 완료를 명확히 답하지 않았다. 해결되거나 대체된 소셜 로그인과 이메일 인증을 현재 핵심 우려로 다시 제시했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV07": {
+    "answer_verdict": "FAIL",
+    "rationale": "완료된 작업이 없고 일정·품질·운영 상태가 모두 불확실하다고 단정했다. 이는 주요 기능, 잔여 버그, 스토어 빌드와 알림 지연 개선이 완료됐다는 최신 원문과 충돌하며, 안드로이드·iOS 일정과 실제 품질 상태도 놓쳤다.",
+    "failure_codes": ["UNKNOWN_AS_OPEN", "FALSE_STATUS", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV08": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "최신 담당 업무 일부는 포함했지만 팀원별 누적 과거 액션을 거의 전부 현재 할 일처럼 덤프했다. 기능 명세서 초안의 실제 마감 3월 6일 대신 원문 생성일 3월 2일을 마감처럼 쓰는 등 날짜 의미도 혼동했고, unknown을 현재 미완료 상태처럼 덧붙였다.",
+    "failure_codes": ["OVERLISTED_ACTION_HISTORY", "OUTDATED_ACTION_AS_CURRENT", "SOURCE_DATE_AS_DEADLINE", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV09": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "5월 18일 안드로이드 출시, iOS 승인 후 오픈, 실시간 채팅 1.1은 맞다. 그러나 남은 일로 이미 끝난 댓글 개발, 베타 모집, QA를 제시했고 6월 8일 목표와 서버 부하 모니터링 등 최신 남은 일·위험을 충분히 반영하지 못했다.",
+    "failure_codes": ["STALE_STATE", "MISSING_FACT", "OUTDATED_ACTION_AS_CURRENT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-OV10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "전반적으로 순조롭다는 판단과 5월 18일 안드로이드 출시, 실시간 채팅 개발 착수는 맞다. 하지만 iOS 승인 대기와 서버 부하 불확실성을 막힌 부분으로 정확히 정리하지 못하고 소셜 로그인·이메일 인증을 현재 과제로 다시 언급했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX01": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "카테고리 수와 베타 7일 리텐션 64%는 정확하다. 대표 액션은 오래된 기능 명세서 초안만 들었고 필수 사실인 5월 18일 안드로이드 출시를 누락했다.",
+    "failure_codes": ["MISSING_FACT", "OUTDATED_ACTION_AS_CURRENT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX02": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "카테고리 수와 푸시 큐 개선에 따른 8초에서 1초 이내 단축은 정확하다. 그러나 현재 대표 액션으로 필요한 WebSocket 개발 착수 등을 충분히 제시하지 않았고, 액션 55건의 unknown 상태를 프로젝트 전체 진행 상태처럼 과대 해석했다.",
+    "failure_codes": ["MISSING_FACT", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX03": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "애플 심사가 출시 전략에 미치는 설명은 정확하지만 한지민 담당 리스크를 3건으로 답했다. 동결 메모리 기준 실제 4건 중 '애플 심사 리젝 시 5월 18일 출시 영향' 기록을 별도 항목으로 누락했다.",
+    "failure_codes": ["INCOMPLETE_LIST", "WRONG_COUNT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX04": {
+    "answer_verdict": "PASS",
+    "rationale": "이수진 담당 결정인 Node.js·PostgreSQL(PostGIS) 확정과 AWS SES 확정을 모두 제시했고, 비용 효율성과 기존 AWS 인프라 연동 용이라는 선택 이유도 정확히 설명했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX05": {
+    "answer_verdict": "FAIL",
+    "rationale": "출시 연기의 주된 이유를 베타 잔여 버그, 스토어 심사, 마케팅 일정으로 잘못 설명했다. 원문상 핵심 원인은 소셜 로그인 3종 추가로 모임 탐색 화면이 약 1주 지연되고 QA 기간이 부족해진 것이다.",
+    "failure_codes": ["WRONG_CAUSALITY", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX06": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "지도 마커 미표시와 소셜 로그인 프로필 누락이라는 심각 버그 2건은 정확하다. 그러나 플레이스토어 승인, 앱스토어 리젝 후 재제출, 알림 8초에서 1초 개선, iOS 심사와 1.1 이후 로드맵 위험 등 출시 준비 핵심을 다수 누락했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX07": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "5월 18일 출시와 실시간 채팅의 1.1 이관은 맞다. 다만 베타에서 23명이 요청했지만 출시를 다시 미루지 않기 위해 후속 버전으로 보냈다는 핵심 이유를 놓치고 WebSocket 조사 필요라는 일반적 이유로 대체했으며 베타·QA도 진행 중으로 서술했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX08": {
+    "answer_verdict": "FAIL",
+    "rationale": "박현우 담당 액션 15건 중 8건만 제시해 '전부' 요청을 충족하지 못했다. 이메일 인증 20건 중 7건 스팸, 2건 미도착을 구분하지 않았고 실제 사용자 이탈이 발생했다고 과장했지만 원문은 가입 이탈 위험을 예상한 것이다.",
+    "failure_codes": ["INCOMPLETE_LIST", "TRUNCATED_RESULT", "OVERCLAIMED_EVIDENCE", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX09": {
+    "answer_verdict": "FAIL",
+    "rationale": "푸시 큐 처리 개선으로 알림 지연이 8초에서 1초 이내로 줄었다는 설명은 정확하다. 그러나 이수진 담당 액션 14건 중 8건만 제시해 목록 완전성 요구를 크게 위반했다.",
+    "failure_codes": ["INCOMPLETE_LIST", "TRUNCATED_RESULT"],
+    "review_basis": "manual_source_audit"
+  },
+  "M-MX10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "베타 지표와 추가 연기 위험을 근거로 5월 18일을 유지했다는 설명은 대체로 맞다. 김태호 담당 액션은 실제 8건인데 7건으로 답했고 베타 피드백 수집 폼·채널 구성을 누락했다.",
+    "failure_codes": ["INCOMPLETE_LIST", "WRONG_COUNT", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV01": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "6월 30일 배포, re-ranking, 1주 모니터링, 3일 시점 QA 계획은 맞다. 7월 3일 2차 개선 회의를 누락했고 이미 완료된 개선 작업을 unknown 상태와 결합해 초중순 작업이 아직 예정·진행 중인 것처럼 서술했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV02": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "결정 15건, 액션 30건, 이슈 11건, 리스크 0건은 정확하다. 그러나 현재 대표 액션 대신 6월 2일 초기 대응 5건만 제시해 스테이징 확인, 프로덕션 배포, 모니터링, QA 재측정, 계약 협의를 놓쳤다.",
+    "failure_codes": ["OUTDATED_ACTION_AS_CURRENT", "MISSING_FACT", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV03": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "지식 베이스, semantic chunking, 하이브리드 검색, re-ranking, 6월 30일 배포는 포함했다. 멀티턴의 2차 배포 분리를 누락했고 모든 작업을 진행 중이라고 단정해 unknown을 open 상태로 오해했다.",
+    "failure_codes": ["MISSING_FACT", "UNKNOWN_AS_OPEN", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV04": {
+    "answer_verdict": "FAIL",
+    "rationale": "카테고리 수는 맞지만 이슈의 구체 내용이 요약에 없다고 스스로 밝혀 질문의 핵심인 데이터 공유, 유지보수 범위·비용, 운영 비용 조정 등 남은 쟁점을 답하지 않았다. 모든 액션을 진행 중으로 해석한 점도 completion_status 의미와 다르다.",
+    "failure_codes": ["MISSING_FACT", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV05": {
+    "answer_verdict": "FAIL",
+    "rationale": "핵심 성과인 정답률 55%에서 87% 향상을 누락하고 이미 완료된 개선을 예정·진행 중으로 설명했다. 또한 스테이징 확인과 프로덕션 배포를 6월 27일 계획으로 적었지만 원문 일정은 6월 30일 오전과 오후 2시다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE", "WRONG_DATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV06": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "6월 30일 배포, 아직 남은 스테이징 확인, 1주 모니터링, 3일 시점 QA, 프로덕션 품질 위험은 정확하다. 최종 QA 87%와 계약 연장·2차 범위·파인튜닝 데이터·관리자 UI 관련 미확정 위험을 누락했다.",
+    "failure_codes": ["MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV07": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "6월 30일 일정과 월 3~5만 원 수준의 비용 증가는 맞다. 품질의 핵심인 정답률 55%에서 87% 향상을 누락하고 모델 업데이트와 QA를 여전히 개선 중인 상태로 표현했다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV08": {
+    "answer_verdict": "FAIL",
+    "rationale": "강다은의 멀티턴 설계 문서 작업을 누락하고 이지훈의 계약 연장 협의도 빠뜨렸다. 과거 액션을 남은 일로 다시 나열했으며 현재 쟁점인 배포 후 품질, 2차 범위, 계약 협의 대신 이전 단계의 QA 기준과 세션·DB 설계를 제시했다.",
+    "failure_codes": ["MISSING_FACT", "OUTDATED_ACTION_AS_CURRENT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV09": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "1차 개선 범위와 6월 30일 일정, 후속 액션 일부는 맞다. 짧은 경영진 보고 요청에 과거 액션 표를 과도하게 나열했고, 위험 요소를 프로덕션 품질과 fallback 안정성 대신 이미 지나간 멀티턴·QA 기준 쟁점 중심으로 제시했다.",
+    "failure_codes": ["MISSING_FACT", "OUTDATED_ACTION_AS_CURRENT", "OVERLISTED_ACTION_HISTORY", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-OV10": {
+    "answer_verdict": "FAIL",
+    "rationale": "최종 QA 87% 대신 중간 결과 80%를 현재 성과로 제시하고 이미 결정된 re-ranking과 검색 개선을 미해결로 돌렸다. 배포일도 6월 27일로 잘못 적었으며 계약 연장, 2차 범위, 관리자 UI 등 실제 최신 쟁점을 누락했다.",
+    "failure_codes": ["WRONG_METRIC", "WRONG_DATE", "STALE_STATE", "RESOLVED_ISSUE_AS_CURRENT", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX01": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "카테고리 수는 정확하지만 원문에 있는 최종 전체 정답률 87%, 개선 전 55%, 32%p 상승을 확인할 수 없다고 답해 질문의 절반을 놓쳤다. 대표 액션도 초기 대응 위주로 골랐다.",
+    "failure_codes": ["MISSING_FACT", "FALSE_ABSTAIN", "OUTDATED_ACTION_AS_CURRENT"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX02": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "카테고리 수와 fallback 18%, 반품·교환 31%는 정확하다. 그러나 프로덕션 배포일을 6월 27일로 적었고 실제 원문 일정은 6월 30일이며, unknown 상태를 전체 프로젝트 진행 상태로 과대 해석했다.",
+    "failure_codes": ["WRONG_DATE", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX03": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "표에는 박서연 담당 액션 7건을 모두 제시하고 re-ranking의 75%에서 88%, 13%p, 0.6초 근거도 정확히 설명했다. 하지만 첫 문장에서 총 6건이라고 해 자기 답변 및 동결 메모리 수량과 모순된다.",
+    "failure_codes": ["WRONG_COUNT", "SELF_CONTRADICTION"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX04": {
+    "answer_verdict": "PASS",
+    "rationale": "강다은 담당 액션 4건을 모두 제시했고 멀티턴이 촉박한 1차 일정, 고객사 비명시 요구, 품질 위험 때문에 2차 배포로 분리됐다는 이유를 정확히 설명했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX05": {
+    "answer_verdict": "FAIL",
+    "rationale": "re-ranking 전후 응답 시간을 2.3초에서 2.9초로 답했지만 원문 정답은 1차 개선 후 1.9초에서 적용 후 2.5초로 0.6초 증가다. 전체 정답률 80%에서 최종 87%로 이어진 흐름도 누락하고 주요 작업을 모두 완료 미확인으로 처리했다.",
+    "failure_codes": ["WRONG_METRIC", "MISSING_FACT", "UNKNOWN_AS_OPEN"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX06": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "데이터 준비·라벨링에 최소 2주 이상 필요하고 리소스와 일정상 병행할 수 없어 파인튜닝을 제외했다는 설명은 정확하다. 하지만 완료된 개선 묶음과 회원·포인트 지식 부족, 멀티턴 미도입, 프로덕션 모니터링 위험을 충분히 답하지 않았다.",
+    "failure_codes": ["MISSING_FACT", "STALE_STATE"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX07": {
+    "answer_verdict": "PASS",
+    "rationale": "유지보수의 개선·QA·배포·모니터링 흐름을 요약하고 반품 정답률이 55%에서 90%, 최종 90%로 유지됐다는 세 단계 수치를 정확히 답했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX08": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "윤재혁 담당 액션 5건은 표에 모두 포함했지만 총 6건이라고 해 자기모순을 만들었다. 또한 최종 87%가 6월 30일 배포 후 재측정에서 나온 것처럼 설명했으나 실제로는 6월 27일 배포 전 최종 QA 결과다.",
+    "failure_codes": ["WRONG_COUNT", "WRONG_TIMELINE", "SELF_CONTRADICTION"],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX09": {
+    "answer_verdict": "PASS",
+    "rationale": "최민준 담당 액션 7건을 모두 제시했고 cross-encoder 기반 re-ranking 때문에 응답 시간이 1.9초에서 2.5초로 약 0.6초 증가했다는 이유를 정확히 설명했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-MX10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "멀티턴이 촉박한 일정, 고객사 비명시 요구, 품질 위험 때문에 2차 배포로 미뤄졌다는 이유는 정확하다. 그러나 11건 이슈에 limit 10을 적용해 관리자 UI 등을 누락했고, 이후 해결된 검색 방식과 re-ranking 결정을 현재 이슈로 다시 제시했다.",
+    "failure_codes": ["INCOMPLETE_LIST", "TRUNCATED_RESULT", "RESOLVED_ISSUE_AS_CURRENT", "MISSING_FACT"],
+    "review_basis": "manual_source_audit"
+  }
+}

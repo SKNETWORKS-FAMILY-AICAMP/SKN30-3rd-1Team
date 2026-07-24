@@ -95,13 +95,23 @@ def _split_text(text: str) -> List[str]:
 
 def _completed_at_sql(item: MemoryItem, item_date: Optional[str], source_date: str) -> tuple[str, list]:
     """completed=true 항목의 완료 시각 SQL 조각을 만든다."""
-    if not item.completed:
+    if item.category != "action" or not item.completed:
         return "%s", [None]
 
     completed_date = item_date or _normalize_date(source_date)
     if completed_date:
         return "%s", [f"{completed_date} 00:00:00"]
     return "NOW()", []
+
+
+def _completion_status(item: MemoryItem) -> str:
+    if item.category != "action":
+        return "unknown"
+    if item.completed is True:
+        return "completed"
+    if item.completed is False:
+        return "open"
+    return "unknown"
 
 
 def _insert_memory_source(
@@ -160,12 +170,20 @@ def ingest(
                 # 후보가 될 때 시간순서 검증(과거 문서가 최신 결정을 번복 못 함)이 유지된다.
                 item_date = _normalize_date(item.date) or _normalize_date(date)
                 completed_sql, completed_params = _completed_at_sql(item, item_date, date)
+                completion_status = _completion_status(item)
+                completion_source = None
+                if item.category == "action" and item.completed is not None:
+                    completion_source = (source_metadata or {}).get("source_kind") or (
+                        "repository" if repo_id is not None else "document"
+                    )
                 cursor.execute(
                     f"""
                     INSERT INTO memory
                         (project_id, doc_id, repo_id, category, content,
-                         reason, topic, owner, date, source, completed_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, {completed_sql})
+                         reason, topic, owner, date, source, completed_at,
+                         completion_status, completion_status_source)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            {completed_sql}, %s, %s)
                     """,
                     [
                         project_id, doc_id, repo_id,
@@ -173,7 +191,7 @@ def ingest(
                         item.reason, item.topic,
                         item.owner, item_date,
                         source,
-                    ] + completed_params,
+                    ] + completed_params + [completion_status, completion_source],
                 )
                 memory_id = cursor.lastrowid
                 completed_at = completed_params[0] if completed_params else "NOW"
@@ -191,6 +209,8 @@ def ingest(
                     "date": item_date,
                     "due_date": None,
                     "completed_at": completed_at if item.completed else None,
+                    "completion_status": completion_status,
+                    "completion_status_source": completion_source,
                     "source": source,
                 })
         conn.commit()

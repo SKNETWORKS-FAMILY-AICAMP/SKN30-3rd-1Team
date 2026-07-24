@@ -89,8 +89,19 @@ def _format_summary_memory_row(row: dict) -> str:
         meta.append(f"담당: {row['owner']}")
     if row.get("due_date"):
         meta.append(f"마감: {str(row['due_date'])[:10]}")
-    if row.get("completed_at"):
-        meta.append(f"완료: {str(row['completed_at'])[:10]}")
+    if row.get("category") == "action":
+        status = row.get("completion_status") or (
+            "completed" if row.get("completed_at") else "unknown"
+        )
+        if status == "completed":
+            meta.append(
+                f"완료: {str(row['completed_at'])[:10]}"
+                if row.get("completed_at") else "완료"
+            )
+        elif status == "open":
+            meta.append("미완료")
+        else:
+            meta.append("완료 여부 미확인")
     meta_text = f" ({', '.join(meta)})" if meta else ""
     return f"[{row['category']}] {row['content']}{meta_text}"
 
@@ -104,7 +115,7 @@ def regenerate_project_memory(project_id: int) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT category, content, owner, due_date, completed_at"
+                "SELECT category, content, owner, due_date, completed_at, completion_status"
                 " FROM active_memory WHERE project_id = %s"
                 " ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC",
                 (project_id,),

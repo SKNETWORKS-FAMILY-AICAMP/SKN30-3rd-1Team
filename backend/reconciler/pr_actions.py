@@ -196,7 +196,8 @@ def _fetch_open_actions(project_id: int) -> list[dict]:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT id, content, owner, due_date FROM memory"
-                " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
+                " WHERE project_id = %s AND category = 'action'"
+                " AND completion_status = 'open'"
                 " ORDER BY created_at DESC",
                 (project_id,),
             )

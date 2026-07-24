@@ -71,6 +71,22 @@ def ensure_runtime_schema() -> None:
                     cursor.execute(
                         "ALTER TABLE documents ADD COLUMN progress_total INT DEFAULT NULL AFTER progress_done"
                     )
+                if not _column_exists(cursor, "memory", "completion_status"):
+                    cursor.execute(
+                        "ALTER TABLE memory ADD COLUMN completion_status"
+                        " VARCHAR(20) NOT NULL DEFAULT 'unknown' AFTER completed_at"
+                    )
+                if not _column_exists(cursor, "memory", "completion_status_source"):
+                    cursor.execute(
+                        "ALTER TABLE memory ADD COLUMN completion_status_source"
+                        " VARCHAR(20) NULL AFTER completion_status"
+                    )
+                # 기존 NULL을 미완료로 추측하지 않는다. 확인 가능한 완료 행만 보존한다.
+                cursor.execute(
+                    "UPDATE memory SET completion_status = 'completed',"
+                    " completion_status_source = COALESCE(completion_status_source, 'legacy')"
+                    " WHERE completed_at IS NOT NULL AND completion_status <> 'completed'"
+                )
             conn.commit()
         finally:
             conn.close()

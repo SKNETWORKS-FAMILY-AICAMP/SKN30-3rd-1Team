@@ -213,6 +213,9 @@ data/uploads/
 .claude/
 evals/results/
 
+# 로컬 코드 리뷰 결과물
+.reviews/
+
 # Office(Excel 등) 임시 잠금 파일 — 문서를 열어두면 생김
 ~$*
 

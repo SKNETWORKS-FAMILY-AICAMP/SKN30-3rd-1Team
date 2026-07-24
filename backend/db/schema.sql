@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS memory (
     updated_by       VARCHAR(10)  NULL,
     is_user_verified TINYINT(1)   NOT NULL DEFAULT 0,
     completed_at     DATETIME     NULL,
+    completion_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    completion_status_source VARCHAR(20) NULL,
     superseded_by    INT          NULL,
     superseded_at    DATETIME     NULL,
     sort_order       INT          NULL,

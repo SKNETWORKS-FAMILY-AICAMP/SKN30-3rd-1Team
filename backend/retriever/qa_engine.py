@@ -362,11 +362,17 @@ def _row_line_body(r: Dict) -> str:
         meta.append(f"날짜: {_short_date(r.get('date'))}")
     if _short_date(r.get("due_date")):
         meta.append(f"마감: {_short_date(r.get('due_date'))}")
-    completed_at = _short_date(r.get("completed_at"))
-    if completed_at:
-        meta.append(f"완료: {completed_at}")
-    elif r.get("category") == "action":
-        meta.append("미완료")
+    if r.get("category") == "action":
+        completed_at = _short_date(r.get("completed_at"))
+        status = r.get("completion_status") or ("completed" if completed_at else "unknown")
+        if status == "completed":
+            meta.append(f"완료: {completed_at}" if completed_at else "완료")
+        elif status == "open":
+            meta.append("미완료")
+        else:
+            meta.append("완료 여부 미확인")
+        if r.get("completion_status_source"):
+            meta.append(f"상태 근거: {r['completion_status_source']}")
 
     meta_text = f" ({', '.join(meta)})" if meta else ""
     return f"{r['content']}{meta_text} (출처: {_row_source_label(r)})"
@@ -595,6 +601,7 @@ def _build_context(
     history_mode: Optional[bool] = None,
     history_scope: Optional[str] = None,
     history_topic_tokens: Optional[List[str]] = None,
+    query_variants: Optional[List[str]] = None,
 ) -> tuple[str, List[str], dict]:
     """MySQL(구조화) + ChromaDB(원문 맥락)를 모두 조회해 컨텍스트로 조합.
     반환: (컨텍스트 문자열, 출처 목록, 디버그 dict)
@@ -615,9 +622,25 @@ def _build_context(
 
     sources: List[str] = []
     debug: dict = {"mysql_rows": [], "chroma_chunks": [], "history_mode": bool(history_mode)}
-    multi_queries = _generate_multi_queries(question)
+    if query_variants is None:
+        multi_queries = _generate_multi_queries(question)
+        multi_query_source = "generator"
+    else:
+        # Tool-calling 오케스트레이터는 첫 LLM 호출에서 검색어 변형까지 함께 만든다.
+        # 이 경우 검색 내부에서 LLM을 다시 호출하지 않고 원 질문을 첫 검색어로 보존한다.
+        multi_queries = [question]
+        for candidate in query_variants:
+            cleaned = str(candidate).strip()
+            if cleaned and cleaned not in multi_queries:
+                multi_queries.append(cleaned)
+            if len(multi_queries) >= 4:
+                break
+        multi_query_source = "tool_agent"
     debug["multi_queries"] = multi_queries
-    debug["multi_query_model_tier"] = MULTI_QUERY_MODEL_TIER
+    debug["multi_query_model_tier"] = (
+        MULTI_QUERY_MODEL_TIER if multi_query_source == "generator" else None
+    )
+    debug["multi_query_source"] = multi_query_source
 
     # 1) 구조화 기록 — MySQL memory 테이블.
     #    category는 하드 필터가 아니라 소프트 우선순위로 쓴다: 추출기의 decision/action 분류
@@ -687,6 +710,10 @@ def _build_context(
             "date": _short_date(r.get("date")),
             "due_date": _short_date(r.get("due_date")),
             "completed": bool(r.get("completed_at")),
+            "completion_status": r.get("completion_status") or (
+                "completed" if r.get("completed_at") else "unknown"
+            ),
+            "completion_status_source": r.get("completion_status_source"),
         }
         for r in rows + [chain_row for chain_row, _ in chain_entries]
     ]

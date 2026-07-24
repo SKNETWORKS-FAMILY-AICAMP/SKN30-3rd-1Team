@@ -1,0 +1,768 @@
+{
+  "M-LEG-A01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-A10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "지도·리스트 토글 방식은 맞지만 4월 6일에 박현우가 구현 완료를 보고했다는 설명은 원문과 다르다. 4월 6일에는 약 1주 지연된 진행 상태였고 완료 보고는 4월 13일이다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B04": {
+    "answer_verdict": "FAIL",
+    "rationale": "출시 버전의 게시판형 댓글 결정을 유지한 채 실시간 채팅을 후속 1.1 버전에 편입한 것이므로 완전한 번복이 아닌데, 실제 답변은 명확한 번복이라고 중심 결론을 반대로 단정했다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-B10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C09": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "2.0의 구체 기능은 기록에 없다는 핵심 응답은 맞지만 1.1 실시간 채팅을 2.0 범위에 섞어 서술했고, 5월 15일을 출시 회고일처럼 표현했다. 실제 출시 회고는 5월 29일 예정이었다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-LEG-C10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC08": {
+    "answer_verdict": "FAIL",
+    "rationale": "동결 메모리의 전체 기록은 103건으로 집계 가능하지만 실제 답변은 총합을 확인할 수 없다고 잘못 기권했다.",
+    "failure_codes": [
+      "FALSE_ABSTAIN"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SC10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL06": {
+    "answer_verdict": "FAIL",
+    "rationale": "open 상태로 명시된 액션은 0건인데 completion_status가 unknown인 액션들을 진행 중·미완료로 바꾸어 다수 나열했다.",
+    "failure_codes": [
+      "WRONG_FACT",
+      "WRONG_COUNT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL08": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "완료 여부가 unknown인 액션 55건 중 정확한 10건만 제시해 나머지 45건을 누락했다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL09": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "박현우 담당 기록 15건 중 실제 박현우 기록 7건만 제시해 전체 목록 요구를 충족하지 못했다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SL10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "이슈 16건과 리스크 6건, 총 22건이 정답인데 이슈 10건과 리스크 6건만 제시해 6건을 누락하고 전체 개수도 잘못 안내했다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST",
+      "WRONG_COUNT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE03": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "초기 5월 11일과 최종 5월 18일 및 1주 연기는 맞지만, 변경 이유를 소셜 로그인 추가·모임 탐색 지연·QA 기간 부족이 아니라 이후 5월 18일 일정을 유지한 이유로 설명했다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE08": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "애플 로그인 필수 확인과 추가 공수까지는 정확하지만 그 결과 모임 탐색 화면이 1주 지연되고 출시일이 5월 11일에서 5월 18일로 연기된 최종 영향을 누락했다.",
+    "failure_codes": [
+      "MISSING_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "M-SE10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-A10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-B10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "하루 평균 약 340건과 전체 fallback 18%는 맞지만 반품·교환 질문에서 31%까지 상승했다는 필수 수치를 누락했다.",
+    "failure_codes": [
+      "MISSING_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C04": {
+    "answer_verdict": "FAIL",
+    "rationale": "벡터 DB 제품명이 문서에 없다고 답해야 하는데 내부 frozen_chroma 표식을 근거로 ChromaDB일 가능성을 추측해 must_abstain 요구를 위반했다.",
+    "failure_codes": [
+      "FAILED_ABSTAIN"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C06": {
+    "answer_verdict": "FAIL",
+    "rationale": "담당자가 강다은이라는 점은 맞지만 멀티턴 설계 문서 마감은 7월 3일 다음 회의 전인데 6월 27일로 잘못 답했다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-LEG-C10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 결정·담당·수치·이력 또는 부재 정보를 동결 원문 및 골든과 대조한 결과 모두 정확했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC08": {
+    "answer_verdict": "FAIL",
+    "rationale": "동결 메모리의 전체 기록은 56건인데 실제 답변은 17건이라고 잘못 집계했다.",
+    "failure_codes": [
+      "WRONG_COUNT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SC10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 필터에 맞는 동결 메모리 집계와 실제 답변의 개수가 의미상 정확히 일치했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL02": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL04": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL06": {
+    "answer_verdict": "FAIL",
+    "rationale": "open 상태로 명시된 액션은 0건인데 completion_status가 unknown인 액션들을 미완료 27건이라고 단정하고 나열했다.",
+    "failure_codes": [
+      "WRONG_FACT",
+      "WRONG_COUNT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL07": {
+    "answer_verdict": "PASS",
+    "rationale": "질문 조건에 해당하는 동결 메모리 항목을 빠짐없이 정확하게 제시했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL08": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "완료 여부가 unknown인 액션 30건 중 정확한 10건만 제시해 전체 목록을 충족하지 못했다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL09": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "이지훈 담당 전체 기록은 32건인데 10건만 제시하고 이를 총 10건처럼 안내했다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST",
+      "WRONG_COUNT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SL10": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "CS-Bot 이슈 11건 중 8건만 제시했다. 리스크가 0건이라는 부분은 맞지만 전체 이슈 목록은 불완전하다.",
+    "failure_codes": [
+      "INCOMPLETE_LIST"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE01": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE02": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "총 인건비와 전체 프로젝트 비용이 문서에 없다는 기권은 맞지만, 인접하게 확인 가능한 모델 운영비 증가 예상치 월 3~5만 원을 누락했다.",
+    "failure_codes": [
+      "MISSING_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE03": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE04": {
+    "answer_verdict": "FAIL",
+    "rationale": "re-ranking 적용 전 평균은 1.9초이고 적용 후 2.5초로 0.6초 증가했는데, 적용 전 값을 2.3초로 잘못 답했다.",
+    "failure_codes": [
+      "WRONG_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE05": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE06": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE07": {
+    "answer_verdict": "PARTIAL",
+    "rationale": "파인튜닝 방침이 번복된 것이 아니라는 결론은 맞지만, 6월 27일 충분한 데이터 확보 후 검토하는 중간 우선순위 2차 개선 항목으로 구체화됐다는 사실을 누락했다.",
+    "failure_codes": [
+      "MISSING_FACT"
+    ],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE08": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE09": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  },
+  "C-SE10": {
+    "answer_verdict": "PASS",
+    "rationale": "질문이 요구한 핵심 사실·수치 또는 부재 응답을 동결 원문 및 골든 기준으로 모두 충족했다.",
+    "failure_codes": [],
+    "review_basis": "manual_source_audit"
+  }
+}

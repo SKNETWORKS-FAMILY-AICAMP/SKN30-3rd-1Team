@@ -111,14 +111,14 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
     cursor.execute(
         "SELECT COUNT(*) AS cnt FROM active_memory"
         " WHERE project_id = %s AND category = 'action'"
-        " AND completed_at IS NOT NULL AND completed_at > %s",
+        " AND completion_status = 'completed' AND completed_at > %s",
         (project_id, since_sql),
     )
     completed_actions = int((cursor.fetchone() or {}).get("cnt") or 0)
 
     cursor.execute(
         "SELECT id, content, owner, due_date FROM active_memory"
-        " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
+        " WHERE project_id = %s AND category = 'action' AND completion_status = 'open'"
         " AND due_date IS NOT NULL"
         " AND due_date >= CURDATE()"
         " AND due_date <= DATE_ADD(CURDATE(), INTERVAL %s DAY)"
@@ -129,7 +129,7 @@ def _load_delta(cursor, project_id: int, since_sql: str, due_within_days: int = 
 
     cursor.execute(
         "SELECT id, content, owner, due_date FROM active_memory"
-        " WHERE project_id = %s AND category = 'action' AND completed_at IS NULL"
+        " WHERE project_id = %s AND category = 'action' AND completion_status = 'open'"
         " AND due_date IS NOT NULL AND due_date < CURDATE()"
         " ORDER BY due_date ASC, id ASC",
         (project_id,),
@@ -150,7 +150,8 @@ def _load_new_memory_items(cursor, project_id: int, since_sql: str) -> list[dict
     """델타 브리핑에 직접 넣을 신규 memory row를 조회한다."""
     cursor.execute(
         "SELECT id, category, content, reason, topic, owner, date, due_date,"
-        " source, created_by, completed_at, created_at"
+        " source, created_by, completed_at, completion_status,"
+        " completion_status_source, created_at"
         " FROM active_memory WHERE project_id = %s AND created_at > %s"
         " ORDER BY created_at ASC, id ASC",
         (project_id, since_sql),
