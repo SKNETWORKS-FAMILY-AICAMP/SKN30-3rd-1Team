@@ -5,7 +5,7 @@
   "identifier": "com.paim.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://127.0.0.1:1420",
+    "devUrl": "http://127.0.0.1:7420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -13,17 +13,20 @@
     "windows": [
       {
         "label": "main",
-        "title": "",
+        "title": "PaiM",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
         "minHeight": 680,
         "resizable": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "shadow": true,
         "visible": false
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }

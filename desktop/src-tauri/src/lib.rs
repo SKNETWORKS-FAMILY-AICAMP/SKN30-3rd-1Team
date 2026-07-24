@@ -2,11 +2,20 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
+#[cfg(target_os = "macos")]
+use tauri::{
+    menu::{Menu, MenuItemBuilder, PredefinedMenuItem},
+    AppHandle, Emitter,
+};
 
 const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES: u64 = 512 * 1024;
 const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+#[cfg(target_os = "macos")]
+const SETTINGS_MENU_ID: &str = "paim-settings";
+#[cfg(target_os = "macos")]
+const OPEN_SETTINGS_EVENT: &str = "paim://open-settings";
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -198,16 +207,43 @@ fn image_mime_type(path: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn build_macos_menu<R: tauri::Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let items = menu.items()?;
+
+    if let Some(app_menu) = items.first().and_then(|item| item.as_submenu()) {
+        let settings_item = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
+            .accelerator("CmdOrCtrl+,")
+            .build(app)?;
+        let settings_separator = PredefinedMenuItem::separator(app)?;
+
+        // macOS 표준 순서: About · separator · Settings… · separator · Services.
+        app_menu.insert_items(&[&settings_item, &settings_separator], 2)?;
+    }
+
+    Ok(menu)
+}
+
 // PaiM 데스크톱 앱의 Tauri 런타임을 시작한다.
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(build_macos_menu).on_menu_event(|app, event| {
+        if event.id() != SETTINGS_MENU_ID {
+            return;
+        }
+
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit(OPEN_SETTINGS_EVENT, ());
+        }
+    });
+
+    builder
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                #[cfg(target_os = "windows")]
-                window
-                    .set_decorations(false)
-                    .expect("Windows should use the app titlebar");
-
                 window.show().expect("main window should be visible");
             }
 

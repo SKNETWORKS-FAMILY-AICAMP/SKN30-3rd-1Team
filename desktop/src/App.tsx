@@ -1,15 +1,20 @@
 import {
+  AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowUp,
   Brain,
-  ChevronDown,
   ChevronRight,
+  Check,
   Copy,
+  FileText,
   Files,
+  Flag,
   FolderOpen,
   FolderPlus,
   GitBranch,
   Ellipsis,
+  LogOut,
   Maximize2,
   MessageSquare,
   Minimize2,
@@ -20,10 +25,31 @@ import {
   Plus,
   Settings as SettingsIcon,
   Square,
+  UserRound,
+  Users,
   X,
+  Zap,
 } from "lucide-react";
+import { AppShell } from "@astryxdesign/core/AppShell";
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { DropdownMenu, DropdownMenuItem } from "@astryxdesign/core/DropdownMenu";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { LayoutContent, LayoutPanel } from "@astryxdesign/core/Layout";
+import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { SideNav } from "@astryxdesign/core/SideNav";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -34,19 +60,34 @@ import {
   KeyboardEvent,
   MouseEvent,
   PointerEvent as ReactPointerEvent,
+  UIEvent as ReactUIEvent,
   type SetStateAction,
+  Suspense,
+  lazy,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import packageJson from "../package.json";
-import paimWatermark from "./assets/paim-watermark.png";
-import { GithubPanel } from "./GithubPanel";
-import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
+import {
+  clearPaimAuthSession,
+  loadPaimAuthSession,
+  savePaimAuthSession,
+  setPaimUnauthorizedHandler,
+  type PaimAuthResponse,
+  type PaimUser,
+} from "./auth";
+import { I18nProvider, translate, useI18n } from "./i18n";
 import { formatRelativeAge } from "./format";
+import {
+  canRole,
+  fetchProjectMembers,
+  getCurrentProjectMember,
+  type ProjectMember,
+  type ProjectRole,
+} from "./members";
 import {
   createGithubDeviceCode,
   createGithubAppSession,
@@ -57,14 +98,18 @@ import {
   fetchGithubRepositories,
   fetchGithubRepository,
   fetchGithubUserProfile,
-  fetchPaimFormData,
-  fetchPaimJson,
-  fetchPaimRootJson,
-  getErrorMessage,
   getGithubOAuthErrorMessage,
   getGithubPanelStateLabel,
-  isPaimApiError,
 } from "./github";
+import {
+  fetchPaimFormData,
+  fetchPaimJson,
+  fetchPaimJsonPreservingSession,
+  fetchPaimSessionJson,
+  fetchPaimRootJson,
+  getErrorMessage,
+  isPaimApiError,
+} from "./paimApi";
 import {
   clampProjectFileTreeWidth,
   countProjectFileEntries,
@@ -75,18 +120,21 @@ import {
   getProjectFileVisualMeta,
   groupProjectSourcesByUploadedDate,
   MIN_PROJECT_FILE_TREE_WIDTH,
-  ProjectFilesPanel,
   sortProjectSourcesByUploadedAt,
   updateProjectFileEntry,
   type ProjectFileVisualMeta,
-} from "./projectFiles";
+} from "./projectFileUtils";
 import {
   DEFAULT_PAIM_API_ROOT_URL,
   getPaimApiRootUrl,
   loadPaimSettings,
+  normalizePaimServerUrl,
   normalizePaimSettings,
+  resolvePaimApiRootUrl,
   savePaimSettings,
+  type LanguageSetting,
   type PaiMSettings,
+  type SuggestionMinConfidence,
   type ThemeSetting,
 } from "./settings";
 import type {
@@ -102,14 +150,57 @@ import type {
   Message,
   ProjectDocumentStatus,
   ProjectFilePreview,
+  ProjectMemoryCategory,
+  ProjectMemoryItem,
   ProjectSourcesMode,
   ProjectState,
   ProjectWorkspace,
 } from "./types";
 
+const LazyGithubPanel = lazy(() =>
+  import("./GithubPanel").then((module) => ({ default: module.GithubPanel })),
+);
+const LazyAuthScreen = lazy(() =>
+  import("./AuthScreen").then((module) => ({ default: module.AuthScreen })),
+);
+const LazyProjectMemoryPanel = lazy(() =>
+  import("./ProjectMemoryPanel").then((module) => ({ default: module.ProjectMemoryPanel })),
+);
+const LazyProjectMembersPanel = lazy(() =>
+  import("./ProjectMembersPanel").then((module) => ({ default: module.ProjectMembersPanel })),
+);
+const LazyProjectFilesPanel = lazy(() =>
+  import("./projectFiles").then((module) => ({ default: module.ProjectFilesPanel })),
+);
+const LazyMarkdown = lazy(() =>
+  import("@astryxdesign/core/Markdown").then((module) => ({ default: module.Markdown })),
+);
+const LazySlider = lazy(() =>
+  import("@astryxdesign/core/Slider").then((module) => ({ default: module.Slider })),
+);
+
 const PROJECT_PANEL_TOOL_VIEWS = ["memory", "files", "github"] as const;
 type ProjectPanelToolView = (typeof PROJECT_PANEL_TOOL_VIEWS)[number];
 type ProjectPanelView = "menu" | ProjectPanelToolView;
+type ProjectPanelMode = "closed" | "open" | "maximized";
+type VisibleProjectPanelMode = Exclude<ProjectPanelMode, "closed">;
+type GithubOperationKind = "auth-check" | "auth-start" | "connect" | "repo-load" | "sync";
+type GithubOperationState = {
+  kind: GithubOperationKind;
+  repositoryUrl?: string;
+};
+type LatestProjectOperationToken = {
+  controller: AbortController;
+  generation: number;
+  projectId: string;
+};
+type ProjectFileImportState = {
+  kind: "drop" | "folder";
+};
+type LatestProjectOperationRegistry = {
+  controllers: Record<string, AbortController>;
+  generations: Record<string, number>;
+};
 
 type ProjectPanelTab = {
   id: string;
@@ -118,8 +209,109 @@ type ProjectPanelTab = {
   filePreview: ProjectFilePreview | null;
   projectSourcesMode: ProjectSourcesMode;
   selectedProjectSourceId: string | null;
-  pendingDeleteProjectFileId: string | null;
 };
+type ProjectMemoryCounts = Record<ProjectMemoryCategory, number>;
+
+const PROJECT_MEMORY_CATEGORIES: ProjectMemoryCategory[] = ["action", "decision", "issue", "risk"];
+
+function createEmptyProjectMemoryCounts(): ProjectMemoryCounts {
+  return {
+    action: 0,
+    decision: 0,
+    issue: 0,
+    risk: 0,
+  };
+}
+
+const EMPTY_PROJECT_MEMORY_COUNTS = createEmptyProjectMemoryCounts();
+const EMPTY_PROJECT_ATTACHMENTS: Attachment[] = [];
+
+function createLatestProjectOperationRegistry(): LatestProjectOperationRegistry {
+  return { controllers: {}, generations: {} };
+}
+
+function beginLatestProjectOperation(
+  registry: LatestProjectOperationRegistry,
+  projectId: string,
+): LatestProjectOperationToken | null {
+  if (registry.controllers[projectId]) {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const generation = (registry.generations[projectId] ?? 0) + 1;
+  registry.generations[projectId] = generation;
+  registry.controllers[projectId] = controller;
+  return { controller, generation, projectId };
+}
+
+function isLatestProjectOperationCurrent(
+  registry: LatestProjectOperationRegistry,
+  token: LatestProjectOperationToken,
+) {
+  return (
+    registry.generations[token.projectId] === token.generation &&
+    registry.controllers[token.projectId] === token.controller
+  );
+}
+
+function finishLatestProjectOperation(
+  registry: LatestProjectOperationRegistry,
+  token: LatestProjectOperationToken,
+) {
+  if (!isLatestProjectOperationCurrent(registry, token)) {
+    return false;
+  }
+
+  delete registry.controllers[token.projectId];
+  return true;
+}
+
+function cancelLatestProjectOperation(
+  registry: LatestProjectOperationRegistry,
+  projectId: string,
+) {
+  registry.generations[projectId] = (registry.generations[projectId] ?? 0) + 1;
+  registry.controllers[projectId]?.abort();
+  delete registry.controllers[projectId];
+}
+
+function abortLatestProjectOperations(registry: LatestProjectOperationRegistry) {
+  Object.values(registry.controllers).forEach((controller) => controller.abort());
+  registry.controllers = {};
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia(query).matches,
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = () => setMatches(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, [query]);
+
+  return matches;
+}
+
+function applyPageZoomLayoutScale(scale: number) {
+  const normalizedScale = clampZoomScale(scale);
+  document.documentElement.style.setProperty("--page-zoom-render-scale", String(normalizedScale));
+  document.documentElement.dataset.pageZoomMode =
+    "__TAURI_INTERNALS__" in window ? "native" : "css";
+}
+
+function getProjectMemorySlotState(canOpenProjectMemory: boolean, count: number) {
+  if (!canOpenProjectMemory) {
+    return "dormant";
+  }
+
+  return count > 0 ? "active" : "empty";
+}
 
 type ApiProjectCreateResponse = {
   id: number;
@@ -240,6 +432,7 @@ type ApiProjectDeltaResponse = {
     risk: number;
   };
   pending_suggestions: number;
+  pending_suggestions_by_kind?: Partial<Record<"complete_action" | "supersede", number>>;
   completed_actions: number;
   due_soon: ApiProjectDeltaAction[];
   overdue: ApiProjectDeltaAction[];
@@ -257,15 +450,30 @@ type ProjectDeltaBannerState = {
 };
 
 type ServerStatus = "online" | "offline";
-type MainView = "workspace" | "settings";
+type MainView = "workspace" | "settings" | "profile" | "members";
 type ServerTestState = {
   message: string;
   status: "idle" | "testing" | "ok" | "error";
 };
 
+type ActionMenuOrigin = "bottom-left" | "bottom-right" | "top-left" | "top-right";
+
 type ActionMenuState =
-  | { type: "project"; projectId: string; top: number; left: number }
-  | { type: "session"; projectId: string; sessionId: string; top: number; left: number };
+  | {
+      type: "project";
+      projectId: string;
+      top: number;
+      left: number;
+      origin: ActionMenuOrigin;
+    }
+  | {
+      type: "session";
+      projectId: string;
+      sessionId: string;
+      top: number;
+      left: number;
+      origin: ActionMenuOrigin;
+    };
 
 type RenameDraft =
   | { type: "project"; projectId: string; value: string }
@@ -279,11 +487,20 @@ const GITHUB_REPOSITORY_SYNC_TIMEOUT_MS = 600000;
 const QUERY_HISTORY_LIMIT = 20;
 const QUERY_TIMEOUT_MS = 60000;
 const ACTION_MENU_WIDTH = 132;
-const ACTION_MENU_HEIGHT = 76;
-const ACTION_MENU_GAP = 6;
+const ACTION_MENU_PROJECT_HEIGHT = 108;
+const ACTION_MENU_SESSION_HEIGHT = 76;
+const ACTION_MENU_GAP = 12;
+const DESTRUCTIVE_CONFIRMATION_TIMEOUT_MS = 6000;
 const PROJECT_STORAGE_KEY = "paim.projects.v8";
+const PROJECT_ROLE_RETRY_DELAYS_MS = [400, 1200] as const;
 const PROJECT_BRIEFING_QUESTION =
   "이 프로젝트의 목적, 현재 상태(완료된 것과 진행 중인 것), 그리고 다음에 해야 할 액션을 프로젝트 기록을 근거로 간결하게 브리핑해줘. 담당자와 마감일이 있는 액션은 함께 표기해줘.";
+const PROJECT_ANALYSIS_PENDING_STEPS = [
+  "프로젝트 설명을 읽는 중",
+  "연결된 자료를 훑는 중",
+  "핵심 결정과 액션을 정리하는 중",
+  "브리핑을 작성하는 중",
+];
 const LEGACY_PROJECT_STORAGE_KEYS = [
   "paim.projects.v7",
   "paim.projects.v6",
@@ -295,23 +512,49 @@ const LEGACY_PROJECT_STORAGE_KEYS = [
 ];
 const SIDEBAR_STORAGE_KEY = "paim.sidebarCollapsed.v1";
 const SIDEBAR_WIDTH_STORAGE_KEY = "paim.sidebarWidth.v1";
-const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v1";
+const PROJECT_PANEL_COLLAPSED_STORAGE_KEY = "paim.projectPanelCollapsed.v2";
 const PROJECT_PANEL_WIDTH_STORAGE_KEY = "paim.projectPanelWidth.v1";
-const PROJECT_COLLAPSED_STORAGE_KEY = "paim.projectCollapsed.v1";
 const ZOOM_STORAGE_KEY = "paim.zoomScale.v1";
-const DEFAULT_SIDEBAR_WIDTH = 272;
-const COLLAPSED_SIDEBAR_WIDTH = 44;
-const MIN_SIDEBAR_WIDTH = 220;
-const MAX_SIDEBAR_WIDTH = 420;
-const DEFAULT_PROJECT_PANEL_WIDTH = 360;
+const DEFAULT_SIDEBAR_WIDTH = 252;
+const COLLAPSED_SIDEBAR_WIDTH = 52;
+const MIN_SIDEBAR_WIDTH = 232;
+const MAX_SIDEBAR_WIDTH = 332;
+const DEFAULT_PROJECT_PANEL_WIDTH = 330;
 const MIN_PROJECT_PANEL_WIDTH = 300;
 const MAX_PROJECT_PANEL_WIDTH = 520;
-const COLLAPSED_PROJECT_PANEL_WIDTH = 44;
+const MIN_MAIN_CONTENT_WIDTH = 580;
+const PANEL_RAIL_WIDTH = 44;
 const DEFAULT_ZOOM_SCALE = 1;
-const MIN_ZOOM_SCALE = 0.8;
-const MAX_ZOOM_SCALE = 1.6;
+const MIN_ZOOM_SCALE = 1;
+const MAX_ZOOM_SCALE = 2;
 const ZOOM_STEP = 0.1;
 const LEGACY_WELCOME_CONTENT = "안녕하세요! 😊";
+const FOCUSABLE_ELEMENT_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[contenteditable='true']",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function useDestructiveConfirmationTimeout(value: unknown, clear: () => void) {
+  const clearRef = useRef(clear);
+  clearRef.current = clear;
+
+  useEffect(() => {
+    if (!value) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(
+      () => clearRef.current(),
+      DESTRUCTIVE_CONFIRMATION_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [value]);
+}
 
 function isWindowsHost() {
   return window.navigator.userAgent.includes("Windows");
@@ -321,9 +564,18 @@ function isMacHost() {
   return window.navigator.userAgent.includes("Mac");
 }
 
-function WindowsTitlebar() {
+function isWindowControlTarget(target: EventTarget) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("button, a, input, textarea, select, [role='button']"))
+  );
+}
+
+function WindowsTitlebar({ inert = false }: { inert?: boolean }) {
+  const { t } = useI18n();
+
   function handleDragStart(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button")) {
+    if (event.button !== 0 || isWindowControlTarget(event.target)) {
       return;
     }
 
@@ -331,7 +583,7 @@ function WindowsTitlebar() {
   }
 
   function handleToggleMaximize(event: MouseEvent<HTMLDivElement>) {
-    if ((event.target as HTMLElement).closest("button")) {
+    if (isWindowControlTarget(event.target)) {
       return;
     }
 
@@ -341,36 +593,36 @@ function WindowsTitlebar() {
   return (
     <div
       className="windows-titlebar"
+      inert={inert}
       onDoubleClick={handleToggleMaximize}
       onPointerDown={handleDragStart}
     >
       <div className="windows-titlebar-title">PaiM</div>
       <div className="windows-titlebar-controls">
-        <button
-          aria-label="최소화"
+        <IconButton
+          className="windows-titlebar-button"
+          icon={<Minus size={14} />}
+          label={t("최소화")}
           onClick={() => void getCurrentWindow().minimize()}
-          title="최소화"
-          type="button"
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          aria-label="최대화"
+          tooltip={t("최소화")}
+          variant="ghost"
+        />
+        <IconButton
+          className="windows-titlebar-button"
+          icon={<Square size={12} />}
+          label={t("최대화")}
           onClick={() => void getCurrentWindow().toggleMaximize()}
-          title="최대화"
-          type="button"
-        >
-          <Square size={12} />
-        </button>
-        <button
-          aria-label="닫기"
-          className="windows-close-button"
+          tooltip={t("최대화")}
+          variant="ghost"
+        />
+        <IconButton
+          className="windows-titlebar-button windows-close-button"
+          icon={<X size={15} />}
+          label={t("닫기")}
           onClick={() => void getCurrentWindow().close()}
-          title="닫기"
-          type="button"
-        >
-          <X size={15} />
-        </button>
+          tooltip={t("닫기")}
+          variant="ghost"
+        />
       </div>
     </div>
   );
@@ -509,17 +761,70 @@ function createNextProjectName(projects: ProjectWorkspace[]) {
   }
 }
 
-// 액션 메뉴를 화면 기준으로 배치해 사이드바 스크롤 영역에 잘리지 않게 한다.
-function getActionMenuPosition(button: HTMLButtonElement) {
+// 액션 메뉴를 트리거에 고정하되 화면 가장자리에서는 같은 축을 따라 반대 방향으로 연다.
+function getActionMenuPosition(button: HTMLButtonElement, menuHeight: number) {
   const rect = button.getBoundingClientRect();
+  const opensAbove = rect.bottom + ACTION_MENU_GAP + menuHeight > window.innerHeight - 8;
 
   return {
-    top: Math.max(
-      8,
-      Math.min(rect.bottom + ACTION_MENU_GAP, window.innerHeight - ACTION_MENU_HEIGHT - 8),
-    ),
+    top: opensAbove
+      ? Math.max(8, rect.top - ACTION_MENU_GAP - menuHeight)
+      : rect.bottom + ACTION_MENU_GAP,
     left: Math.max(8, rect.right - ACTION_MENU_WIDTH),
+    origin: opensAbove ? "bottom-right" : "top-right" as ActionMenuOrigin,
   };
+}
+
+function getActionMenuPositionAtPoint(clientX: number, clientY: number, menuHeight: number) {
+  const opensAbove = clientY + menuHeight > window.innerHeight - 8;
+  const opensLeft = clientX + ACTION_MENU_WIDTH > window.innerWidth - 8;
+
+  return {
+    top: opensAbove ? Math.max(8, clientY - menuHeight) : clientY,
+    left: opensLeft ? Math.max(8, clientX - ACTION_MENU_WIDTH) : clientX,
+    origin: `${opensAbove ? "bottom" : "top"}-${opensLeft ? "right" : "left"}` as ActionMenuOrigin,
+  };
+}
+
+function getAccountDisplayName(user: PaimUser | null) {
+  const name = user?.name?.trim();
+
+  if (name) {
+    return name;
+  }
+
+  const emailName = user?.email?.trim().split("@")[0];
+  return emailName || "PaiM";
+}
+
+function getAccountInitials(user: PaimUser | null) {
+  const displayName = getAccountDisplayName(user);
+  const words = displayName.split(/\s+/).filter(Boolean);
+
+  if (words.length > 1) {
+    return `${Array.from(words[0])[0] ?? ""}${Array.from(words[words.length - 1] ?? "")[0] ?? ""}`
+      .toLocaleUpperCase()
+      .slice(0, 2);
+  }
+
+  return Array.from(words[0] ?? "P").slice(0, 2).join("").toLocaleUpperCase();
+}
+
+function formatAccountCreatedAt(value: string | null | undefined, language: LanguageSetting) {
+  if (!value) {
+    return language === "ko" ? "확인할 수 없음" : "Unavailable";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return language === "ko" ? "확인할 수 없음" : "Unavailable";
+  }
+
+  return new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 function createProjectState(
@@ -569,7 +874,6 @@ function mergeServerProjects(
   localProjects: ProjectWorkspace[],
   serverProjects: ApiProjectResponse[],
 ) {
-  const serverProjectIds = new Set(serverProjects.map((project) => project.id));
   const usedLocalProjectIds = new Set<string>();
   const localProjectsByApiId = new Map<number, ProjectWorkspace>();
 
@@ -596,23 +900,44 @@ function mergeServerProjects(
     };
   });
 
+  // 성공한 서버 목록을 권한의 정본으로 삼는다. 목록에서 사라진 서버 프로젝트는
+  // 삭제·멤버 권한 회수 가능성이 있으므로 계정 캐시에 남기지 않는다.
   const cachedOnlyProjects = localProjects
-    .filter((project) => !usedLocalProjectIds.has(project.id))
-    .map((project) =>
-      typeof project.apiProjectId === "number" && !serverProjectIds.has(project.apiProjectId)
-        ? { ...project, serverMissing: true }
-        : { ...project, serverMissing: undefined },
-    );
+    .filter(
+      (project) =>
+        !usedLocalProjectIds.has(project.id) && typeof project.apiProjectId !== "number",
+    )
+    .map((project) => ({ ...project, serverMissing: undefined }));
 
   return [...syncedProjects, ...cachedOnlyProjects];
 }
 
-function loadProjectState() {
+function getProjectStorageKey(
+  authUser: PaimUser | null,
+  hasAuthSession: boolean,
+  serverUrl = getPaimApiRootUrl(),
+) {
+  const serverScope = normalizePaimServerUrl(serverUrl) || DEFAULT_PAIM_API_ROOT_URL;
+
+  if (!authUser || !hasAuthSession) {
+    return `${PROJECT_STORAGE_KEY}.server.${encodeURIComponent(serverScope)}`;
+  }
+
+  const accountScope = encodeURIComponent(
+    `${serverScope}|${authUser.id}|${authUser.email.trim().toLowerCase()}`,
+  );
+  return `${PROJECT_STORAGE_KEY}.account.${accountScope}`;
+}
+
+function loadProjectState(storageKey: string, allowLegacyFallback = false) {
   const savedValue =
-    window.localStorage.getItem(PROJECT_STORAGE_KEY) ??
-    LEGACY_PROJECT_STORAGE_KEYS
-      .map((storageKey) => window.localStorage.getItem(storageKey))
-      .find((value): value is string => Boolean(value));
+    window.localStorage.getItem(storageKey) ??
+    (allowLegacyFallback
+      ? window.localStorage.getItem(PROJECT_STORAGE_KEY) ??
+        LEGACY_PROJECT_STORAGE_KEYS
+          .map((legacyStorageKey) => window.localStorage.getItem(legacyStorageKey))
+          .find((value): value is string => Boolean(value))
+      : null);
 
   if (!savedValue) {
     return createProjectState([]);
@@ -635,7 +960,7 @@ function loadSidebarCollapsed() {
 
 // 우측 프로젝트 패널 접힘 상태를 앱 재실행 후에도 유지한다.
 function loadProjectPanelCollapsed() {
-  return window.localStorage.getItem(PROJECT_PANEL_COLLAPSED_STORAGE_KEY) === "true";
+  return window.localStorage.getItem(PROJECT_PANEL_COLLAPSED_STORAGE_KEY) !== "false";
 }
 
 function clampSidebarWidth(width: number) {
@@ -663,21 +988,11 @@ function loadProjectPanelWidth() {
     return DEFAULT_PROJECT_PANEL_WIDTH;
   }
 
-  return clampProjectPanelWidth(savedWidth);
-}
-
-function loadCollapsedProjectIds() {
-  try {
-    const savedProjectIds = JSON.parse(
-      window.localStorage.getItem(PROJECT_COLLAPSED_STORAGE_KEY) || "[]",
-    );
-
-    return Array.isArray(savedProjectIds)
-      ? savedProjectIds.filter((projectId): projectId is string => typeof projectId === "string")
-      : [];
-  } catch {
-    return [];
+  if (savedWidth === 360) {
+    return DEFAULT_PROJECT_PANEL_WIDTH;
   }
+
+  return clampProjectPanelWidth(savedWidth);
 }
 
 function clampZoomScale(scale: number) {
@@ -692,6 +1007,24 @@ function loadZoomScale() {
   }
 
   return clampZoomScale(savedScale);
+}
+
+function resizePromptTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) {
+    return;
+  }
+
+  const computedStyle = window.getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 22;
+  const verticalPadding =
+    (Number.parseFloat(computedStyle.paddingTop) || 0) +
+    (Number.parseFloat(computedStyle.paddingBottom) || 0);
+  const maxHeight = lineHeight * 6 + verticalPadding;
+
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
 }
 
 function getZoomShortcutDirection(event: globalThis.KeyboardEvent, isWindows: boolean) {
@@ -716,6 +1049,15 @@ function getZoomShortcutDirection(event: globalThis.KeyboardEvent, isWindows: bo
   }
 
   return null;
+}
+
+function getProjectAnalysisPendingStep(elapsedSeconds: number) {
+  return PROJECT_ANALYSIS_PENDING_STEPS[
+    Math.min(
+      PROJECT_ANALYSIS_PENDING_STEPS.length - 1,
+      Math.floor(elapsedSeconds / 4),
+    )
+  ];
 }
 
 function getFileName(path: string) {
@@ -802,31 +1144,28 @@ function getProjectDocumentStatusSummary(attachments: Attachment[]) {
   };
 }
 
-function getProjectDocumentCardLabel(
-  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
-  fallbackReady: boolean,
-  fallbackLabel: string,
-) {
-  if (summary.totalCount === 0) {
-    return fallbackReady ? "완료" : fallbackLabel;
+function getProjectSetupSourceStatusLabel(attachment: Attachment) {
+  if (attachment.documentStatus === "uploading") {
+    return "업로드 중";
   }
 
-  if (summary.inProgressCount > 0) {
-    return `처리중 ${summary.terminalCount}/${summary.totalCount}`;
+  if (attachment.documentStatus === "uploaded" || attachment.documentStatus === "processing") {
+    return "처리 중";
   }
 
-  return summary.incompleteCount > 0 ? "일부 실패" : "완료";
-}
-
-function getProjectDocumentCardReady(
-  summary: ReturnType<typeof getProjectDocumentStatusSummary>,
-  fallbackReady: boolean,
-) {
-  if (summary.totalCount === 0) {
-    return fallbackReady;
+  if (attachment.documentStatus === "indexed") {
+    return "완료";
   }
 
-  return summary.inProgressCount === 0 && summary.incompleteCount === 0;
+  if (attachment.documentStatus === "failed") {
+    return "실패";
+  }
+
+  if (attachment.documentStatus === "delayed") {
+    return "지연";
+  }
+
+  return attachment.kind === "directory" ? "폴더" : "로컬";
 }
 
 function createServerDocumentAttachment(document: ApiDocumentListItem): Attachment {
@@ -1005,11 +1344,6 @@ async function openExternalUrl(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-// Overview 파일 목록은 프로젝트에 직접 등록된 파일만 보여준다.
-function getProjectAttachments(project: ProjectWorkspace) {
-  return project.files ?? [];
-}
-
 // GitHub 이벤트는 최신순으로만 정렬해서 Overview에 보여준다.
 function getProjectGithubEvents(project: ProjectWorkspace) {
   return [...(project.githubEvents ?? [])].sort((left, right) => right.createdAt - left.createdAt);
@@ -1036,7 +1370,6 @@ function createProjectPanelTab(view: ProjectPanelToolView): ProjectPanelTab {
     filePreview: null,
     projectSourcesMode: "library",
     selectedProjectSourceId: null,
-    pendingDeleteProjectFileId: null,
   };
 }
 
@@ -1073,10 +1406,16 @@ function getGithubLoginErrorMessage(error: unknown) {
 }
 
 // private repo가 실제로 포함됐는지 로그인/새로고침 결과에서 바로 보이게 한다.
-function getGithubRepositoryLoadMessage(repositories: GithubAvailableRepository[]) {
+function getGithubRepositoryLoadMessage(
+  repositories: GithubAvailableRepository[],
+  language: LanguageSetting,
+) {
   const privateCount = repositories.filter((repository) => repository.private).length;
 
-  return `${repositories.length}개 repo를 불러왔습니다 · private ${privateCount}개`;
+  return translate(language, "{count}개 repo를 불러왔습니다 · private {privateCount}개", {
+    count: repositories.length,
+    privateCount,
+  });
 }
 
 // GitHub App 설치는 user API가 없어서 repo owner를 계정 표시 fallback으로 쓴다.
@@ -1134,28 +1473,50 @@ function getProjectDeltaNewMemoryCount(delta: ApiProjectDeltaResponse) {
   return Object.values(delta.new_memory).reduce((sum, count) => sum + count, 0);
 }
 
-function shouldShowProjectDelta(delta: ApiProjectDeltaResponse) {
+function getProjectDeltaSupersedeCount(delta: ApiProjectDeltaResponse) {
+  return delta.pending_suggestions_by_kind?.supersede ?? 0;
+}
+
+function canBriefProjectDelta(delta: ApiProjectDeltaResponse) {
   return (
     getProjectDeltaNewMemoryCount(delta) +
     delta.pending_suggestions +
-    delta.completed_actions
+    delta.completed_actions +
+    delta.due_soon.length +
+    delta.overdue.length
   ) > 0;
 }
 
-function formatProjectDeltaSummary(delta: ApiProjectDeltaResponse) {
-  const parts = [`메모리 +${getProjectDeltaNewMemoryCount(delta)}`];
+function shouldShowProjectDelta(delta: ApiProjectDeltaResponse) {
+  return canBriefProjectDelta(delta) || getProjectDeltaSupersedeCount(delta) > 0;
+}
+
+function formatProjectDeltaSummary(
+  delta: ApiProjectDeltaResponse,
+  translateValue: (key: string, vars?: Record<string, number | string>) => string,
+) {
+  const parts = [
+    translateValue("메모리 +{count}", { count: getProjectDeltaNewMemoryCount(delta) }),
+  ];
 
   if (delta.pending_suggestions > 0) {
-    parts.push(`제안 ${delta.pending_suggestions}건`);
+    parts.push(translateValue("완료 제안 {count}건", { count: delta.pending_suggestions }));
+  }
+  if (getProjectDeltaSupersedeCount(delta) > 0) {
+    parts.push(
+      translateValue("결정 변경 제안 {count}건", {
+        count: getProjectDeltaSupersedeCount(delta),
+      }),
+    );
   }
   if (delta.completed_actions > 0) {
-    parts.push(`완료 ${delta.completed_actions}건`);
+    parts.push(translateValue("완료 {count}건", { count: delta.completed_actions }));
   }
   if (delta.due_soon.length > 0) {
-    parts.push(`마감 임박 ${delta.due_soon.length}건`);
+    parts.push(translateValue("마감 임박 {count}건", { count: delta.due_soon.length }));
   }
   if (delta.overdue.length > 0) {
-    parts.push(`기한 초과 ${delta.overdue.length}건`);
+    parts.push(translateValue("기한 초과 {count}건", { count: delta.overdue.length }));
   }
 
   return parts.join(" · ");
@@ -1169,6 +1530,8 @@ type AttachmentListProps = {
 
 // 이미지 파일은 썸네일로, 나머지 파일은 파일칩으로 표시한다.
 function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
+  const { t } = useI18n();
+
   return (
     <div className="attachment-list" aria-label={label}>
       {attachments.map((attachment) => {
@@ -1177,18 +1540,21 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
         if (isImage) {
           return (
             <div className="attachment-preview" key={attachment.id}>
-              <img src={attachment.previewUrl} alt={`${attachment.name} 미리보기`} />
+              <img
+                src={attachment.previewUrl}
+                alt={t("{name} 미리보기", { name: attachment.name })}
+              />
               <span>{attachment.name}</span>
               {onRemove ? (
-                <button
-                  aria-label={`${attachment.name} 제거`}
+                <IconButton
                   className="remove-attachment-button"
+                  icon={<X size={14} />}
+                  label={t("{name} 제거", { name: attachment.name })}
                   onClick={() => onRemove(attachment.id)}
-                  title={`${attachment.name} 제거`}
-                  type="button"
-                >
-                  <X size={14} />
-                </button>
+                  size="sm"
+                  tooltip={t("{name} 제거", { name: attachment.name })}
+                  variant="ghost"
+                />
               ) : null}
             </div>
           );
@@ -1196,36 +1562,248 @@ function AttachmentList({ attachments, label, onRemove }: AttachmentListProps) {
 
         if (onRemove) {
           return (
-            <span className="attachment-chip removable" key={attachment.id}>
-              <span className="attachment-name">{attachment.name}</span>
-              <button
-                aria-label={`${attachment.name} 제거`}
-                className="remove-attachment-button"
-                onClick={() => onRemove(attachment.id)}
-                title={`${attachment.name} 제거`}
-                type="button"
-              >
-                <X size={13} />
-              </button>
-            </span>
+            <Badge
+              className="attachment-chip"
+              key={attachment.id}
+              label={
+                <>
+                  <span className="attachment-name">{attachment.name}</span>
+                  <IconButton
+                    className="remove-attachment-button"
+                    icon={<X size={13} />}
+                    label={t("{name} 제거", { name: attachment.name })}
+                    onClick={() => onRemove(attachment.id)}
+                    size="sm"
+                    tooltip={t("{name} 제거", { name: attachment.name })}
+                    variant="ghost"
+                  />
+                </>
+              }
+            />
           );
         }
 
         return (
-          <span className="attachment-chip" key={attachment.id}>
-            <span className="attachment-name">{attachment.name}</span>
-          </span>
+          <Badge
+            className="attachment-chip"
+            key={attachment.id}
+            label={<span className="attachment-name">{attachment.name}</span>}
+          />
         );
       })}
     </div>
   );
 }
 
-// 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
+function PanelLoadingState({ label }: { label: string }) {
+  return (
+    <div
+      className="panel-loading-state"
+      aria-busy="true"
+    >
+      <Spinner aria-label={label} shade="subtle" size="sm" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+type AuthGateState =
+  | { status: "checking" }
+  | { status: "anonymous"; message: string }
+  | { status: "ready"; isOffline: boolean; user: PaimUser | null };
+
+const AUTH_HEALTH_TIMEOUT_MS = 700;
+const AUTH_SESSION_TIMEOUT_MS = 3000;
+
+// 인증 확인이 끝난 뒤에만 보호 API를 사용하는 작업공간을 마운트한다.
 export function App() {
+  const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
+  const initialSettings = useMemo(loadPaimSettings, []);
+  const initialZoomScale = useMemo(loadZoomScale, []);
+
+  useLayoutEffect(() => {
+    applyPageZoomLayoutScale(initialZoomScale);
+    if ("__TAURI_INTERNALS__" in window) {
+      void getCurrentWebview().setZoom(initialZoomScale).catch(() => undefined);
+    }
+  }, [initialZoomScale]);
+
+  useEffect(() => {
+    let active = true;
+    const healthController = new AbortController();
+    const sessionController = new AbortController();
+
+    setPaimUnauthorizedHandler((message) => {
+      if (active) {
+        setAuthState({ status: "anonymous", message });
+      }
+    });
+
+    async function restoreAuth() {
+      const storedSession = loadPaimAuthSession();
+      const healthTimeoutId = window.setTimeout(
+        () => healthController.abort(),
+        AUTH_HEALTH_TIMEOUT_MS,
+      );
+
+      try {
+        await fetchPaimRootJson<ApiHealthResponse>("/health", { signal: healthController.signal });
+      } catch {
+        if (active) {
+          setAuthState({
+            status: "ready",
+            isOffline: true,
+            user: storedSession?.user ?? null,
+          });
+        }
+        return;
+      } finally {
+        window.clearTimeout(healthTimeoutId);
+      }
+
+      const sessionTimeoutId = window.setTimeout(
+        () => sessionController.abort(),
+        AUTH_SESSION_TIMEOUT_MS,
+      );
+      try {
+        const user = await fetchPaimSessionJson<PaimUser>("/auth/me", {
+          signal: sessionController.signal,
+        });
+        if (active) {
+          setAuthState({ status: "ready", isOffline: false, user });
+        }
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        if (isPaimApiError(error) && error.status === 404) {
+          // 구버전 또는 인증 비활성 개발 서버와도 기존 오프라인 흐름을 유지한다.
+          setAuthState({
+            status: "ready",
+            isOffline: false,
+            user: storedSession?.user ?? null,
+          });
+          return;
+        }
+
+        if (isPaimApiError(error) && error.status === 401) {
+          clearPaimAuthSession();
+          setAuthState({ status: "anonymous", message: "" });
+          return;
+        }
+
+        setAuthState({
+          status: "anonymous",
+          message: getErrorMessage(error, "인증 서버에 연결할 수 없습니다."),
+        });
+      } finally {
+        window.clearTimeout(sessionTimeoutId);
+      }
+    }
+
+    void restoreAuth();
+
+    return () => {
+      active = false;
+      healthController.abort();
+      sessionController.abort();
+      setPaimUnauthorizedHandler(null);
+    };
+  }, []);
+
+  function handleAuthenticated(response: PaimAuthResponse) {
+    savePaimAuthSession({
+      accessToken: response.access_token,
+      user: response.user,
+    });
+    setAuthState({ status: "ready", isOffline: false, user: response.user });
+  }
+
+  function handleLogout() {
+    clearPaimAuthSession();
+    setAuthState({ status: "anonymous", message: "" });
+  }
+
+  if (authState.status === "checking") {
+    return (
+      <I18nProvider language={initialSettings.language}>
+        <Theme theme={neutralTheme} mode={initialSettings.theme}>
+          <main className="auth-screen auth-loading" aria-live="polite">
+            <div aria-hidden="true" className="native-titlebar-drag-region" data-tauri-drag-region />
+            <Spinner aria-label={translate(initialSettings.language, "로그인 상태 확인 중")} size="md" />
+            <p>{translate(initialSettings.language, "로그인 상태를 확인하고 있습니다")}</p>
+          </main>
+        </Theme>
+      </I18nProvider>
+    );
+  }
+
+  if (authState.status === "anonymous") {
+    return (
+      <I18nProvider language={initialSettings.language}>
+        <Theme theme={neutralTheme} mode={initialSettings.theme}>
+          <Suspense
+            fallback={
+              <main className="auth-screen auth-loading" aria-live="polite">
+                <div aria-hidden="true" className="native-titlebar-drag-region" data-tauri-drag-region />
+                <Spinner
+                  aria-label={translate(initialSettings.language, "로그인 화면 준비 중")}
+                  size="md"
+                />
+              </main>
+            }
+          >
+            <>
+              <div
+                aria-hidden="true"
+                className="native-titlebar-drag-region"
+                data-tauri-drag-region
+              />
+              <LazyAuthScreen
+                initialMessage={authState.message}
+                onAuthenticated={handleAuthenticated}
+                serverUrl={getPaimApiRootUrl()}
+              />
+            </>
+          </Suspense>
+        </Theme>
+      </I18nProvider>
+    );
+  }
+
+  return (
+    <WorkspaceApp
+      authUser={authState.user}
+      canLogout={Boolean(loadPaimAuthSession())}
+      initialServerOffline={authState.isOffline}
+      onLogout={handleLogout}
+    />
+  );
+}
+
+type WorkspaceAppProps = {
+  authUser: PaimUser | null;
+  canLogout: boolean;
+  initialServerOffline: boolean;
+  onLogout: () => void;
+};
+
+// 레퍼런스 앱의 단순한 채팅 경험을 유지하면서 세션 상태를 관리한다.
+function WorkspaceApp({ authUser, canLogout, initialServerOffline, onLogout }: WorkspaceAppProps) {
   const isWindows = useMemo(isWindowsHost, []);
   const isMac = useMemo(isMacHost, []);
-  const [initialProjectState] = useState(loadProjectState);
+  const initialProjectApiRootUrl = useMemo(getPaimApiRootUrl, []);
+  const projectStorageKey = useMemo(
+    () => getProjectStorageKey(authUser, canLogout, initialProjectApiRootUrl),
+    [authUser, canLogout, initialProjectApiRootUrl],
+  );
+  const allowLegacyProjectCacheFallback =
+    !canLogout &&
+    normalizePaimServerUrl(initialProjectApiRootUrl) === DEFAULT_PAIM_API_ROOT_URL;
+  const [initialProjectState] = useState(() =>
+    loadProjectState(projectStorageKey, allowLegacyProjectCacheFallback),
+  );
   const [projects, setProjects] = useState<ProjectWorkspace[]>(initialProjectState.projects);
   const [selectedProjectId, setSelectedProjectId] = useState(
     initialProjectState.selectedProjectId,
@@ -1233,171 +1811,278 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState(
     initialProjectState.selectedSessionId,
   );
+  const [zoomScale, setZoomScaleState] = useState(loadZoomScale);
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
   const [thinkingElapsedSeconds, setThinkingElapsedSeconds] = useState(0);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [showLatestMessageButton, setShowLatestMessageButton] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(loadSidebarCollapsed);
+  const hasProjects = projects.length > 0;
+  // 200% WebView 확대에서 960px 창은 약 480 CSS px가 된다. 이는 모바일 IA가 아니라
+  // 데스크톱 접근성 확대 상태이므로 프로젝트 트리를 rail로 접어 작업 공간을 보존한다.
+  const isHighZoomViewport = useMediaQuery(`(max-width: ${720 * zoomScale}px)`);
+  const isSidebarCollapsedForLayout = isSidebarCollapsed || !hasProjects || isHighZoomViewport;
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isSidebarResizing, setIsSidebarResizing] = useState(false);
-  const [isProjectPanelCollapsed, setIsProjectPanelCollapsed] = useState(
-    loadProjectPanelCollapsed,
+  const [projectPanelMode, setProjectPanelMode] = useState<ProjectPanelMode>(
+    () => (loadProjectPanelCollapsed() ? "closed" : "open"),
   );
-  const [projectPanelWidth, setProjectPanelWidth] = useState(loadProjectPanelWidth);
-  const [isProjectPanelResizing, setIsProjectPanelResizing] = useState(false);
+  const isProjectPanelCollapsed = projectPanelMode === "closed";
+  const isProjectPanelMaximized = projectPanelMode === "maximized";
+  const [initialProjectPanelWidth] = useState(loadProjectPanelWidth);
+  const projectPanelResizable = useResizable({
+    defaultSize: initialProjectPanelWidth,
+    maxSizePx: MAX_PROJECT_PANEL_WIDTH,
+    minSizePx: MIN_PROJECT_PANEL_WIDTH,
+  });
+  const projectPanelWidth = projectPanelResizable.size;
+  const projectPanelOverlayBreakpoint =
+    (isSidebarCollapsedForLayout ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth) +
+    projectPanelWidth +
+    MIN_MAIN_CONTENT_WIDTH;
+  const isProjectPanelOverlay = useMediaQuery(
+    `(max-width: ${projectPanelOverlayBreakpoint * zoomScale}px)`,
+  );
   const [isDragActive, setIsDragActive] = useState(false);
+  const [activeDropZone, setActiveDropZone] = useState<"project-files" | "prompt" | null>(null);
   const [demoStatus, setDemoStatusState] = useState<DemoStatus | null>(null);
+  const [noticeStackHeight, setNoticeStackHeight] = useState(0);
   const [statusRevision, setStatusRevision] = useState(0);
   const [projectPanelTabs, setProjectPanelTabs] = useState<ProjectPanelTab[]>([]);
   const [activeProjectPanelTabId, setActiveProjectPanelTabId] = useState<string | null>(null);
+  const [projectPanelTabScrollState, setProjectPanelTabScrollState] = useState({
+    canScrollEnd: false,
+    canScrollStart: false,
+  });
   const [projectDeltaBanner, setProjectDeltaBanner] = useState<ProjectDeltaBannerState | null>(null);
   const [postSyncRefreshRevision, setPostSyncRefreshRevision] = useState(0);
+  const [projectMemoryCountsByProjectId, setProjectMemoryCountsByProjectId] = useState<
+    Record<string, ProjectMemoryCounts>
+  >({});
+  const [projectMemoryItemsByProjectId, setProjectMemoryItemsByProjectId] = useState<
+    Record<string, ProjectMemoryItem[]>
+  >({});
+  const [projectRolesByApiId, setProjectRolesByApiId] = useState<
+    Record<number, ProjectRole | null>
+  >({});
+  const [pendingSetupDeleteProjectFileId, setPendingSetupDeleteProjectFileId] = useState<string | null>(
+    null,
+  );
   const [mainView, setMainView] = useState<MainView>("workspace");
   const [settings, setSettingsState] = useState(loadPaimSettings);
+  const [serverUrlDraft, setServerUrlDraft] = useState(settings.serverUrl);
+  const t = (key: string, vars?: Record<string, number | string>) =>
+    translate(settings.language, key, vars);
   const [serverTestState, setServerTestState] = useState<ServerTestState>({
     message: "",
     status: "idle",
   });
-  const [isCacheResetConfirming, setIsCacheResetConfirming] = useState(false);
+  const [isSettingsResetConfirming, setIsSettingsResetConfirming] = useState(false);
+  const [isServerApplyConfirming, setIsServerApplyConfirming] = useState(false);
   const [appVersion, setAppVersion] = useState(`개발 모드 ${packageJson.version}`);
   const [latestReleaseTag, setLatestReleaseTag] = useState("");
-  const [isProjectPanelMaximized, setIsProjectPanelMaximized] = useState(false);
   const [projectFileTreeWidth, setProjectFileTreeWidth] = useState(
     DEFAULT_PROJECT_FILE_TREE_WIDTH,
   );
   const [isProjectFileTreeCollapsed, setIsProjectFileTreeCollapsed] = useState(false);
   const [isProjectFileTreeResizing, setIsProjectFileTreeResizing] = useState(false);
+  const [projectFileImportsByProjectId, setProjectFileImportsByProjectId] = useState<
+    Record<string, ProjectFileImportState>
+  >({});
+  const [loadingProjectFileEntryKeys, setLoadingProjectFileEntryKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [openActionMenu, setOpenActionMenu] = useState<ActionMenuState | null>(null);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState<RenameDraft | null>(null);
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState(loadCollapsedProjectIds);
   const [githubLoginSessions, setGithubLoginSessions] = useState<Record<string, GithubLoginSessionState>>({});
   const [githubRepositories, setGithubRepositories] = useState<Record<string, GithubAvailableRepository[]>>({});
-  const [githubRepositoryQuery, setGithubRepositoryQuery] = useState("");
-  const [isGithubAuthStarting, setIsGithubAuthStarting] = useState(false);
-  const [isGithubAuthChecking, setIsGithubAuthChecking] = useState(false);
-  const [isGithubRepoLoading, setIsGithubRepoLoading] = useState(false);
-  const [isGithubConnecting, setIsGithubConnecting] = useState(false);
-  const [isGithubSyncing, setIsGithubSyncing] = useState(false);
+  const [githubRepositoryQueries, setGithubRepositoryQueries] = useState<Record<string, string>>({});
+  const [githubOperationsByProjectId, setGithubOperationsByProjectId] = useState<
+    Record<string, GithubOperationState>
+  >({});
   const [pendingGithubDisconnectProjectId, setPendingGithubDisconnectProjectId] = useState<string | null>(null);
   const [pendingDeleteProjectId, setPendingDeleteProjectId] = useState<string | null>(null);
-  const [serverStatus, setServerStatus] = useState<ServerStatus>("online");
+  const [pendingDeleteSession, setPendingDeleteSession] = useState<{
+    projectId: string;
+    sessionId: string;
+  } | null>(null);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>(
+    initialServerOffline ? "offline" : "online",
+  );
   const serverUrlSyncRef = useRef(settings.serverUrl);
-  const sidebarResizeRef = useRef({ startX: 0, startWidth: DEFAULT_SIDEBAR_WIDTH });
-  const projectPanelResizeRef = useRef({
+  const projectPanelReopenModeRef = useRef<VisibleProjectPanelMode>("open");
+  const sidebarResizeRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startWidth: number;
+    target: HTMLDivElement | null;
+  }>({
+    pointerId: null,
     startX: 0,
-    startWidth: DEFAULT_PROJECT_PANEL_WIDTH,
+    startWidth: DEFAULT_SIDEBAR_WIDTH,
+    target: null,
   });
-  const projectFileTreeResizeRef = useRef({
+  const projectFileTreeResizeRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startWidth: number;
+    target: HTMLDivElement | null;
+  }>({
+    pointerId: null,
     startX: 0,
     startWidth: DEFAULT_PROJECT_FILE_TREE_WIDTH,
+    target: null,
   });
+  const projectPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const noticeStackRef = useRef<HTMLDivElement | null>(null);
+  const mainViewHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const mainViewReturnFocusRef = useRef<HTMLElement | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeQueryControllerRef = useRef<AbortController | null>(null);
+  const userCancelledQueryControllersRef = useRef(new WeakSet<AbortController>());
+  const apiProjectEnsurePromisesRef = useRef(
+    new Map<string, Promise<ProjectWorkspace>>(),
+  );
+  const serverSessionEnsurePromisesRef = useRef(new Map<string, Promise<string>>());
+  const isScrollingToChatBottomRef = useRef(false);
+  const shouldStickToChatBottomRef = useRef(true);
+  const actionMenuTriggerRef = useRef<HTMLElement | null>(null);
+  const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const didHydrateAttachmentPreviewsRef = useRef(false);
   const didSyncProjectsRef = useRef(false);
   const documentPollTimeoutsRef = useRef(new Map<string, number>());
+  const documentUploadControllersRef = useRef(new Map<string, AbortController>());
+  const cancelledDocumentIdsRef = useRef(new Set<number>());
   const githubRepositoryPollTimeoutsRef = useRef(new Map<string, number>());
   const postGithubSyncRefreshTimeoutsRef = useRef<number[]>([]);
   const demoStatusTimeoutRef = useRef<number | null>(null);
+  const githubOperationRegistryRef = useRef(createLatestProjectOperationRegistry());
+  const projectFileImportRegistryRef = useRef(createLatestProjectOperationRegistry());
   const ignoredProjectDeltaRef = useRef<Record<string, string>>({});
   const projectsRef = useRef(initialProjectState.projects);
   const selectedProjectIdRef = useRef(initialProjectState.selectedProjectId);
   const selectedSessionIdRef = useRef(initialProjectState.selectedSessionId);
-  const zoomScaleRef = useRef(loadZoomScale());
+  const sessionDraftsRef = useRef(
+    new Map<string, { attachments: Attachment[]; prompt: string }>(),
+  );
+  const projectHomeNameBeforeEditRef = useRef<string | null>(null);
+  const zoomScaleRef = useRef(zoomScale);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   );
+  const selectedProjectRole =
+    typeof selectedProject?.apiProjectId === "number"
+      ? projectRolesByApiId[selectedProject.apiProjectId]
+      : undefined;
+  const canMutateSelectedProject = selectedProject
+    ? !authUser || typeof selectedProject.apiProjectId !== "number"
+      ? true
+      : canRole(selectedProjectRole, "member")
+    : false;
+  const canMutateSelectedProjectRef = useRef(canMutateSelectedProject);
+  canMutateSelectedProjectRef.current = canMutateSelectedProject;
+  const selectedProjectReadOnlyReason = !canMutateSelectedProject
+    ? t("조회 권한으로 열려 있어 메시지와 파일을 보낼 수 없습니다.")
+    : undefined;
   const sessions = selectedProject?.sessions ?? [];
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
-  const showProjectPanel = mainView === "workspace" && Boolean(selectedProject);
+  const showProjectPanel =
+    mainView === "workspace" && Boolean(selectedProject) && Boolean(selectedSession);
+  const visibleProjectPanelMode = showProjectPanel ? projectPanelMode : "closed";
   const activeProjectPanelTab = useMemo(
     () => projectPanelTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? null,
     [activeProjectPanelTabId, projectPanelTabs],
   );
   const projectPanelView: ProjectPanelView = activeProjectPanelTab?.view ?? "menu";
+  const isProjectBriefingPending =
+    selectedSession?.title === "Project Briefing" &&
+    selectedSession.messages.length === 0 &&
+    isSending &&
+    pendingProjectId === selectedProject?.id &&
+    pendingSessionId === selectedSession.id;
+  const isCurrentSessionSending =
+    isSending &&
+    Boolean(selectedProjectId) &&
+    Boolean(selectedSessionId) &&
+    pendingProjectId === selectedProjectId &&
+    pendingSessionId === selectedSessionId;
+  const pendingQueryProject = pendingProjectId
+    ? projects.find((project) => project.id === pendingProjectId) ?? null
+    : null;
+  const pendingQuerySession =
+    pendingQueryProject?.sessions.find((session) => session.id === pendingSessionId) ?? null;
+  const showBackgroundQueryNotice = Boolean(
+    isSending && pendingQueryProject && pendingQuerySession && !isCurrentSessionSending,
+  );
+  const projectAnalysisPendingStep = getProjectAnalysisPendingStep(thinkingElapsedSeconds);
   const activeProjectFileTab =
     activeProjectPanelTab?.view === "files" ? activeProjectPanelTab : null;
-  const projectFileQuery = activeProjectFileTab?.fileQuery ?? "";
-  const projectFilePreview = activeProjectFileTab?.filePreview ?? null;
-  const projectSourcesMode = activeProjectFileTab?.projectSourcesMode ?? "library";
-  const selectedProjectSourceId = activeProjectFileTab?.selectedProjectSourceId ?? null;
-  const pendingDeleteProjectFileId = activeProjectFileTab?.pendingDeleteProjectFileId ?? null;
-	  const selectedProjectAttachments = useMemo(
-	    () => (selectedProject ? getProjectAttachments(selectedProject) : []),
-	    [selectedProject],
-	  );
-	  const sortedSelectedProjectAttachments = useMemo(
-	    () => sortProjectSourcesByUploadedAt(selectedProjectAttachments),
-	    [selectedProjectAttachments],
-	  );
+  const selectedProjectAttachments = selectedProject?.files ?? EMPTY_PROJECT_ATTACHMENTS;
+  const selectedProjectFileImport = selectedProject
+    ? projectFileImportsByProjectId[selectedProject.id] ?? null
+    : null;
+  const sortedSelectedProjectAttachments = useMemo(
+    () => sortProjectSourcesByUploadedAt(selectedProjectAttachments),
+    [selectedProjectAttachments],
+  );
   const selectedProjectFileCount = useMemo(
     () => countProjectFileEntries(selectedProjectAttachments),
-    [selectedProjectAttachments],
-  );
-  const selectedProjectRootFileCount = useMemo(
-    () => selectedProjectAttachments.filter((attachment) => attachment.kind !== "directory").length,
-    [selectedProjectAttachments],
-  );
-  const selectedProjectFolderCount = useMemo(
-    () => selectedProjectAttachments.filter((attachment) => attachment.kind === "directory").length,
     [selectedProjectAttachments],
   );
   const selectedProjectDocumentStatusSummary = useMemo(
     () => getProjectDocumentStatusSummary(selectedProjectAttachments),
     [selectedProjectAttachments],
   );
+  const selectedProjectMemoryCounts =
+    selectedProject ? projectMemoryCountsByProjectId[selectedProject.id] : undefined;
+  const selectedProjectMemoryItems =
+    selectedProject ? projectMemoryItemsByProjectId[selectedProject.id] ?? [] : [];
+  const selectedProjectMemorySlotCounts =
+    selectedProjectMemoryCounts ?? EMPTY_PROJECT_MEMORY_COUNTS;
+  const selectedProjectSetupStatusCounts = useMemo(
+    () =>
+      collectFileAttachments(selectedProjectAttachments).reduce(
+        (counts, attachment) => {
+          if (attachment.documentStatus === "indexed") {
+            counts.ready += 1;
+          } else if (attachment.documentStatus === "failed" || attachment.documentStatus === "delayed") {
+            counts.failed += 1;
+          } else if (
+            attachment.documentStatus === "uploading" ||
+            attachment.documentStatus === "uploaded" ||
+            attachment.documentStatus === "processing"
+          ) {
+            counts.processing += 1;
+          }
+
+          return counts;
+        },
+        { failed: 0, processing: 0, ready: 0 },
+      ),
+    [selectedProjectAttachments],
+  );
   const selectedProjectHasDocumentInProgress =
     selectedProjectDocumentStatusSummary.inProgressCount > 0;
-  const selectedProjectFileCardLabel = getProjectDocumentCardLabel(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectRootFileCount > 0,
-    "파일",
+  const selectedProjectSetupVisibleSources = useMemo(
+    () => sortedSelectedProjectAttachments.slice(0, 5),
+    [sortedSelectedProjectAttachments],
   );
-  const selectedProjectFolderCardLabel = getProjectDocumentCardLabel(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectFolderCount > 0,
-    "폴더",
+  const selectedProjectSetupHiddenSourceCount = Math.max(
+    0,
+    sortedSelectedProjectAttachments.length - selectedProjectSetupVisibleSources.length,
   );
-  const selectedProjectFileCardReady = getProjectDocumentCardReady(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectRootFileCount > 0,
-  );
-  const selectedProjectFolderCardReady = getProjectDocumentCardReady(
-    selectedProjectDocumentStatusSummary,
-    selectedProjectFolderCount > 0,
-  );
-	  const filteredSelectedProjectFiles = useMemo(
-	    () => filterProjectFileEntries(sortedSelectedProjectAttachments, projectFileQuery),
-	    [projectFileQuery, sortedSelectedProjectAttachments],
-	  );
-	  const groupedSelectedProjectFiles = useMemo(
-	    () => groupProjectSourcesByUploadedDate(filteredSelectedProjectFiles),
-	    [filteredSelectedProjectFiles],
-	  );
-	  const selectedProjectSource = useMemo(
-	    () => selectedProjectAttachments.find((source) => source.id === selectedProjectSourceId) ?? null,
-	    [selectedProjectAttachments, selectedProjectSourceId],
-	  );
-	  const isSelectedProjectSourceFile = selectedProjectSource?.kind === "file";
-	  const selectedProjectTreeAttachments = useMemo(
-	    () => (selectedProjectSource ? [selectedProjectSource] : selectedProjectAttachments),
-	    [selectedProjectAttachments, selectedProjectSource],
-	  );
-	  const selectedProjectTreeFileCount = useMemo(
-	    () => countProjectFileEntries(selectedProjectTreeAttachments),
-	    [selectedProjectTreeAttachments],
-	  );
-	  const filteredSelectedProjectTreeFiles = useMemo(
-	    () => filterProjectFileEntries(selectedProjectTreeAttachments, projectFileQuery),
-	    [projectFileQuery, selectedProjectTreeAttachments],
-	  );
   const selectedProjectGithubEvents = useMemo(
     () => (selectedProject ? getProjectGithubEvents(selectedProject) : []),
     [selectedProject],
@@ -1408,6 +2093,20 @@ export function App() {
   const selectedProjectGithubRepositories = selectedProject
     ? githubRepositories[selectedProject.id] ?? []
     : [];
+  const githubRepositoryQuery = selectedProject
+    ? githubRepositoryQueries[selectedProject.id] ?? ""
+    : "";
+  const selectedGithubOperation = selectedProject
+    ? githubOperationsByProjectId[selectedProject.id] ?? null
+    : null;
+  const isGithubAuthStarting = selectedGithubOperation?.kind === "auth-start";
+  const isGithubAuthChecking = selectedGithubOperation?.kind === "auth-check";
+  const isGithubRepoLoading = selectedGithubOperation?.kind === "repo-load";
+  const isGithubConnecting = selectedGithubOperation?.kind === "connect";
+  const isGithubSyncing = selectedGithubOperation?.kind === "sync";
+  const githubConnectingRepositoryUrl = isGithubConnecting
+    ? selectedGithubOperation.repositoryUrl ?? null
+    : null;
   const selectedProjectGithubPanelState: GithubPanelState = selectedProject?.githubRepository
     ? "connected"
     : selectedProjectGithubSession?.status === "connected"
@@ -1430,14 +2129,277 @@ export function App() {
     selectedProjectGithubPanelState === "connected" ||
     selectedProjectDescription.length > 0;
   const isProjectBriefingDisabled =
-    !hasProjectHomeContext || selectedProjectHasDocumentInProgress || isSending;
-  const mainDemoStatus = demoStatus?.scope === "github" ? null : demoStatus;
-  const mainDemoStatusKind = mainDemoStatus?.ok ? "info" : "error";
-  const showNoticeStack =
-    serverStatus === "offline" ||
-    selectedProjectDelta !== null ||
-    Boolean(selectedProject?.serverMissing) ||
-    mainDemoStatus !== null;
+    !canMutateSelectedProject ||
+    !hasProjectHomeContext ||
+    selectedProjectHasDocumentInProgress ||
+    isSending;
+  const shouldInertBackgroundForProjectPanel =
+    showProjectPanel &&
+    !isProjectPanelCollapsed &&
+    (isProjectPanelMaximized || isProjectPanelOverlay);
+  useEffect(() => {
+    if (!shouldInertBackgroundForProjectPanel) {
+      return;
+    }
+
+    const projectPanel = document.querySelector<HTMLElement>(".project-panel");
+    if (!projectPanel) {
+      return;
+    }
+    const modalProjectPanel = projectPanel;
+
+    function getFocusablePanelElements() {
+      return Array.from(
+        modalProjectPanel.querySelectorAll<HTMLElement>(FOCUSABLE_ELEMENT_SELECTOR),
+      ).filter(
+        (element) =>
+          element.getClientRects().length > 0 &&
+          element.tabIndex >= 0 &&
+          !element.closest("[inert]") &&
+          element.getAttribute("aria-hidden") !== "true",
+      );
+    }
+
+    function focusPanelStart() {
+      const firstFocusableElement = getFocusablePanelElements()[0];
+      (firstFocusableElement ?? modalProjectPanel).focus();
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      if (document.activeElement?.closest(".project-panel")) {
+        return;
+      }
+      focusPanelStart();
+    });
+
+    function handleModalKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusableElements = getFocusablePanelElements();
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        modalProjectPanel.focus();
+        return;
+      }
+
+      const firstFocusableElement = focusableElements[0];
+      const lastFocusableElement = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+
+      if (
+        event.shiftKey &&
+        (activeElement === firstFocusableElement || !modalProjectPanel.contains(activeElement))
+      ) {
+        event.preventDefault();
+        lastFocusableElement.focus();
+        return;
+      }
+
+      if (
+        !event.shiftKey &&
+        (activeElement === lastFocusableElement || !modalProjectPanel.contains(activeElement))
+      ) {
+        event.preventDefault();
+        firstFocusableElement.focus();
+      }
+    }
+
+    function handleModalFocus(event: globalThis.FocusEvent) {
+      if (event.target instanceof Node && !modalProjectPanel.contains(event.target)) {
+        focusPanelStart();
+      }
+    }
+
+    document.addEventListener("keydown", handleModalKeyDown, true);
+    document.addEventListener("focusin", handleModalFocus, true);
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleModalKeyDown, true);
+      document.removeEventListener("focusin", handleModalFocus, true);
+    };
+  }, [shouldInertBackgroundForProjectPanel]);
+
+  useEffect(() => {
+    if (!openActionMenu) {
+      return;
+    }
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          '.item-action-menu [role="menuitem"]:not([aria-disabled="true"]):not(:disabled)',
+        )
+        ?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [openActionMenu]);
+
+  useDestructiveConfirmationTimeout(pendingDeleteProjectId, () =>
+    setPendingDeleteProjectId(null),
+  );
+  useDestructiveConfirmationTimeout(pendingDeleteSession, () =>
+    setPendingDeleteSession(null),
+  );
+  useDestructiveConfirmationTimeout(pendingGithubDisconnectProjectId, () =>
+    setPendingGithubDisconnectProjectId(null),
+  );
+  useDestructiveConfirmationTimeout(pendingSetupDeleteProjectFileId, () =>
+    setPendingSetupDeleteProjectFileId(null),
+  );
+
+  useEffect(() => {
+    if (mainView !== "settings" && mainView !== "profile" && mainView !== "members") {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => mainViewHeadingRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [mainView]);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+    let isDisposed = false;
+
+    void listen("paim://open-settings", () => {
+      const activeElement = document.activeElement;
+      mainViewReturnFocusRef.current =
+        activeElement instanceof HTMLElement &&
+        activeElement !== document.body &&
+        activeElement !== document.documentElement
+          ? activeElement
+          : accountMenuTriggerRef.current ?? promptTextareaRef.current;
+      setIsAccountMenuOpen(false);
+      setOpenActionMenu(null);
+      setMainView("settings");
+    })
+      .then((stopListening) => {
+        if (isDisposed) {
+          stopListening();
+          return;
+        }
+        unlisten = stopListening;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isDisposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (openActionMenu) {
+        setOpenActionMenu(null);
+        window.requestAnimationFrame(() => actionMenuTriggerRef.current?.focus());
+        return;
+      }
+      if (projectPanelMode === "maximized") {
+        event.preventDefault();
+        setProjectPanelMode("open");
+        window.requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLElement>(".project-panel-maximize-toggle")
+            ?.focus({ preventScroll: true });
+        });
+        return;
+      }
+      if (isProjectPanelOverlay && projectPanelMode === "open") {
+        closeProjectPanel();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [
+    isProjectPanelOverlay,
+    openActionMenu,
+    projectPanelMode,
+  ]);
+
+  useEffect(() => {
+    if (!openActionMenu) {
+      return;
+    }
+
+    const closeDetachedMenu = () => setOpenActionMenu(null);
+    window.addEventListener("resize", closeDetachedMenu);
+    window.addEventListener("scroll", closeDetachedMenu, true);
+    return () => {
+      window.removeEventListener("resize", closeDetachedMenu);
+      window.removeEventListener("scroll", closeDetachedMenu, true);
+    };
+  }, [openActionMenu]);
+
+  useEffect(() => {
+    if (isSidebarResizing && openActionMenu) {
+      setOpenActionMenu(null);
+    }
+  }, [isSidebarResizing, openActionMenu]);
+
+  useEffect(() => {
+    if ((isSidebarResizing || shouldInertBackgroundForProjectPanel) && isAccountMenuOpen) {
+      setIsAccountMenuOpen(false);
+    }
+  }, [isAccountMenuOpen, isSidebarResizing, shouldInertBackgroundForProjectPanel]);
+
+  const visibleDemoStatus =
+    demoStatus?.projectId && demoStatus.projectId !== selectedProjectId ? null : demoStatus;
+  const rawMainDemoStatus = visibleDemoStatus?.scope === "github" ? null : visibleDemoStatus;
+  const mainDemoStatus =
+    serverStatus === "offline" &&
+    rawMainDemoStatus?.message === "PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중"
+      ? null
+      : rawMainDemoStatus;
+  const mainDemoStatusKind = mainDemoStatus?.kind ?? (mainDemoStatus?.ok ? "success" : "error");
+  const noticeCount =
+    Number(serverStatus === "offline") +
+    Number(showBackgroundQueryNotice) +
+    Number(selectedProjectDelta !== null) +
+    Number(Boolean(selectedProject?.serverMissing)) +
+    Number(mainDemoStatus !== null);
+  const showNoticeStack = noticeCount > 0;
+
+  useLayoutEffect(() => {
+    const noticeStack = noticeStackRef.current;
+
+    if (!showNoticeStack || !noticeStack) {
+      setNoticeStackHeight(0);
+      return;
+    }
+
+    const measureNoticeStack = () => {
+      const nextHeight = Math.ceil(noticeStack.getBoundingClientRect().height);
+      setNoticeStackHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    measureNoticeStack();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measureNoticeStack);
+      return () => window.removeEventListener("resize", measureNoticeStack);
+    }
+
+    const resizeObserver = new ResizeObserver(measureNoticeStack);
+    resizeObserver.observe(noticeStack);
+    return () => resizeObserver.disconnect();
+  }, [showNoticeStack]);
+
   function clearDemoStatusTimeout() {
     if (demoStatusTimeoutRef.current === null) {
       return;
@@ -1447,11 +2409,11 @@ export function App() {
     demoStatusTimeoutRef.current = null;
   }
 
-  function queueDemoStatusClear() {
+  function queueDemoStatusClear(delay = 3200) {
     demoStatusTimeoutRef.current = window.setTimeout(() => {
       setDemoStatusState(null);
       demoStatusTimeoutRef.current = null;
-    }, 3200);
+    }, delay);
   }
 
   function setDemoStatus(nextStatus: DemoStatus | null) {
@@ -1459,8 +2421,122 @@ export function App() {
     setDemoStatusState(nextStatus);
 
     if (nextStatus) {
-      queueDemoStatusClear();
+      const kind = nextStatus.kind ?? (nextStatus.ok ? "success" : "error");
+
+      queueDemoStatusClear(
+        kind === "error"
+          ? 12000
+          : kind === "warning"
+            ? DESTRUCTIVE_CONFIRMATION_TIMEOUT_MS
+            : 3200,
+      );
     }
+  }
+
+  function setGithubRepositoryQueryForProject(projectId: string, query: string) {
+    setGithubRepositoryQueries((currentQueries) => ({
+      ...currentQueries,
+      [projectId]: query,
+    }));
+  }
+
+  function beginGithubOperation(
+    projectId: string,
+    kind: GithubOperationKind,
+    repositoryUrl?: string,
+  ): LatestProjectOperationToken | null {
+    const token = beginLatestProjectOperation(githubOperationRegistryRef.current, projectId);
+    if (!token) {
+      return null;
+    }
+
+    setGithubOperationsByProjectId((currentOperations) => ({
+      ...currentOperations,
+      [projectId]: { kind, repositoryUrl },
+    }));
+    return token;
+  }
+
+  function isGithubOperationCurrent(token: LatestProjectOperationToken) {
+    return isLatestProjectOperationCurrent(githubOperationRegistryRef.current, token);
+  }
+
+  function finishGithubOperation(token: LatestProjectOperationToken) {
+    if (!finishLatestProjectOperation(githubOperationRegistryRef.current, token)) {
+      return false;
+    }
+
+    setGithubOperationsByProjectId((currentOperations) => {
+      const nextOperations = { ...currentOperations };
+      delete nextOperations[token.projectId];
+      return nextOperations;
+    });
+    return true;
+  }
+
+  function cancelGithubOperation(projectId: string) {
+    cancelLatestProjectOperation(githubOperationRegistryRef.current, projectId);
+    setGithubOperationsByProjectId((currentOperations) => {
+      if (!currentOperations[projectId]) {
+        return currentOperations;
+      }
+
+      const nextOperations = { ...currentOperations };
+      delete nextOperations[projectId];
+      return nextOperations;
+    });
+  }
+
+  function beginProjectFileImport(
+    projectId: string,
+    kind: ProjectFileImportState["kind"],
+  ): LatestProjectOperationToken | null {
+    const token = beginLatestProjectOperation(projectFileImportRegistryRef.current, projectId);
+    if (!token) {
+      return null;
+    }
+
+    setProjectFileImportsByProjectId((currentImports) => ({
+      ...currentImports,
+      [projectId]: { kind },
+    }));
+    return token;
+  }
+
+  function isProjectFileImportCurrent(token: LatestProjectOperationToken) {
+    return isLatestProjectOperationCurrent(projectFileImportRegistryRef.current, token);
+  }
+
+  function finishProjectFileImport(token: LatestProjectOperationToken) {
+    if (!finishLatestProjectOperation(projectFileImportRegistryRef.current, token)) {
+      return;
+    }
+
+    setProjectFileImportsByProjectId((currentImports) => {
+      const nextImports = { ...currentImports };
+      delete nextImports[token.projectId];
+      return nextImports;
+    });
+  }
+
+  function cancelProjectFileImport(projectId: string) {
+    cancelLatestProjectOperation(projectFileImportRegistryRef.current, projectId);
+    setProjectFileImportsByProjectId((currentImports) => {
+      if (!currentImports[projectId]) {
+        return currentImports;
+      }
+
+      const nextImports = { ...currentImports };
+      delete nextImports[projectId];
+      return nextImports;
+    });
+    setDemoStatus({
+      kind: "info",
+      ok: true,
+      message: "폴더 가져오기를 중지했습니다",
+      projectId,
+      scope: "overview",
+    });
   }
 
   function updateSettings(patch: Partial<PaiMSettings>) {
@@ -1469,48 +2545,93 @@ export function App() {
       savePaimSettings(nextSettings);
       return nextSettings;
     });
-    setIsCacheResetConfirming(false);
+    setIsSettingsResetConfirming(false);
   }
 
   function handleThemeChange(theme: ThemeSetting) {
     updateSettings({ theme });
   }
 
+  function handleLanguageChange(language: LanguageSetting) {
+    updateSettings({ language });
+  }
+
   async function handleTestServerConnection() {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 3000);
+    const nextServerUrl = resolvePaimApiRootUrl(serverUrlDraft);
 
     setServerTestState({ message: "연결 확인 중", status: "testing" });
 
     try {
-      const health = await fetchPaimRootJson<ApiHealthResponse>("/health", {
+      const response = await fetch(`${nextServerUrl}/health`, {
+        headers: { Accept: "application/json" },
         signal: controller.signal,
       });
+      if (!response.ok) {
+        throw new Error(`서버가 ${response.status} 상태를 반환했습니다`);
+      }
+      const health = (await response.json()) as ApiHealthResponse;
 
       if (health.status !== "ok") {
         throw new Error("서버 상태가 ok가 아닙니다");
       }
 
-      setServerStatus("online");
-      setServerTestState({ message: "연결됨", status: "ok" });
-      void syncProjectsWithServer(false);
+      setServerTestState({ message: "새 주소에 연결할 수 있습니다", status: "ok" });
     } catch {
-      setServerStatus("offline");
       setServerTestState({ message: "연결 실패", status: "error" });
     } finally {
       window.clearTimeout(timeoutId);
     }
   }
 
-  function handleClearLocalCache() {
-    if (!isCacheResetConfirming) {
-      setIsCacheResetConfirming(true);
+  function handleApplyServerUrl() {
+    const nextSettings = normalizePaimSettings({ ...settings, serverUrl: serverUrlDraft });
+    const nextServerUrl = resolvePaimApiRootUrl(nextSettings.serverUrl);
+    const willChangeProjectScope =
+      getProjectStorageKey(authUser, canLogout, nextServerUrl) !== projectStorageKey;
+
+    if (willChangeProjectScope && !isServerApplyConfirming) {
+      setIsServerApplyConfirming(true);
       return;
     }
 
-    Object.keys(window.localStorage)
-      .filter((storageKey) => storageKey.startsWith("paim."))
-      .forEach((storageKey) => window.localStorage.removeItem(storageKey));
+    savePaimSettings(nextSettings);
+    setSettingsState(nextSettings);
+    setServerUrlDraft(nextSettings.serverUrl);
+    setIsServerApplyConfirming(false);
+
+    if (willChangeProjectScope) {
+      // 새 서버의 프로젝트와 인증 범위를 섞지 않도록 저장 후 다시 마운트한다.
+      window.location.reload();
+      return;
+    }
+
+    if (serverTestState.status === "ok") {
+      setServerStatus("online");
+    }
+    void syncProjectsWithServer(false);
+  }
+
+  function handleResetAppSettings() {
+    if (!isSettingsResetConfirming) {
+      setIsSettingsResetConfirming(true);
+      return;
+    }
+
+    // 프로젝트·대화·초안·계정·서버 범위는 사용자 데이터이므로 절대 초기화하지 않는다.
+    savePaimSettings(
+      normalizePaimSettings({
+        serverUrl: settings.serverUrl,
+      }),
+    );
+    [
+      SIDEBAR_STORAGE_KEY,
+      SIDEBAR_WIDTH_STORAGE_KEY,
+      PROJECT_PANEL_COLLAPSED_STORAGE_KEY,
+      PROJECT_PANEL_WIDTH_STORAGE_KEY,
+      ZOOM_STORAGE_KEY,
+    ].forEach((storageKey) => window.localStorage.removeItem(storageKey));
     window.location.reload();
   }
 
@@ -1580,29 +2701,70 @@ export function App() {
     }
   }
 
-  function showServerOfflineMessage(scope: DemoStatus["scope"] = "overview") {
-    setDemoStatus({
-      ok: false,
-      message: "PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중",
-      scope,
-    });
+  function applyZoomScale(scale: number) {
+    const nextScale = Math.round(clampZoomScale(scale) * 100) / 100;
+    zoomScaleRef.current = nextScale;
+    setZoomScaleState(nextScale);
+    window.localStorage.setItem(ZOOM_STORAGE_KEY, String(nextScale));
+    applyPageZoomLayoutScale(nextScale);
+    if ("__TAURI_INTERNALS__" in window) {
+      void getCurrentWebview().setZoom(nextScale).catch(() => undefined);
+    }
   }
 
-  function shouldSkipServerAction(scope: DemoStatus["scope"] = "overview") {
-    if (serverStatus === "online") {
+  function projectHasRole(project: ProjectWorkspace, minimumRole: ProjectRole) {
+    if (!authUser) {
+      return true;
+    }
+    if (typeof project.apiProjectId !== "number") {
+      return true;
+    }
+
+    return canRole(projectRolesByApiId[project.apiProjectId], minimumRole);
+  }
+
+  function shouldSkipProjectPermission(
+    project: ProjectWorkspace,
+    scope: DemoStatus["scope"] = "overview",
+    minimumRole: ProjectRole = "member",
+  ) {
+    if (projectHasRole(project, minimumRole)) {
       return false;
     }
 
-    showServerOfflineMessage(scope);
+    setDemoStatus({
+      ok: false,
+      message:
+        minimumRole === "owner"
+          ? "이 작업은 프로젝트 Owner만 할 수 있습니다"
+          : "이 작업은 프로젝트 Member 이상만 할 수 있습니다",
+      scope,
+    });
     return true;
   }
 
+  function shouldSkipProjectMutation(
+    project: ProjectWorkspace,
+    scope: DemoStatus["scope"] = "overview",
+    minimumRole: ProjectRole = "member",
+  ) {
+    if (shouldSkipProjectPermission(project, scope, minimumRole)) {
+      return true;
+    }
+
+    return serverStatus !== "online";
+  }
+
   function isGithubSessionExpiredError(error: unknown) {
-    return isPaimApiError(error) && (error.code === "SESSION_EXPIRED" || error.status === 410);
+    return (
+      isPaimApiError(error) &&
+      (error.code === "SESSION_EXPIRED" || error.status === 401 || error.status === 410)
+    );
   }
 
   // GitHub App state가 만료되면 repo 선택부터 다시 시작할 수 있게 인증 상태를 비운다.
   function handleGithubSessionExpired(projectId: string) {
+    cancelGithubOperation(projectId);
     setGithubLoginSessions((currentSessions) => {
       const nextSessions = { ...currentSessions };
       delete nextSessions[projectId];
@@ -1626,10 +2788,11 @@ export function App() {
     setPendingGithubDisconnectProjectId((currentProjectId) =>
       currentProjectId === projectId ? null : currentProjectId,
     );
-    setGithubRepositoryQuery("");
+    setGithubRepositoryQueryForProject(projectId, "");
     setDemoStatus({
       ok: false,
       message: "GitHub 연결이 만료되었습니다. 다시 연결해 주세요",
+      projectId,
       scope: "github",
     });
   }
@@ -1653,30 +2816,91 @@ export function App() {
       ? actionMenuProject?.sessions.find((session) => session.id === openActionMenu.sessionId) ??
         null
       : null;
-  const collapsedProjectIdSet = useMemo(
-    () => new Set(collapsedProjectIds),
-    [collapsedProjectIds],
-  );
+  const actionMenuProjectRole =
+    typeof actionMenuProject?.apiProjectId === "number"
+      ? projectRolesByApiId[actionMenuProject.apiProjectId]
+      : undefined;
+  const canMutateActionMenuProject = actionMenuProject
+    ? !authUser || typeof actionMenuProject.apiProjectId !== "number"
+      ? true
+      : canRole(actionMenuProjectRole, "member")
+    : false;
+  const canDeleteActionMenuProject = actionMenuProject
+    ? !authUser || typeof actionMenuProject.apiProjectId !== "number"
+      ? true
+      : actionMenuProjectRole === "owner"
+    : false;
+  const isActionMenuProjectQueryPending =
+    isSending && pendingProjectId === actionMenuProject?.id;
+  const isActionMenuSessionQueryPending =
+    isActionMenuProjectQueryPending && pendingSessionId === actionMenuSession?.id;
+  const accountDisplayName = getAccountDisplayName(authUser);
+  const accountInitials = getAccountInitials(authUser);
+  const accountEmail = authUser?.email?.trim() || t("오프라인 작업공간");
   const appShellStyle = {
     "--sidebar-width": `${
-      isSidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth
+      isSidebarCollapsedForLayout ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth
     }px`,
-    "--project-panel-width": `${
-      isProjectPanelCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectPanelWidth
+    "--project-panel-width": `${projectPanelWidth}px`,
+    "--project-panel-column-width": `${
+      visibleProjectPanelMode === "open" && !isProjectPanelOverlay ? projectPanelWidth : 0
+    }px`,
+    "--project-panel-header-offset": `${
+      visibleProjectPanelMode === "closed" ? PANEL_RAIL_WIDTH : projectPanelWidth
     }px`,
     "--project-file-tree-width": `${
-      isProjectFileTreeCollapsed ? COLLAPSED_PROJECT_PANEL_WIDTH : projectFileTreeWidth
+      isProjectFileTreeCollapsed ? PANEL_RAIL_WIDTH : projectFileTreeWidth
     }px`,
   } as CSSProperties;
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (settings.theme === "system") {
-      root.removeAttribute("data-theme");
+    const tabStrip = projectPanelTabsRef.current;
+
+    if (!tabStrip || projectPanelView === "menu" || isProjectPanelCollapsed) {
+      setProjectPanelTabScrollState({
+        canScrollEnd: false,
+        canScrollStart: false,
+      });
       return;
     }
-    root.dataset.theme = settings.theme;
-  }, [settings.theme]);
+
+    const tabStripElement = tabStrip;
+
+    function syncTabScrollState() {
+      const maxScrollLeft = tabStripElement.scrollWidth - tabStripElement.clientWidth;
+      const nextState = {
+        canScrollEnd: maxScrollLeft - tabStripElement.scrollLeft > 1,
+        canScrollStart: tabStripElement.scrollLeft > 1,
+      };
+
+      setProjectPanelTabScrollState((currentState) =>
+        currentState.canScrollEnd === nextState.canScrollEnd &&
+        currentState.canScrollStart === nextState.canScrollStart
+          ? currentState
+          : nextState,
+      );
+    }
+
+    syncTabScrollState();
+
+    const resizeObserver = new ResizeObserver(syncTabScrollState);
+    resizeObserver.observe(tabStripElement);
+    tabStripElement.addEventListener("scroll", syncTabScrollState, { passive: true });
+    window.addEventListener("resize", syncTabScrollState);
+
+    return () => {
+      resizeObserver.disconnect();
+      tabStripElement.removeEventListener("scroll", syncTabScrollState);
+      window.removeEventListener("resize", syncTabScrollState);
+    };
+  }, [
+    activeProjectPanelTabId,
+    isProjectPanelCollapsed,
+    isProjectPanelMaximized,
+    projectPanelTabs.length,
+    projectPanelView,
+    projectPanelWidth,
+  ]);
 
   useEffect(() => {
     setServerTestState({ message: "", status: "idle" });
@@ -1726,6 +2950,58 @@ export function App() {
   }, [selectedSessionId]);
 
   useEffect(() => {
+    const apiProjectId = selectedProject?.apiProjectId;
+    if (!authUser || typeof apiProjectId !== "number" || serverStatus !== "online") {
+      return;
+    }
+
+    const currentAuthUser = authUser;
+    const selectedApiProjectId = apiProjectId;
+    let disposed = false;
+    let retryTimeoutId: number | null = null;
+
+    async function loadProjectRole(attempt: number) {
+      try {
+        const members = await fetchProjectMembers(selectedApiProjectId);
+        if (!disposed) {
+          const role = getCurrentProjectMember(members, currentAuthUser)?.role ?? null;
+          setProjectRolesByApiId((current) => ({
+            ...current,
+            [selectedApiProjectId]: role,
+          }));
+        }
+      } catch {
+        if (disposed) {
+          return;
+        }
+
+        const retryDelay = PROJECT_ROLE_RETRY_DELAYS_MS[attempt];
+        if (retryDelay !== undefined) {
+          retryTimeoutId = window.setTimeout(
+            () => void loadProjectRole(attempt + 1),
+            retryDelay,
+          );
+          return;
+        }
+
+        setProjectRolesByApiId((current) => ({
+          ...current,
+          [selectedApiProjectId]: null,
+        }));
+      }
+    }
+
+    void loadProjectRole(0);
+
+    return () => {
+      disposed = true;
+      if (retryTimeoutId !== null) {
+        window.clearTimeout(retryTimeoutId);
+      }
+    };
+  }, [authUser, selectedProject?.apiProjectId, serverStatus]);
+
+  useEffect(() => {
     if (didSyncProjectsRef.current) {
       return;
     }
@@ -1749,6 +3025,28 @@ export function App() {
     selectedProject?.apiProjectId,
     selectedProject?.id,
     selectedProject?.serverMissing,
+    serverStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      serverStatus !== "online" ||
+      !selectedProject ||
+      selectedProject.serverMissing ||
+      typeof selectedProject.apiProjectId !== "number"
+    ) {
+      return;
+    }
+
+    void refreshProjectMemoryCounts(selectedProject.id, selectedProject.apiProjectId);
+  }, [
+    postSyncRefreshRevision,
+    selectedProject?.apiProjectId,
+    selectedProject?.id,
+    selectedProject?.serverMissing,
+    selectedProjectDocumentStatusSummary.incompleteCount,
+    selectedProjectDocumentStatusSummary.terminalCount,
+    selectedProjectDocumentStatusSummary.totalCount,
     serverStatus,
   ]);
 
@@ -1852,10 +3150,10 @@ export function App() {
 
   useEffect(() => {
     window.localStorage.setItem(
-      PROJECT_STORAGE_KEY,
+      projectStorageKey,
       JSON.stringify(createStoredProjectState(projects, selectedProjectId, selectedSessionId)),
     );
-  }, [projects, selectedProjectId, selectedSessionId]);
+  }, [projectStorageKey, projects, selectedProjectId, selectedSessionId]);
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(isSidebarCollapsed));
@@ -1877,27 +3175,7 @@ export function App() {
   }, [projectPanelWidth]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      PROJECT_COLLAPSED_STORAGE_KEY,
-      JSON.stringify(collapsedProjectIds),
-    );
-  }, [collapsedProjectIds]);
-
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) {
-      return;
-    }
-
-    const webview = getCurrentWebview();
-
-    function setZoomScale(scale: number) {
-      const nextScale = Math.round(clampZoomScale(scale) * 100) / 100;
-      zoomScaleRef.current = nextScale;
-      window.localStorage.setItem(ZOOM_STORAGE_KEY, String(nextScale));
-      void webview.setZoom(nextScale).catch(() => undefined);
-    }
-
-    setZoomScale(zoomScaleRef.current);
+    applyZoomScale(zoomScaleRef.current);
 
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       const direction = getZoomShortcutDirection(event, isWindows);
@@ -1909,11 +3187,11 @@ export function App() {
       event.preventDefault();
 
       if (direction === "reset") {
-        setZoomScale(DEFAULT_ZOOM_SCALE);
+        applyZoomScale(DEFAULT_ZOOM_SCALE);
         return;
       }
 
-      setZoomScale(
+      applyZoomScale(
         zoomScaleRef.current + (direction === "in" ? ZOOM_STEP : -ZOOM_STEP),
       );
     }
@@ -1933,59 +3211,49 @@ export function App() {
     const originalCursor = document.body.style.cursor;
     const originalUserSelect = document.body.style.userSelect;
 
-    function handleMouseMove(event: globalThis.MouseEvent) {
+    function handlePointerMove(event: globalThis.PointerEvent) {
+      if (event.pointerId !== sidebarResizeRef.current.pointerId) {
+        return;
+      }
+
       const deltaX = event.clientX - sidebarResizeRef.current.startX;
       setSidebarWidth(clampSidebarWidth(sidebarResizeRef.current.startWidth + deltaX));
     }
 
-    function handleMouseUp() {
+    function handlePointerEnd(event: globalThis.PointerEvent) {
+      if (event.pointerId !== sidebarResizeRef.current.pointerId) {
+        return;
+      }
+
+      const { pointerId, target } = sidebarResizeRef.current;
+      if (pointerId !== null && target?.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+      sidebarResizeRef.current.pointerId = null;
+      sidebarResizeRef.current.target = null;
       setIsSidebarResizing(false);
     }
 
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerEnd);
+    document.addEventListener("pointercancel", handlePointerEnd);
 
     return () => {
+      const { pointerId, target } = sidebarResizeRef.current;
+      if (pointerId !== null && target?.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+      sidebarResizeRef.current.pointerId = null;
+      sidebarResizeRef.current.target = null;
       document.body.style.cursor = originalCursor;
       document.body.style.userSelect = originalUserSelect;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerEnd);
+      document.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [isSidebarResizing]);
-
-  useEffect(() => {
-    if (!isProjectPanelResizing) {
-      return;
-    }
-
-    const originalCursor = document.body.style.cursor;
-    const originalUserSelect = document.body.style.userSelect;
-
-    function handleMouseMove(event: globalThis.MouseEvent) {
-      const deltaX = projectPanelResizeRef.current.startX - event.clientX;
-      setProjectPanelWidth(
-        clampProjectPanelWidth(projectPanelResizeRef.current.startWidth + deltaX),
-      );
-    }
-
-    function handleMouseUp() {
-      setIsProjectPanelResizing(false);
-    }
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.body.style.cursor = originalCursor;
-      document.body.style.userSelect = originalUserSelect;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isProjectPanelResizing]);
 
   useEffect(() => {
     if (!isProjectFileTreeResizing) {
@@ -1995,27 +3263,49 @@ export function App() {
     const originalCursor = document.body.style.cursor;
     const originalUserSelect = document.body.style.userSelect;
 
-    function handleMouseMove(event: globalThis.MouseEvent) {
+    function handlePointerMove(event: globalThis.PointerEvent) {
+      if (event.pointerId !== projectFileTreeResizeRef.current.pointerId) {
+        return;
+      }
+
       const deltaX = projectFileTreeResizeRef.current.startX - event.clientX;
       setProjectFileTreeWidth(
         clampProjectFileTreeWidth(projectFileTreeResizeRef.current.startWidth + deltaX),
       );
     }
 
-    function handleMouseUp() {
+    function handlePointerEnd(event: globalThis.PointerEvent) {
+      if (event.pointerId !== projectFileTreeResizeRef.current.pointerId) {
+        return;
+      }
+
+      const { pointerId, target } = projectFileTreeResizeRef.current;
+      if (pointerId !== null && target?.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+      projectFileTreeResizeRef.current.pointerId = null;
+      projectFileTreeResizeRef.current.target = null;
       setIsProjectFileTreeResizing(false);
     }
 
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerEnd);
+    document.addEventListener("pointercancel", handlePointerEnd);
 
     return () => {
+      const { pointerId, target } = projectFileTreeResizeRef.current;
+      if (pointerId !== null && target?.hasPointerCapture(pointerId)) {
+        target.releasePointerCapture(pointerId);
+      }
+      projectFileTreeResizeRef.current.pointerId = null;
+      projectFileTreeResizeRef.current.target = null;
       document.body.style.cursor = originalCursor;
       document.body.style.userSelect = originalUserSelect;
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerEnd);
+      document.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [isProjectFileTreeResizing]);
 
@@ -2048,10 +3338,6 @@ export function App() {
     }
 
     setStatusRevision((currentRevision) => currentRevision + 1);
-
-    if (demoStatusTimeoutRef.current === null) {
-      queueDemoStatusClear();
-    }
   }, [demoStatus]);
 
   useEffect(() => () => clearDemoStatusTimeout(), []);
@@ -2062,10 +3348,14 @@ export function App() {
         window.clearTimeout(timeoutId);
       }
       documentPollTimeoutsRef.current.clear();
+      documentUploadControllersRef.current.forEach((controller) => controller.abort());
+      documentUploadControllersRef.current.clear();
       for (const timeoutId of githubRepositoryPollTimeoutsRef.current.values()) {
         window.clearTimeout(timeoutId);
       }
       githubRepositoryPollTimeoutsRef.current.clear();
+      abortLatestProjectOperations(githubOperationRegistryRef.current);
+      abortLatestProjectOperations(projectFileImportRegistryRef.current);
       postGithubSyncRefreshTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
       postGithubSyncRefreshTimeoutsRef.current = [];
     },
@@ -2106,26 +3396,44 @@ export function App() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type === "enter" || event.payload.type === "over") {
-          setIsDragActive(true);
+          const { x, y } = event.payload.position;
+          const scale = window.devicePixelRatio || 1;
+          const element = document.elementFromPoint(x / scale, y / scale);
+          const dropZone = element?.closest<HTMLElement>("[data-drop-zone]")?.dataset.dropZone;
+          const validDropZone =
+            canMutateSelectedProjectRef.current &&
+            selectedProjectIdRef.current &&
+            (dropZone === "project-files" ||
+              (dropZone === "prompt" && selectedSessionIdRef.current))
+              ? dropZone
+              : null;
+          setActiveDropZone(validDropZone);
+          setIsDragActive(Boolean(validDropZone));
           return;
         }
 
         if (event.payload.type === "leave") {
           setIsDragActive(false);
+          setActiveDropZone(null);
           return;
         }
 
         setIsDragActive(false);
+        setActiveDropZone(null);
 
         const { x, y } = event.payload.position;
         const scale = window.devicePixelRatio || 1;
         const element = document.elementFromPoint(x / scale, y / scale);
-        const zone = element?.closest("[data-drop-zone]");
+        const dropZone = element?.closest<HTMLElement>("[data-drop-zone]")?.dataset.dropZone;
         const selectedProjectId = selectedProjectIdRef.current;
 
-        if (zone && selectedProjectId) {
+        if (!canMutateSelectedProjectRef.current || !selectedProjectId) {
+          return;
+        }
+
+        if (dropZone === "project-files") {
           void addDroppedPathsToProjectRef.current?.(selectedProjectId, event.payload.paths);
-        } else {
+        } else if (dropZone === "prompt" && selectedSessionIdRef.current) {
           void appendAttachmentPathsRef.current?.(event.payload.paths);
         }
       })
@@ -2146,27 +3454,139 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const scrollContainer = chatScrollRef.current;
+    shouldStickToChatBottomRef.current = true;
+    setShowLatestMessageButton(false);
+    const frame = window.requestAnimationFrame(() => {
+      const scrollContainer = chatScrollRef.current;
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      }
+    });
 
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!shouldStickToChatBottomRef.current) {
+      setShowLatestMessageButton(true);
+      return;
+    }
+
+    const scrollContainer = chatScrollRef.current;
+    if (scrollContainer) {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    }
+  }, [isCurrentSessionSending, selectedSession?.messages.length]);
+
+  useEffect(() => {
+    if (mainView === "workspace" && selectedSessionId && canMutateSelectedProject) {
+      focusPrompt();
+    }
+    // Permission hydration must not steal focus after the user has moved elsewhere.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainView, selectedSessionId]);
+
+  useEffect(() => {
+    if (
+      mainView !== "workspace" ||
+      !selectedSessionId ||
+      !canMutateSelectedProject ||
+      (document.activeElement && document.activeElement !== document.body)
+    ) {
+      return;
+    }
+
+    focusPrompt();
+  }, [canMutateSelectedProject, mainView, selectedSessionId]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => resizePromptTextarea(promptTextareaRef.current));
+    return () => window.cancelAnimationFrame(frame);
+  }, [mainView, prompt, selectedSessionId]);
+
+  useEffect(() => {
+    const textarea = promptTextareaRef.current;
+    const promptElement = textarea?.closest(".prompt") as HTMLElement | null;
+    if (!textarea || !promptElement || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    let previousWidth = promptElement.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry.contentRect.width;
+      if (Math.abs(nextWidth - previousWidth) < 0.5) {
+        return;
+      }
+      previousWidth = nextWidth;
+      resizePromptTextarea(textarea);
+    });
+    observer.observe(promptElement);
+    return () => observer.disconnect();
+  }, [mainView, selectedSessionId]);
+
+  function handleChatScroll(event: ReactUIEvent<HTMLDivElement>) {
+    const scrollContainer = event.currentTarget;
+    const distanceFromBottom =
+      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+
+    if (isScrollingToChatBottomRef.current) {
+      if (distanceFromBottom < 2) {
+        isScrollingToChatBottomRef.current = false;
+      }
+      shouldStickToChatBottomRef.current = true;
+      setShowLatestMessageButton(false);
+      return;
+    }
+
+    const isAtLatest = distanceFromBottom < 88;
+    shouldStickToChatBottomRef.current = isAtLatest;
+    setShowLatestMessageButton(!isAtLatest);
+  }
+
+  function interruptChatAutoScroll() {
+    if (!isScrollingToChatBottomRef.current) {
+      return;
+    }
+
+    isScrollingToChatBottomRef.current = false;
+    const scrollContainer = chatScrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    const distanceFromBottom =
+      scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight;
+    const isAtLatest = distanceFromBottom < 88;
+    shouldStickToChatBottomRef.current = isAtLatest;
+    setShowLatestMessageButton(!isAtLatest);
+  }
+
+  function handleChatKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (["ArrowUp", "End", "Home", "PageDown", "PageUp", " "].includes(event.key)) {
+      interruptChatAutoScroll();
+    }
+  }
+
+  function handleScrollToLatest() {
+    const scrollContainer = chatScrollRef.current;
     if (!scrollContainer) {
       return;
     }
 
-    scrollContainer.scrollTop = scrollContainer.scrollHeight;
-  }, [isSending, selectedSession?.messages.length, selectedSessionId]);
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    isScrollingToChatBottomRef.current = !prefersReducedMotion;
+    scrollContainer.scrollTo({
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+      top: scrollContainer.scrollHeight,
+    });
+    shouldStickToChatBottomRef.current = true;
+    setShowLatestMessageButton(false);
+  }
 
   useEffect(() => {
-    focusPrompt();
-  }, [selectedSessionId]);
-
-	  useEffect(() => {
-	    setProjectPanelTabs([]);
-	    setActiveProjectPanelTabId(null);
-	  }, [selectedProjectId]);
-
-  useEffect(() => {
-    setPendingDeleteProjectFileId(null);
-  }, [projectSourcesMode]);
+    setProjectPanelTabs([]);
+    setActiveProjectPanelTabId(null);
+    setPendingSetupDeleteProjectFileId(null);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (canOpenProjectMemory) {
@@ -2243,17 +3663,14 @@ export function App() {
     }));
   }
 
-  function setPendingDeleteProjectFileId(action: SetStateAction<string | null>) {
-    updateActiveProjectFileTab((tab) => ({
-      ...tab,
-      pendingDeleteProjectFileId: resolveStateAction(action, tab.pendingDeleteProjectFileId),
-    }));
-  }
-
   function updateProject(projectId: string, updater: (project: ProjectWorkspace) => ProjectWorkspace) {
-    setProjects((currentProjects) =>
-      currentProjects.map((project) => (project.id === projectId ? updater(project) : project)),
-    );
+    setProjects((currentProjects) => {
+      const nextProjects = currentProjects.map((project) =>
+        project.id === projectId ? updater(project) : project,
+      );
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
   }
 
   function markProjectSeen(projectId: string) {
@@ -2287,6 +3704,28 @@ export function App() {
     documentPollTimeoutsRef.current.delete(pollKey);
   }
 
+  function getDocumentUploadKey(projectId: string, attachmentId: string) {
+    return `${projectId}:${attachmentId}`;
+  }
+
+  function hasProjectAttachment(projectId: string, attachmentId: string) {
+    const project = projectsRef.current.find((currentProject) => currentProject.id === projectId);
+    return Boolean(
+      project &&
+        collectFileAttachments(project.files ?? []).some(
+          (attachment) => attachment.id === attachmentId,
+        ),
+    );
+  }
+
+  function cancelProjectDocumentUploads(projectId: string, attachment: Attachment) {
+    collectFileAttachments([attachment]).forEach((file) => {
+      documentUploadControllersRef.current
+        .get(getDocumentUploadKey(projectId, file.id))
+        ?.abort();
+    });
+  }
+
   function scheduleDocumentStatusPoll(
     projectId: string,
     apiProjectId: number,
@@ -2312,6 +3751,8 @@ export function App() {
         }));
 
         if (isProjectDocumentTerminal(documentStatus)) {
+          void refreshProjectMemoryCounts(projectId, apiProjectId);
+          setPostSyncRefreshRevision((currentRevision) => currentRevision + 1);
           documentPollTimeoutsRef.current.delete(pollKey);
           return;
         }
@@ -2322,6 +3763,7 @@ export function App() {
             documentStatus: "delayed",
             lastError: "처리 지연 — 나중에 다시 확인",
           }));
+          void refreshProjectMemoryCounts(projectId, apiProjectId);
           documentPollTimeoutsRef.current.delete(pollKey);
           return;
         }
@@ -2333,6 +3775,7 @@ export function App() {
           documentStatus: "failed",
           lastError: getErrorMessage(error, "문서 처리 상태를 확인할 수 없습니다"),
         }));
+        void refreshProjectMemoryCounts(projectId, apiProjectId);
         documentPollTimeoutsRef.current.delete(pollKey);
       }
     }, DOCUMENT_STATUS_POLL_INTERVAL_MS);
@@ -2349,10 +3792,13 @@ export function App() {
       const documents = await fetchPaimJson<ApiDocumentListItem[]>(
         `/projects/${apiProjectId}/documents`,
       );
+      const visibleDocuments = documents.filter(
+        (document) => !cancelledDocumentIdsRef.current.has(document.id),
+      );
 
       updateProject(projectId, (project) => ({
         ...project,
-        files: mergeServerDocumentsIntoAttachments(project.files ?? [], documents),
+        files: mergeServerDocumentsIntoAttachments(project.files ?? [], visibleDocuments),
       }));
     } catch (error) {
       setDemoStatus({
@@ -2401,13 +3847,23 @@ export function App() {
 
   function handleGithubSyncSettled(projectId: string, status: ApiRepositoryStatus) {
     if (status === "indexed") {
-      setDemoStatus({ ok: true, message: "GitHub 동기화 완료", scope: "overview" });
+      setDemoStatus({
+        ok: true,
+        message: "GitHub 동기화 완료",
+        projectId,
+        scope: "overview",
+      });
       refreshAfterGithubSync(projectId);
       return;
     }
 
     if (status === "failed") {
-      setDemoStatus({ ok: false, message: "GitHub 동기화 실패", scope: "overview" });
+      setDemoStatus({
+        ok: false,
+        message: "GitHub 동기화 실패",
+        projectId,
+        scope: "overview",
+      });
     }
   }
 
@@ -2522,6 +3978,7 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 연결 정보를 불러올 수 없습니다"),
+        projectId,
         scope: "github",
       });
     }
@@ -2590,14 +4047,28 @@ export function App() {
     apiProjectId: number,
     repoId: number,
     state?: string,
+    expectedRepositoryUrl?: string,
   ) {
-    const response = await fetchPaimJson<ApiRepositoryConnectResponse>(
-      `/projects/${apiProjectId}/repositories/${repoId}/sync`,
-      {
-        method: "POST",
-        body: JSON.stringify(state ? { state } : {}),
-      },
-    );
+    const path = `/projects/${apiProjectId}/repositories/${repoId}/sync`;
+    const init = {
+      method: "POST",
+      body: JSON.stringify(state ? { state } : {}),
+    };
+    const response = state
+      ? await fetchPaimJsonPreservingSession<ApiRepositoryConnectResponse>(path, init)
+      : await fetchPaimJson<ApiRepositoryConnectResponse>(path, init);
+
+    const currentRepository = projectsRef.current.find((project) => project.id === projectId)
+      ?.githubRepository;
+    if (
+      !currentRepository ||
+      (expectedRepositoryUrl &&
+        getGithubRepositoryUrl(currentRepository) !== expectedRepositoryUrl) ||
+      (typeof currentRepository.repoId === "number" &&
+        currentRepository.repoId !== response.repo_id)
+    ) {
+      return response;
+    }
 
     updateGithubRepository(projectId, (repository) => ({
       ...repository,
@@ -2629,23 +4100,18 @@ export function App() {
     question: string,
     history: ApiQueryHistoryMessage[],
     queryAttachments: ApiQueryAttachment[] = [],
+    signal?: AbortSignal,
   ) {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
     const body =
       queryAttachments.length > 0
         ? { question, history, attachments: queryAttachments }
         : { question, history };
 
-    try {
-      return await fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
-        method: "POST",
-        signal: controller.signal,
-        body: JSON.stringify(body),
-      });
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
+    return fetchPaimJson<ApiQueryResponse>(`/projects/${apiProjectId}/query`, {
+      method: "POST",
+      signal,
+      body: JSON.stringify(body),
+    });
   }
 
   async function fetchProjectDelta(apiProjectId: number, since: string, dueSoonDays: number) {
@@ -2654,22 +4120,141 @@ export function App() {
     );
   }
 
-  async function fetchProjectDeltaBriefing(apiProjectId: number, since: string) {
+  async function fetchProjectMemorySnapshot(apiProjectId: number) {
+    const items = await fetchPaimJson<ProjectMemoryItem[]>(`/projects/${apiProjectId}/memory`);
+    const counts = createEmptyProjectMemoryCounts();
+
+    items.forEach((item) => {
+      if (PROJECT_MEMORY_CATEGORIES.includes(item.category)) {
+        counts[item.category] += 1;
+      }
+    });
+
+    return { counts, items };
+  }
+
+  async function refreshProjectMemoryCounts(projectId: string, apiProjectId: number) {
+    try {
+      const { counts, items } = await fetchProjectMemorySnapshot(apiProjectId);
+
+      setProjectMemoryCountsByProjectId((current) => ({
+        ...current,
+        [projectId]: counts,
+      }));
+      setProjectMemoryItemsByProjectId((current) => ({
+        ...current,
+        [projectId]: items,
+      }));
+    } catch {
+      setProjectMemoryCountsByProjectId((current) => {
+        if (current[projectId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [projectId]: createEmptyProjectMemoryCounts(),
+        };
+      });
+      setProjectMemoryItemsByProjectId((current) => {
+        if (current[projectId]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [projectId]: [],
+        };
+      });
+    }
+  }
+
+  async function fetchProjectDeltaBriefing(
+    apiProjectId: number,
+    since: string,
+    signal?: AbortSignal,
+  ) {
+    return fetchPaimJson<ApiDeltaBriefingResponse>(
+      `/projects/${apiProjectId}/briefing/delta`,
+      {
+        method: "POST",
+        signal,
+        body: JSON.stringify({ since }),
+      },
+    );
+  }
+
+  function beginActiveQuery() {
+    const previousController = activeQueryControllerRef.current;
+    if (previousController) {
+      userCancelledQueryControllersRef.current.add(previousController);
+      previousController.abort();
+    }
+
     const controller = new AbortController();
+    activeQueryControllerRef.current = controller;
     const timeoutId = window.setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
 
-    try {
-      return await fetchPaimJson<ApiDeltaBriefingResponse>(
-        `/projects/${apiProjectId}/briefing/delta`,
-        {
-          method: "POST",
-          signal: controller.signal,
-          body: JSON.stringify({ since }),
-        },
-      );
-    } finally {
-      window.clearTimeout(timeoutId);
+    return { controller, timeoutId };
+  }
+
+  function finishActiveQuery(controller: AbortController, timeoutId: number) {
+    window.clearTimeout(timeoutId);
+    if (activeQueryControllerRef.current === controller) {
+      activeQueryControllerRef.current = null;
+      return true;
     }
+
+    return false;
+  }
+
+  function handleCancelQuery() {
+    const controller = activeQueryControllerRef.current;
+    if (!controller) {
+      return;
+    }
+
+    userCancelledQueryControllersRef.current.add(controller);
+    controller.abort();
+    if (activeQueryControllerRef.current === controller) {
+      activeQueryControllerRef.current = null;
+      setIsSending(false);
+      setPendingProjectId(null);
+      setPendingSessionId(null);
+      setThinkingStartedAt(null);
+    }
+    setDemoStatus({
+      kind: "info",
+      message: "응답 생성을 중지했습니다",
+      ok: true,
+      scope: "overview",
+    });
+  }
+
+  function isUserCancelledQuery(error: unknown, controller: AbortController) {
+    return (
+      controller.signal.aborted &&
+      userCancelledQueryControllersRef.current.has(controller) &&
+      (error instanceof DOMException ? error.name === "AbortError" : true)
+    );
+  }
+
+  function cancelActiveQueryForProject(projectId: string) {
+    if (pendingProjectId !== projectId) {
+      return;
+    }
+
+    const controller = activeQueryControllerRef.current;
+    if (controller) {
+      userCancelledQueryControllersRef.current.add(controller);
+      controller.abort();
+      activeQueryControllerRef.current = null;
+    }
+
+    setIsSending(false);
+    setPendingProjectId(null);
+    setPendingSessionId(null);
+    setThinkingStartedAt(null);
   }
 
   function getQueryErrorMessage(error: unknown) {
@@ -2691,7 +4276,7 @@ export function App() {
   async function readQueryAttachment(entry: Attachment): Promise<ApiQueryAttachment> {
     const encoded = await invoke<string>("read_file_base64", { path: entry.path });
     if (getBase64ByteLength(encoded) > 10 * 1024 * 1024) {
-      throw new Error(`${entry.name}은 10 MB를 초과해 첨부할 수 없습니다`);
+      throw new Error(t("{name}은 10 MB를 초과해 첨부할 수 없습니다", { name: entry.name }));
     }
     return { filename: entry.name, content_base64: encoded };
   }
@@ -2701,6 +4286,14 @@ export function App() {
     apiProjectId: number,
     entry: Attachment,
   ) {
+    if (!hasProjectAttachment(projectId, entry.id)) {
+      return "cancelled" as const;
+    }
+
+    const uploadKey = getDocumentUploadKey(projectId, entry.id);
+    const controller = new AbortController();
+    documentUploadControllersRef.current.get(uploadKey)?.abort();
+    documentUploadControllersRef.current.set(uploadKey, controller);
     updateProjectAttachment(projectId, entry.id, (attachment) => ({
       ...attachment,
       documentStatus: "uploading",
@@ -2709,13 +4302,39 @@ export function App() {
 
     try {
       const file = await readUploadFile(entry);
+      if (controller.signal.aborted || !hasProjectAttachment(projectId, entry.id)) {
+        return "cancelled" as const;
+      }
       const formData = new FormData();
       formData.append("file", file, entry.uploadName ?? entry.name);
 
+      // Keep the HTTP request alive after a local cancel so we can receive doc_id and
+      // issue the compensating DELETE. Aborting the fetch after a server commit would
+      // lose the only cleanup handle and allow the document to reappear on next launch.
       const response = await fetchPaimFormData<ApiDocumentUploadResponse>(
         `/projects/${apiProjectId}/documents`,
         formData,
       );
+
+      if (controller.signal.aborted || !hasProjectAttachment(projectId, entry.id)) {
+        cancelledDocumentIdsRef.current.add(response.doc_id);
+        try {
+          await fetchPaimJson<void>(
+            `/projects/${apiProjectId}/documents/${response.doc_id}`,
+            { method: "DELETE" },
+          );
+          cancelledDocumentIdsRef.current.delete(response.doc_id);
+        } catch {
+          setDemoStatus({
+            ok: false,
+            message: "취소한 업로드의 서버 문서를 정리하지 못했습니다",
+            projectId,
+            scope: "overview",
+          });
+        }
+        return "cancelled" as const;
+      }
+
       const documentStatus = toProjectDocumentStatus(response.status);
 
       updateProjectAttachment(projectId, entry.id, (attachment) => ({
@@ -2727,13 +4346,25 @@ export function App() {
 
       if (!isProjectDocumentTerminal(documentStatus)) {
         scheduleDocumentStatusPoll(projectId, apiProjectId, entry.id, response.doc_id);
+      } else {
+        void refreshProjectMemoryCounts(projectId, apiProjectId);
+        setPostSyncRefreshRevision((currentRevision) => currentRevision + 1);
       }
+      return "uploaded" as const;
     } catch (error) {
+      if (controller.signal.aborted || !hasProjectAttachment(projectId, entry.id)) {
+        return "cancelled" as const;
+      }
       updateProjectAttachment(projectId, entry.id, (attachment) => ({
         ...attachment,
         documentStatus: "failed",
         lastError: getErrorMessage(error, "문서를 업로드할 수 없습니다"),
       }));
+      return "failed" as const;
+    } finally {
+      if (documentUploadControllersRef.current.get(uploadKey) === controller) {
+        documentUploadControllersRef.current.delete(uploadKey);
+      }
     }
   }
 
@@ -2763,7 +4394,7 @@ export function App() {
       return;
     }
 
-    if (shouldSkipServerAction("overview")) {
+    if (shouldSkipProjectMutation(project, "overview")) {
       return;
     }
 
@@ -2775,25 +4406,44 @@ export function App() {
       }
 
       setDemoStatus({
+        kind: "info",
         ok: true,
-        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 중...`,
+        message: t("지원 문서 {count}개 서버 업로드 중...", {
+          count: supportedFiles.length,
+        }),
+        projectId,
         scope: "overview",
       });
 
+      const uploadResults: Array<"cancelled" | "failed" | "uploaded"> = [];
       for (const entry of supportedFiles) {
-        await uploadProjectDocument(projectId, apiProject.apiProjectId, entry);
+        uploadResults.push(
+          await uploadProjectDocument(projectId, apiProject.apiProjectId, entry),
+        );
       }
 
-      setDemoStatus({
-        ok: true,
-        message: `지원 문서 ${supportedFiles.length}개 서버 업로드 요청 완료`,
-        scope: "overview",
-      });
+      const uploadedCount = uploadResults.filter((result) => result === "uploaded").length;
+      const failedCount = uploadResults.filter((result) => result === "failed").length;
+      const cancelledCount = uploadResults.filter((result) => result === "cancelled").length;
+      if (uploadResults.length > 0) {
+        setDemoStatus({
+          kind: failedCount > 0 ? "warning" : cancelledCount > 0 ? "info" : "success",
+          ok: failedCount === 0,
+          message: t("업로드 결과 · {done}개 완료 · {failed}개 실패 · {cancelled}개 취소", {
+            cancelled: cancelledCount,
+            done: uploadedCount,
+            failed: failedCount,
+          }),
+          projectId,
+          scope: "overview",
+        });
+      }
       void syncProjectDocuments(projectId, apiProject.apiProjectId);
     } catch (error) {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "문서를 서버로 업로드할 수 없습니다"),
+        projectId,
         scope: "overview",
       });
     }
@@ -2801,30 +4451,64 @@ export function App() {
 
   // FastAPI의 정수 project_id가 있어야 서버 메모리 API를 조회할 수 있다.
   async function ensureApiProject(project: ProjectWorkspace) {
-    if (typeof project.apiProjectId === "number") {
-      return project;
+    const latestProject =
+      projectsRef.current.find((currentProject) => currentProject.id === project.id) ?? project;
+    if (typeof latestProject.apiProjectId === "number") {
+      return latestProject;
     }
 
     if (serverStatus === "offline") {
       throw new Error("PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중");
     }
 
-    const createdProject = await fetchPaimJson<ApiProjectCreateResponse>("/projects", {
-      method: "POST",
-      body: JSON.stringify({ name: project.name || "New Project" }),
-    });
+    const existingPromise = apiProjectEnsurePromisesRef.current.get(project.id);
+    if (existingPromise) {
+      return existingPromise;
+    }
 
-    const nextProject = {
-      ...project,
-      apiProjectId: createdProject.id,
-    };
+    const creationPromise = (async () => {
+      const createdProject = await fetchPaimJson<ApiProjectCreateResponse>("/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: latestProject.name || "New Project" }),
+      });
+      const currentProject = projectsRef.current.find(
+        (candidate) => candidate.id === project.id,
+      );
 
-    updateProject(project.id, (currentProject) => ({
-      ...currentProject,
-      apiProjectId: createdProject.id,
-    }));
+      if (!currentProject) {
+        try {
+          await fetchPaimJson<void>(`/projects/${createdProject.id}`, { method: "DELETE" });
+        } catch {
+          // The project may already have been removed by another request/cascade.
+        }
+        throw new Error("로컬에서 제거된 프로젝트의 서버 생성을 취소했습니다");
+      }
 
-    return nextProject;
+      const nextProject = {
+        ...currentProject,
+        apiProjectId: createdProject.id,
+      };
+
+      updateProject(project.id, (candidate) => ({
+        ...candidate,
+        apiProjectId: createdProject.id,
+      }));
+      if (authUser) {
+        setProjectRolesByApiId((current) => ({ ...current, [createdProject.id]: "owner" }));
+      }
+
+      return nextProject;
+    })();
+
+    apiProjectEnsurePromisesRef.current.set(project.id, creationPromise);
+    try {
+      return await creationPromise;
+    } catch (error) {
+      if (apiProjectEnsurePromisesRef.current.get(project.id) === creationPromise) {
+        apiProjectEnsurePromisesRef.current.delete(project.id);
+      }
+      throw error;
+    }
   }
 
   function updateSessionInProject(
@@ -2841,7 +4525,10 @@ export function App() {
   }
 
   // 서버에 비어 있는 채팅 세션 row를 만든다.
-  async function createServerChatSession(apiProjectId: number, title: string) {
+  async function createServerChatSession(
+    apiProjectId: number,
+    title: string,
+  ) {
     return fetchPaimJson<ApiChatSessionResponse>(`/projects/${apiProjectId}/sessions`, {
       method: "POST",
       body: JSON.stringify({ title: title || "New Chat" }),
@@ -2855,19 +4542,55 @@ export function App() {
     apiProjectId: number,
     title: string,
   ) {
-    if (session.serverSessionId) {
-      return session.serverSessionId;
+    const sessionKey = `${projectId}\u0000${session.id}`;
+    const latestSession = projectsRef.current
+      .find((project) => project.id === projectId)
+      ?.sessions.find((candidate) => candidate.id === session.id);
+    if (latestSession?.serverSessionId || session.serverSessionId) {
+      return latestSession?.serverSessionId ?? session.serverSessionId!;
     }
 
-    const createdSession = await createServerChatSession(apiProjectId, title);
+    const existingPromise = serverSessionEnsurePromisesRef.current.get(sessionKey);
+    if (existingPromise) {
+      return existingPromise;
+    }
 
-    updateSessionInProject(projectId, session.id, (currentSession) => ({
-      ...currentSession,
-      serverSessionId: createdSession.id,
-      title: createdSession.title || currentSession.title,
-    }));
+    const creationPromise = (async () => {
+      const createdSession = await createServerChatSession(apiProjectId, title);
+      const currentSession = projectsRef.current
+        .find((project) => project.id === projectId)
+        ?.sessions.find((candidate) => candidate.id === session.id);
 
-    return createdSession.id;
+      if (!currentSession) {
+        try {
+          await fetchPaimJson<void>(
+            `/projects/${apiProjectId}/sessions/${encodeURIComponent(createdSession.id)}`,
+            { method: "DELETE" },
+          );
+        } catch {
+          // The session may already have been removed with its parent project.
+        }
+        throw new Error("로컬에서 제거된 채팅의 서버 생성을 취소했습니다");
+      }
+
+      updateSessionInProject(projectId, session.id, (candidate) => ({
+        ...candidate,
+        serverSessionId: createdSession.id,
+        title: createdSession.title || candidate.title,
+      }));
+
+      return createdSession.id;
+    })();
+
+    serverSessionEnsurePromisesRef.current.set(sessionKey, creationPromise);
+    try {
+      return await creationPromise;
+    } catch (error) {
+      if (serverSessionEnsurePromisesRef.current.get(sessionKey) === creationPromise) {
+        serverSessionEnsurePromisesRef.current.delete(sessionKey);
+      }
+      throw error;
+    }
   }
 
   // 서버에 이미 연결된 세션의 제목 변경만 동기화한다.
@@ -2924,7 +4647,7 @@ export function App() {
     } catch (error) {
       updateProject(projectId, (currentProject) => ({
         ...currentProject,
-        name: previousTitle,
+        name: currentProject.name === title ? previousTitle : currentProject.name,
         serverMissing:
           isPaimApiError(error) && error.status === 404 ? true : currentProject.serverMissing,
       }));
@@ -3018,23 +4741,71 @@ export function App() {
       return;
     }
 
+    const nextSessionId = nextProject.sessions[0]?.id ?? null;
+    rememberCurrentDraft();
     setMainView("workspace");
     setSelectedProjectId(nextProject.id);
-    setSelectedSessionId(nextProject.sessions[0]?.id ?? null);
-    clearDraft();
+    setSelectedSessionId(nextSessionId);
+    showSessionDraft(nextProject.id, nextSessionId);
   }
 
   // 새 프로젝트는 먼저 홈에서 자료를 받기 위해 채팅 세션 없이 만든다.
   function createProjectFromName(baseName: string, files: Attachment[] = []) {
     const nextProject = createProject(createUniqueProjectName(projects, baseName), [], files);
 
+    rememberCurrentDraft();
     setProjects((currentProjects) => [nextProject, ...currentProjects]);
+    setIsSidebarCollapsed(false);
+    setIsSidebarResizing(false);
     setMainView("workspace");
     setSelectedProjectId(nextProject.id);
     setSelectedSessionId(null);
     setProjectPanelTabs([]);
     setActiveProjectPanelTabId(null);
-    clearDraft();
+    closeProjectPanel();
+    resetVisibleDraft();
+  }
+
+  function closeProjectPanel() {
+    setProjectPanelMode((currentMode) => {
+      if (currentMode !== "closed") {
+        projectPanelReopenModeRef.current = currentMode;
+      }
+
+      return "closed";
+    });
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".project-panel-rail-toggle")?.focus();
+    });
+  }
+
+  function openProjectPanel() {
+    setProjectPanelMode(projectPanelReopenModeRef.current);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(".project-panel-inline-controls button")
+        ?.focus();
+    });
+  }
+
+  function handleToggleProjectPanel() {
+    if (projectPanelMode === "closed") {
+      openProjectPanel();
+    } else {
+      closeProjectPanel();
+    }
+
+    setIsProjectFileTreeResizing(false);
+  }
+
+  function handleToggleProjectPanelMaximized() {
+    setProjectPanelMode((currentMode) => {
+      if (currentMode === "closed") {
+        return currentMode;
+      }
+
+      return currentMode === "maximized" ? "open" : "maximized";
+    });
   }
 
   function handleToggleSidebar() {
@@ -3042,68 +4813,159 @@ export function App() {
     setIsSidebarResizing(false);
   }
 
-  function handleToggleProjectPanel() {
-    setIsProjectPanelCollapsed((current) => !current);
-    setIsProjectPanelResizing(false);
-    setIsProjectFileTreeResizing(false);
-  }
-
-  function handleSidebarResizeStart(event: MouseEvent<HTMLDivElement>) {
-    if (isSidebarCollapsed) {
+  function handleSidebarResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isSidebarCollapsed || event.button !== 0) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
     sidebarResizeRef.current = {
+      pointerId: event.pointerId,
       startX: event.clientX,
       startWidth: sidebarWidth,
+      target: event.currentTarget,
     };
     setIsSidebarResizing(true);
   }
 
-  function handleProjectPanelResizeStart(event: MouseEvent<HTMLDivElement>) {
+  function handleSidebarResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey ? 40 : 8;
+    let nextWidth: number;
+
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowDown":
+        nextWidth = sidebarWidth - step;
+        break;
+      case "ArrowRight":
+      case "ArrowUp":
+        nextWidth = sidebarWidth + step;
+        break;
+      case "Home":
+        nextWidth = MIN_SIDEBAR_WIDTH;
+        break;
+      case "End":
+        nextWidth = MAX_SIDEBAR_WIDTH;
+        break;
+      default:
+        return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
-    projectPanelResizeRef.current = {
-      startX: event.clientX,
-      startWidth: projectPanelWidth,
-    };
-    setIsProjectPanelResizing(true);
+    setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, nextWidth)));
   }
 
-  function handleProjectFileTreeResizeStart(event: MouseEvent<HTMLDivElement>) {
+  function handleProjectPanelResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (isProjectPanelMaximized) {
+      return;
+    }
+
+    const step = event.shiftKey ? 50 : 10;
+    let nextWidth: number;
+
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextWidth = projectPanelWidth + step;
+        break;
+      case "ArrowRight":
+      case "ArrowDown":
+        nextWidth = projectPanelWidth - step;
+        break;
+      case "Home":
+        nextWidth = MIN_PROJECT_PANEL_WIDTH;
+        break;
+      case "End":
+        nextWidth = MAX_PROJECT_PANEL_WIDTH;
+        break;
+      default:
+        return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
+    projectPanelResizable.resize(nextWidth);
+  }
+
+  function handleProjectPanelTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    tabIndex: number,
+  ) {
+    const lastIndex = projectPanelTabs.length - 1;
+    let nextIndex: number;
+
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextIndex = tabIndex === 0 ? lastIndex : tabIndex - 1;
+        break;
+      case "ArrowRight":
+      case "ArrowDown":
+        nextIndex = tabIndex === lastIndex ? 0 : tabIndex + 1;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = lastIndex;
+        break;
+      case "Enter":
+      case " ":
+        event.preventDefault();
+        setActiveProjectPanelTabId(projectPanelTabs[tabIndex]?.id ?? null);
+        return;
+      default:
+        return;
+    }
+
+    const nextTab = projectPanelTabs[nextIndex];
+    if (!nextTab) {
+      return;
+    }
+
+    event.preventDefault();
+    setActiveProjectPanelTabId(nextTab.id);
+    window.requestAnimationFrame(() => {
+      projectPanelTabsRef.current
+        ?.querySelector<HTMLElement>(`[data-tab-id="${nextTab.id}"]`)
+        ?.focus();
+    });
+  }
+
+  function handleProjectFileTreeResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
     projectFileTreeResizeRef.current = {
+      pointerId: event.pointerId,
       startX: event.clientX,
       startWidth: isProjectFileTreeCollapsed
         ? MIN_PROJECT_FILE_TREE_WIDTH
         : projectFileTreeWidth,
+      target: event.currentTarget,
     };
     setIsProjectFileTreeCollapsed(false);
     setIsProjectFileTreeResizing(true);
   }
 
-  function toggleProjectSessions(projectId: string, event: MouseEvent<HTMLButtonElement>) {
-    event.stopPropagation();
-    setCollapsedProjectIds((currentProjectIds) =>
-      currentProjectIds.includes(projectId)
-        ? currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId)
-        : [...currentProjectIds, projectId],
-    );
-  }
-
   // 지정한 프로젝트 안에 새 채팅을 항상 추가하고 그 채팅을 선택한다.
   function handleCreateChatInProject(projectId: string) {
-	    const targetProject = projects.find((project) => project.id === projectId);
+	  const targetProject = projects.find((project) => project.id === projectId);
 
-    if (!targetProject) {
+    if (!targetProject || shouldSkipProjectPermission(targetProject)) {
       return;
     }
 
     const nextSession = createEmptySession();
 
+    rememberCurrentDraft();
     updateProject(projectId, (project) => ({
       ...project,
       sessions: [nextSession, ...project.sessions],
@@ -3111,21 +4973,28 @@ export function App() {
     setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(nextSession.id);
-    setCollapsedProjectIds((currentProjectIds) =>
-      currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId),
-    );
-	    clearDraft();
-	    focusPrompt();
-	  }
+    closeProjectPanel();
+	  resetVisibleDraft();
+	  focusPrompt();
+  }
 
-	  // 같은 도구도 새 탭으로 추가한다. 자료 탭은 탭별로 검색/선택/프리뷰 상태를 따로 가진다.
+	  // 자료·GitHub 탭은 필요하면 여러 개 열 수 있지만, 메모리 편집 상태는 서버 항목과
+	  // 일대일로 유지해야 하므로 기존 메모리 탭을 재사용한다.
 	  function openProjectPanelTool(view: ProjectPanelToolView) {
-	    if (view === "memory" && shouldSkipServerAction("overview")) {
+	    if (view === "memory" && serverStatus !== "online") {
 	      return;
 	    }
 
 	    if (view === "memory" && !canOpenProjectMemory) {
 	      return;
+	    }
+
+	    if (view === "memory") {
+	      const existingMemoryTab = projectPanelTabs.find((tab) => tab.view === "memory");
+	      if (existingMemoryTab) {
+	        setActiveProjectPanelTabId(existingMemoryTab.id);
+	        return;
+	      }
 	    }
 
 	    const nextTab = createProjectPanelTab(view);
@@ -3134,20 +5003,30 @@ export function App() {
 	    setActiveProjectPanelTabId(nextTab.id);
 	  }
 
-	  // 탭을 닫으면 바로 왼쪽 탭을 우선 활성화하고, 남은 탭이 없으면 메뉴로 돌아간다.
-	  function handleCloseProjectPanelTab(tabId: string) {
-	    setProjectPanelTabs((currentTabs) => {
-	      const closingIndex = currentTabs.findIndex((tab) => tab.id === tabId);
-	      const nextTabs = currentTabs.filter((tab) => tab.id !== tabId);
+  // 탭을 닫으면 바로 왼쪽 탭을 우선 활성화하고, 남은 탭이 없으면 도구 메뉴로 포커스를 옮긴다.
+  function handleCloseProjectPanelTab(tabId: string) {
+    const closingIndex = projectPanelTabs.findIndex((tab) => tab.id === tabId);
+    if (closingIndex < 0) {
+      return;
+    }
 
-	      if (activeProjectPanelTabId === tabId) {
-	        const nextActiveTab = nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0] ?? null;
-	        setActiveProjectPanelTabId(nextActiveTab?.id ?? null);
-	      }
+    const nextTabs = projectPanelTabs.filter((tab) => tab.id !== tabId);
+    const nextActiveTab =
+      activeProjectPanelTabId === tabId
+        ? nextTabs[Math.max(0, closingIndex - 1)] ?? nextTabs[0] ?? null
+        : nextTabs.find((tab) => tab.id === activeProjectPanelTabId) ?? nextTabs[0] ?? null;
 
-	      return nextTabs;
-	    });
-	  }
+    setProjectPanelTabs(nextTabs);
+    setActiveProjectPanelTabId(nextActiveTab?.id ?? null);
+    window.requestAnimationFrame(() => {
+      const nextFocusTarget = nextActiveTab
+        ? projectPanelTabsRef.current?.querySelector<HTMLElement>(
+            `[data-tab-id="${nextActiveTab.id}"]`,
+          )
+        : document.querySelector<HTMLElement>(".project-panel-menu-item");
+      nextFocusTarget?.focus();
+    });
+  }
 
 	  // 열린 파일이 있으면 자료 탭 라벨을 파일명으로 압축해서 보여준다.
 	  function getProjectPanelTabLabel(tab: ProjectPanelTab) {
@@ -3166,12 +5045,19 @@ export function App() {
     path: string,
     uploadedAt: number,
     rootPath = path,
+    signal?: AbortSignal,
   ): Promise<Attachment> {
+    if (signal?.aborted) {
+      throw new DOMException("Project file import cancelled", "AbortError");
+    }
     const children = await invoke<DirectoryChildEntry[]>("read_directory_children", { path });
+    if (signal?.aborted) {
+      throw new DOMException("Project file import cancelled", "AbortError");
+    }
     const nextChildren = await Promise.all(
       children.map((entry) =>
         entry.kind === "directory"
-          ? createProjectDirectoryEntry(entry.path, uploadedAt, rootPath)
+          ? createProjectDirectoryEntry(entry.path, uploadedAt, rootPath, signal)
           : { ...createProjectFileEntry(entry), uploadName: getUploadName(rootPath, entry.path), uploadedAt },
       ),
     );
@@ -3202,7 +5088,11 @@ export function App() {
   function registerProjectEntries(projectId: string, entries: Attachment[]) {
     const targetProject = projectsRef.current.find((project) => project.id === projectId);
 
-    if (!targetProject || entries.length === 0) {
+    if (
+      !targetProject ||
+      entries.length === 0 ||
+      shouldSkipProjectPermission(targetProject)
+    ) {
       return;
     }
 
@@ -3210,8 +5100,9 @@ export function App() {
       ...project,
       files: [...entries, ...(project.files ?? [])],
     }));
-    setSelectedProjectId(projectId);
-    setProjectSourcesMode("library");
+    if (selectedProjectIdRef.current === projectId) {
+      setProjectSourcesMode("library");
+    }
     void uploadProjectDocuments(projectId, targetProject, entries);
   }
 
@@ -3220,38 +5111,82 @@ export function App() {
       return;
     }
 
-    const uploadedAt = Date.now();
-    const entries = (
-      await Promise.all(
-        paths.map(async (path) => {
-          try {
-            const kind = await invoke<"directory" | "file">("path_kind", { path });
-
-            return kind === "directory"
-              ? createProjectDirectoryEntry(path, uploadedAt)
-              : createProjectFileRootEntry(path, uploadedAt);
-          } catch {
-            return null;
-          }
-        }),
-      )
-    ).filter((entry): entry is Attachment => entry !== null);
-
-    if (entries.length === 0) {
-      setDemoStatus({
-        ok: false,
-        message: "드롭한 파일이나 폴더를 등록할 수 없습니다",
-        scope: "overview",
-      });
+    const operation = beginProjectFileImport(projectId, "drop");
+    if (!operation) {
       return;
     }
 
-    registerProjectEntries(projectId, entries);
+    setDemoStatus({
+      kind: "info",
+      ok: true,
+      message: "자료 구조를 읽는 중...",
+      projectId,
+      scope: "overview",
+    });
+
+    try {
+      const uploadedAt = Date.now();
+      const entries = (
+        await Promise.all(
+          paths.map(async (path) => {
+            try {
+              const kind = await invoke<"directory" | "file">("path_kind", { path });
+              if (operation.controller.signal.aborted) {
+                throw new DOMException("Project file import cancelled", "AbortError");
+              }
+
+              return kind === "directory"
+                ? createProjectDirectoryEntry(
+                    path,
+                    uploadedAt,
+                    path,
+                    operation.controller.signal,
+                  )
+                : createProjectFileRootEntry(path, uploadedAt);
+            } catch {
+              return null;
+            }
+          }),
+        )
+      ).filter((entry): entry is Attachment => entry !== null);
+
+      if (!isProjectFileImportCurrent(operation)) {
+        return;
+      }
+      if (entries.length === 0) {
+        setDemoStatus({
+          ok: false,
+          message: "드롭한 파일이나 폴더를 등록할 수 없습니다",
+          projectId,
+          scope: "overview",
+        });
+        return;
+      }
+
+      registerProjectEntries(projectId, entries);
+      const failedCount = paths.length - entries.length;
+      if (failedCount > 0) {
+        setDemoStatus({
+          kind: "warning",
+          ok: false,
+          message: t("자료 {added}개 추가 · {failed}개 읽기 실패", {
+            added: entries.length,
+            failed: failedCount,
+          }),
+          projectId,
+          scope: "overview",
+        });
+      }
+    } finally {
+      finishProjectFileImport(operation);
+    }
   }
 
   // 프로젝트 자료함에 개별 파일을 루트 자료로 추가한다.
   async function handleOpenProjectFiles(projectId: string) {
-    if (!projectsRef.current.some((project) => project.id === projectId)) {
+    const targetProject = projectsRef.current.find((project) => project.id === projectId);
+
+    if (!targetProject || shouldSkipProjectPermission(targetProject)) {
       return;
     }
 
@@ -3267,8 +5202,9 @@ export function App() {
     try {
       const selectedPaths = await open({
         directory: false,
+        filters: [{ name: t("지원 문서"), extensions: ["md", "txt", "pdf"] }],
         multiple: true,
-        title: "프로젝트 파일 업로드",
+        title: t("프로젝트 자료 추가"),
       });
       const paths = normalizeDialogPaths(selectedPaths);
 
@@ -3290,7 +5226,9 @@ export function App() {
 
   // 프로젝트 자료함은 폴더를 루트로 받아 트리로 보여준다.
   async function handleOpenProjectDirectory(projectId: string) {
-    if (!projectsRef.current.some((project) => project.id === projectId)) {
+    const targetProject = projectsRef.current.find((project) => project.id === projectId);
+
+    if (!targetProject || shouldSkipProjectPermission(targetProject)) {
       return;
     }
 
@@ -3307,7 +5245,7 @@ export function App() {
       const selectedPaths = await open({
         directory: true,
         multiple: true,
-        title: "프로젝트 폴더 업로드",
+        title: t("프로젝트 폴더 추가"),
       });
       const paths = normalizeDialogPaths(selectedPaths);
 
@@ -3316,14 +5254,46 @@ export function App() {
       }
 
       const uploadedAt = Date.now();
-      const nextEntries = await Promise.all(
-        paths.map((path) => createProjectDirectoryEntry(path, uploadedAt)),
-      );
-      registerProjectEntries(projectId, nextEntries);
+      const operation = beginProjectFileImport(projectId, "folder");
+      if (!operation) {
+        return;
+      }
+      setDemoStatus({
+        kind: "info",
+        ok: true,
+        message: "폴더 구조를 읽는 중...",
+        projectId,
+        scope: "overview",
+      });
+
+      try {
+        const nextEntries = await Promise.all(
+          paths.map((path) =>
+            createProjectDirectoryEntry(
+              path,
+              uploadedAt,
+              path,
+              operation.controller.signal,
+            ),
+          ),
+        );
+        if (!isProjectFileImportCurrent(operation)) {
+          return;
+        }
+        registerProjectEntries(projectId, nextEntries);
+      } catch (error) {
+        if (!isProjectFileImportCurrent(operation)) {
+          return;
+        }
+        throw error;
+      } finally {
+        finishProjectFileImport(operation);
+      }
     } catch {
       setDemoStatus({
         ok: false,
         message: "프로젝트 폴더를 업로드할 수 없습니다",
+        projectId,
         scope: "overview",
       });
     }
@@ -3345,6 +5315,16 @@ export function App() {
       return;
     }
 
+    const loadingKey = `${projectId}:${entry.id}`;
+    if (loadingProjectFileEntryKeys.has(loadingKey)) {
+      return;
+    }
+    setLoadingProjectFileEntryKeys((currentKeys) => {
+      const nextKeys = new Set(currentKeys);
+      nextKeys.add(loadingKey);
+      return nextKeys;
+    });
+
     try {
       const children = await readDirectoryChildren(entry.path);
 
@@ -3361,7 +5341,14 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "하위 폴더를 읽을 수 없습니다",
+        projectId,
         scope: "overview",
+      });
+    } finally {
+      setLoadingProjectFileEntryKeys((currentKeys) => {
+        const nextKeys = new Set(currentKeys);
+        nextKeys.delete(loadingKey);
+        return nextKeys;
       });
     }
   }
@@ -3391,7 +5378,7 @@ export function App() {
       setProjectFilePreviewForTab(targetTabId, {
         ...nextPreview,
         isLoading: false,
-        error: "서버 문서는 로컬 경로가 없어 미리볼 수 없습니다",
+        error: t("서버 문서는 로컬 경로가 없어 미리볼 수 없습니다"),
       });
       return;
     }
@@ -3422,13 +5409,15 @@ export function App() {
     const targetProject = projects.find((project) => project.id === projectId);
     const linkedDocIds = Array.from(getAttachmentDocIds([attachment]));
 
-    if (!targetProject) {
-      return;
+    if (!targetProject || shouldSkipProjectPermission(targetProject)) {
+      return false;
     }
 
+    cancelProjectDocumentUploads(projectId, attachment);
+
     if (linkedDocIds.length > 0) {
-      if (shouldSkipServerAction("overview")) {
-        return;
+      if (shouldSkipProjectMutation(targetProject, "overview")) {
+        return false;
       }
 
       if (targetProject.serverMissing || typeof targetProject.apiProjectId !== "number") {
@@ -3437,7 +5426,7 @@ export function App() {
           message: "서버 문서 삭제에 필요한 프로젝트 정보를 찾을 수 없습니다",
           scope: "overview",
         });
-        return;
+        return false;
       }
 
       for (const docId of linkedDocIds) {
@@ -3455,7 +5444,7 @@ export function App() {
               message,
               scope: "overview",
             });
-            return;
+            return false;
           }
         }
 
@@ -3474,7 +5463,6 @@ export function App() {
         return {
           ...tab,
           filePreview: tab.filePreview?.id === attachment.id ? null : tab.filePreview,
-          pendingDeleteProjectFileId: null,
           projectSourcesMode: isSelectedSource ? "library" : tab.projectSourcesMode,
           selectedProjectSourceId: isSelectedSource ? null : tab.selectedProjectSourceId,
         };
@@ -3485,49 +5473,66 @@ export function App() {
       ...project,
       files: deleteProjectFileEntry(project.files ?? [], attachment.id),
     }));
+    setPendingSetupDeleteProjectFileId(null);
+
+    if (!targetProject.serverMissing && typeof targetProject.apiProjectId === "number") {
+      void syncProjectDocuments(projectId, targetProject.apiProjectId);
+      void refreshProjectMemoryCounts(projectId, targetProject.apiProjectId);
+      setPostSyncRefreshRevision((currentRevision) => currentRevision + 1);
+    }
+
+    return true;
   }
 
-  // 실수 클릭을 막기 위해 파일 삭제는 같은 항목을 두 번 눌러야 실행한다.
-  function handleRequestDeleteProjectFile(projectId: string, attachment: Attachment) {
-    if (pendingDeleteProjectFileId !== attachment.id) {
-      setPendingDeleteProjectFileId(attachment.id);
+  function handleRequestDeleteProjectSetupSource(projectId: string, attachment: Attachment) {
+    if (pendingSetupDeleteProjectFileId !== attachment.id) {
+      setPendingSetupDeleteProjectFileId(attachment.id);
       return;
     }
 
     void handleDeleteProjectFile(projectId, attachment);
   }
 
-	  // 자료 카드 선택은 해당 자료 하나만 트리 루트로 보여주고, 파일이면 바로 미리보기를 연다.
-	  function handleOpenProjectSource(source: Attachment) {
-	    setProjectFileQuery("");
-	    setSelectedProjectSourceId(source.id);
-	    setPendingDeleteProjectFileId(null);
-	    setProjectSourcesMode("tree");
+  // 자료 카드 선택은 해당 자료 하나만 트리 루트로 보여주고, 파일이면 바로 미리보기를 연다.
+  function handleOpenProjectSource(source: Attachment) {
+    setProjectFileQuery("");
+    setSelectedProjectSourceId(source.id);
+    setProjectSourcesMode("tree");
 
-	    if (source.kind === "file") {
-	      void handleSelectProjectFile(source);
-	      return;
-	    }
+    if (source.kind === "file") {
+      void handleSelectProjectFile(source);
+      return;
+    }
 
-	    setProjectFilePreview(null);
-	  }
+    setProjectFilePreview(null);
+  }
 
   async function handleStartGithubLogin(projectId: string) {
-    if (isGithubAuthStarting) {
+    const targetProject = projects.find((project) => project.id === projectId);
+
+    if (!targetProject || shouldSkipProjectPermission(targetProject, "github")) {
+      return;
+    }
+    const operation = beginGithubOperation(projectId, "auth-start");
+    if (!operation) {
       return;
     }
 
     setSelectedProjectId(projectId);
-    setGithubRepositoryQuery("");
-    setIsGithubAuthStarting(true);
+    setGithubRepositoryQueryForProject(projectId, "");
     setDemoStatus({
+      kind: "info",
       ok: true,
       message: "GitHub 로그인 준비 중...",
+      projectId,
       scope: "github",
     });
 
     try {
-      const deviceCode = await createGithubDeviceCode();
+      const deviceCode = await createGithubDeviceCode(operation.controller.signal);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       if (
         deviceCode.error ||
@@ -3557,42 +5562,58 @@ export function App() {
         [projectId]: session,
       }));
       await openExternalUrl(session.verificationUri);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       setDemoStatus({
         ok: true,
-        message: `GitHub 인증 화면을 열었습니다. 코드: ${session.userCode}`,
+        message: t("GitHub 인증 화면을 열었습니다. 코드: {code}", {
+          code: session.userCode ?? "",
+        }),
+        projectId,
         scope: "github",
       });
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       setDemoStatus({
         ok: false,
         message: getGithubLoginErrorMessage(error),
+        projectId,
         scope: "github",
       });
     } finally {
-      setIsGithubAuthStarting(false);
+      finishGithubOperation(operation);
     }
   }
 
   async function handleStartGithubPrivateLogin(projectId: string) {
-    if (isGithubAuthStarting) {
+    const targetProject = projects.find((project) => project.id === projectId);
+
+    if (!targetProject || shouldSkipProjectMutation(targetProject, "github")) {
       return;
     }
-
-    if (shouldSkipServerAction("github")) {
+    const operation = beginGithubOperation(projectId, "auth-start");
+    if (!operation) {
       return;
     }
 
     setSelectedProjectId(projectId);
-    setGithubRepositoryQuery("");
-    setIsGithubAuthStarting(true);
+    setGithubRepositoryQueryForProject(projectId, "");
     setDemoStatus({
+      kind: "info",
       ok: true,
       message: "Private repo 연결 준비 중...",
+      projectId,
       scope: "github",
     });
 
     try {
-      const appSession = await createGithubAppSession();
+      const appSession = await createGithubAppSession(operation.controller.signal);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       if (!appSession.state || !appSession.installUrl) {
         throw new Error("GitHub App 설치를 시작할 수 없습니다");
@@ -3610,49 +5631,76 @@ export function App() {
         [projectId]: session,
       }));
       await openExternalUrl(session.verificationUri);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       setDemoStatus({
         ok: true,
         message: "GitHub App 설치 화면을 열었습니다",
+        projectId,
         scope: "github",
       });
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "Private repo 연결은 PaiM backend가 켜져 있어야 합니다"),
+        projectId,
         scope: "github",
       });
     } finally {
-      setIsGithubAuthStarting(false);
+      finishGithubOperation(operation);
     }
   }
 
   async function handleCheckGithubLogin(projectId: string) {
     const session = githubLoginSessions[projectId];
+    const targetProject = projects.find((project) => project.id === projectId);
 
-    if (!session || isGithubAuthChecking) {
+    if (!session) {
+      return;
+    }
+    if (!targetProject || shouldSkipProjectPermission(targetProject, "github")) {
       return;
     }
 
-    if (session.state && shouldSkipServerAction("github")) {
+    if (session.state && shouldSkipProjectMutation(targetProject, "github")) {
       return;
     }
-
-    setIsGithubAuthChecking(true);
+    const operation = beginGithubOperation(projectId, "auth-check");
+    if (!operation) {
+      return;
+    }
 
     try {
       if (session.state) {
-        const appSession = await fetchGithubAppSession(session.state);
+        const appSession = await fetchGithubAppSession(
+          session.state,
+          operation.controller.signal,
+        );
+        if (!isGithubOperationCurrent(operation)) {
+          return;
+        }
 
         if (appSession.status !== "connected") {
           setDemoStatus({
             ok: false,
             message: "아직 GitHub App 설치가 완료되지 않았습니다",
+            projectId,
             scope: "github",
           });
           return;
         }
 
-        const response = await fetchGithubAppRepositories(session.state);
+        const response = await fetchGithubAppRepositories(
+          session.state,
+          operation.controller.signal,
+        );
+        if (!isGithubOperationCurrent(operation)) {
+          return;
+        }
         const nextSession: GithubLoginSessionState = {
           ...session,
           status: "connected",
@@ -3669,7 +5717,8 @@ export function App() {
         }));
         setDemoStatus({
           ok: true,
-          message: getGithubRepositoryLoadMessage(response.repositories),
+          message: getGithubRepositoryLoadMessage(response.repositories, settings.language),
+          projectId,
           scope: "github",
         });
         return;
@@ -3679,7 +5728,13 @@ export function App() {
         throw new Error("GitHub 인증 세션을 찾을 수 없습니다");
       }
 
-      const tokenResponse = await fetchGithubAccessToken(session.deviceCode);
+      const tokenResponse = await fetchGithubAccessToken(
+        session.deviceCode,
+        operation.controller.signal,
+      );
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       if (!tokenResponse.access_token) {
         const isPending = tokenResponse.error === "authorization_pending";
@@ -3693,15 +5748,19 @@ export function App() {
                 tokenResponse.error_description,
                 "GitHub 인증을 완료할 수 없습니다",
               ),
+          projectId,
           scope: "github",
         });
         return;
       }
 
       const [repositories, user] = await Promise.all([
-        fetchGithubRepositories(tokenResponse.access_token),
-        fetchGithubUserProfile(tokenResponse.access_token),
+        fetchGithubRepositories(tokenResponse.access_token, operation.controller.signal),
+        fetchGithubUserProfile(tokenResponse.access_token, operation.controller.signal),
       ]);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       const nextSession: GithubLoginSessionState = {
         ...session,
         accessToken: tokenResponse.access_token,
@@ -3721,10 +5780,14 @@ export function App() {
       }));
       setDemoStatus({
         ok: true,
-        message: getGithubRepositoryLoadMessage(repositories.repositories),
+        message: getGithubRepositoryLoadMessage(repositories.repositories, settings.language),
+        projectId,
         scope: "github",
       });
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       if (isGithubSessionExpiredError(error)) {
         handleGithubSessionExpired(projectId);
         return;
@@ -3733,10 +5796,11 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub 로그인 상태를 확인할 수 없습니다"),
+        projectId,
         scope: "github",
       });
     } finally {
-      setIsGithubAuthChecking(false);
+      finishGithubOperation(operation);
     }
   }
 
@@ -3753,12 +5817,20 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: "GitHub 인증 페이지를 열 수 없습니다",
+        projectId,
         scope: "github",
       });
     }
   }
 
   function handleResetGithubLogin(projectId: string) {
+    const targetProject = projects.find((project) => project.id === projectId);
+
+    if (!targetProject || shouldSkipProjectPermission(targetProject, "github")) {
+      return;
+    }
+
+    cancelGithubOperation(projectId);
     setGithubLoginSessions((currentSessions) => {
       const nextSessions = { ...currentSessions };
       delete nextSessions[projectId];
@@ -3769,30 +5841,43 @@ export function App() {
       delete nextRepositories[projectId];
       return nextRepositories;
     });
-    setGithubRepositoryQuery("");
+    setGithubRepositoryQueryForProject(projectId, "");
     setDemoStatus({
       ok: true,
       message: "GitHub 로그인을 해제했습니다",
+      projectId,
       scope: "github",
     });
   }
 
   async function handleLoadGithubRepositories(projectId: string) {
     const session = githubLoginSessions[projectId];
+    const targetProject = projects.find((project) => project.id === projectId);
 
-    if ((!session?.accessToken && !session?.state) || isGithubRepoLoading) {
+    if (!session?.accessToken && !session?.state) {
+      return;
+    }
+    if (!targetProject || shouldSkipProjectPermission(targetProject, "github")) {
       return;
     }
 
-    if (session.state && shouldSkipServerAction("github")) {
+    if (session.state && shouldSkipProjectMutation(targetProject, "github")) {
       return;
     }
-
-    setIsGithubRepoLoading(true);
+    const operation = beginGithubOperation(projectId, "repo-load");
+    if (!operation) {
+      return;
+    }
 
     try {
       if (session.state) {
-        const response = await fetchGithubAppRepositories(session.state);
+        const response = await fetchGithubAppRepositories(
+          session.state,
+          operation.controller.signal,
+        );
+        if (!isGithubOperationCurrent(operation)) {
+          return;
+        }
         const appUser = response.user ?? getGithubRepositoryOwner(response.repositories);
 
         setGithubRepositories((currentRepositories) => ({
@@ -3810,7 +5895,8 @@ export function App() {
         }
         setDemoStatus({
           ok: true,
-          message: getGithubRepositoryLoadMessage(response.repositories),
+          message: getGithubRepositoryLoadMessage(response.repositories, settings.language),
+          projectId,
           scope: "github",
         });
         return;
@@ -3820,7 +5906,13 @@ export function App() {
         throw new Error("GitHub 인증 세션을 찾을 수 없습니다");
       }
 
-      const response = await fetchGithubRepositories(session.accessToken);
+      const response = await fetchGithubRepositories(
+        session.accessToken,
+        operation.controller.signal,
+      );
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       setGithubRepositories((currentRepositories) => ({
         ...currentRepositories,
@@ -3828,10 +5920,14 @@ export function App() {
       }));
       setDemoStatus({
         ok: true,
-        message: getGithubRepositoryLoadMessage(response.repositories),
+        message: getGithubRepositoryLoadMessage(response.repositories, settings.language),
+        projectId,
         scope: "github",
       });
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       if (isGithubSessionExpiredError(error)) {
         handleGithubSessionExpired(projectId);
         return;
@@ -3840,37 +5936,62 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo 목록을 불러올 수 없습니다"),
+        projectId,
         scope: "github",
       });
     } finally {
-      setIsGithubRepoLoading(false);
+      finishGithubOperation(operation);
     }
   }
 
   async function connectGithubRepository(projectId: string, repositoryUrl: string) {
     const trimmedRepositoryUrl = repositoryUrl.trim();
     const session = githubLoginSessions[projectId] ?? null;
+    const targetProject = projects.find((project) => project.id === projectId);
 
-    if (!trimmedRepositoryUrl || isGithubConnecting) {
+    if (!trimmedRepositoryUrl) {
+      return;
+    }
+    if (!targetProject || shouldSkipProjectPermission(targetProject, "github")) {
       return;
     }
 
-    if (session?.state && shouldSkipServerAction("github")) {
+    if (session?.state && shouldSkipProjectMutation(targetProject, "github")) {
+      return;
+    }
+    const operation = beginGithubOperation(
+      projectId,
+      "connect",
+      trimmedRepositoryUrl,
+    );
+    if (!operation) {
       return;
     }
 
     setSelectedProjectId(projectId);
-    setIsGithubConnecting(true);
     setDemoStatus({
+      kind: "info",
       ok: true,
       message: "GitHub repo 연결 중...",
+      projectId,
       scope: "github",
     });
 
     try {
       const { events, repository } = session?.state
-        ? await fetchGithubAppRepositoryPreview(trimmedRepositoryUrl, session.state)
-        : await fetchGithubRepository(trimmedRepositoryUrl, session?.accessToken ?? null);
+        ? await fetchGithubAppRepositoryPreview(
+            trimmedRepositoryUrl,
+            session.state,
+            operation.controller.signal,
+          )
+        : await fetchGithubRepository(
+            trimmedRepositoryUrl,
+            session?.accessToken ?? null,
+            operation.controller.signal,
+          );
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       updateProject(projectId, (project) => ({
         ...project,
@@ -3881,11 +6002,17 @@ export function App() {
       setPendingGithubDisconnectProjectId(null);
       setDemoStatus({
         ok: true,
-        message: `${repository.remoteRepo ?? repository.name} repo 연결됨`,
+        message: t("{name} repo 연결됨", {
+          name: repository.remoteRepo ?? repository.name,
+        }),
+        projectId,
         scope: "github",
       });
-      setGithubRepositoryQuery("");
+      setGithubRepositoryQueryForProject(projectId, "");
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       if (isGithubSessionExpiredError(error)) {
         handleGithubSessionExpired(projectId);
         return;
@@ -3894,10 +6021,11 @@ export function App() {
       setDemoStatus({
         ok: false,
         message: getErrorMessage(error, "GitHub repo를 연결할 수 없습니다"),
+        projectId,
         scope: "github",
       });
     } finally {
-      setIsGithubConnecting(false);
+      finishGithubOperation(operation);
     }
   }
 
@@ -3905,15 +6033,18 @@ export function App() {
     const project = projects.find((currentProject) => currentProject.id === projectId);
     const session = githubLoginSessions[projectId] ?? null;
 
-    if (!project?.githubRepository || isGithubSyncing) {
+    if (!project?.githubRepository) {
       return;
     }
 
-    if (shouldSkipServerAction("github")) {
+    if (shouldSkipProjectMutation(project, "github")) {
+      return;
+    }
+    const operation = beginGithubOperation(projectId, "sync");
+    if (!operation) {
       return;
     }
 
-    setIsGithubSyncing(true);
     updateGithubRepository(projectId, (repository) => ({
       ...repository,
       syncStatus: "syncing",
@@ -3922,8 +6053,10 @@ export function App() {
       syncWarnings: undefined,
     }));
     setDemoStatus({
+      kind: "info",
       ok: true,
       message: "GitHub repo 서버 동기화 중...",
+      projectId,
       scope: "github",
     });
 
@@ -3932,7 +6065,12 @@ export function App() {
         throw new Error("서버에서 찾을 수 없는 프로젝트에는 GitHub repo를 동기화할 수 없습니다");
       }
 
+      // Project creation is non-idempotent, so always collect its id before
+      // honoring a cancelled GitHub operation.
       const apiProject = await ensureApiProject(project);
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
 
       if (typeof apiProject.apiProjectId !== "number") {
         throw new Error("서버 프로젝트를 준비할 수 없습니다");
@@ -3947,19 +6085,45 @@ export function App() {
           throw new Error("GitHub repository URL을 확인할 수 없습니다");
         }
 
-        const connected = await fetchPaimJson<ApiRepositoryConnectResponse>(
-          `/projects/${apiProject.apiProjectId}/repositories`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              provider: "github",
-              repository_url: repositoryUrl,
-              branch: project.githubRepository.branch,
-              ...(session?.state ? { state: session.state } : {}),
-            }),
-          },
-        );
+        const path = `/projects/${apiProject.apiProjectId}/repositories`;
+        const init = {
+          method: "POST",
+          body: JSON.stringify({
+            provider: "github",
+            repository_url: repositoryUrl,
+            branch: project.githubRepository.branch,
+            ...(session?.state ? { state: session.state } : {}),
+          }),
+        };
+        const connected = session?.state
+          ? await fetchPaimJsonPreservingSession<ApiRepositoryConnectResponse>(path, init)
+          : await fetchPaimJson<ApiRepositoryConnectResponse>(path, init);
         repoId = connected.repo_id;
+
+        const latestRepository = projectsRef.current.find(
+          (currentProject) => currentProject.id === projectId,
+        )?.githubRepository;
+        if (!latestRepository || getGithubRepositoryUrl(latestRepository) !== repositoryUrl) {
+          // A disconnect can win while the non-idempotent POST is in flight. Keep
+          // the response long enough to remove the exact server row it created.
+          try {
+            await fetchPaimJson<void>(
+              `/projects/${apiProject.apiProjectId}/repositories/${connected.repo_id}`,
+              { method: "DELETE" },
+            );
+          } catch (cleanupError) {
+            const detail = getErrorMessage(cleanupError, "취소한 GitHub 연결을 정리할 수 없습니다");
+            if (!/repository not found/i.test(detail)) {
+              setDemoStatus({
+                ok: false,
+                message: detail,
+                projectId,
+                scope: "github",
+              });
+            }
+          }
+          return;
+        }
 
         updateGithubRepository(projectId, (repository) => ({
           ...repository,
@@ -3971,6 +6135,10 @@ export function App() {
           syncWarnings: undefined,
         }));
 
+        if (!isGithubOperationCurrent(operation)) {
+          return;
+        }
+
         if (connected.status === "syncing") {
           scheduleGithubRepositoryStatusPoll(projectId, apiProject.apiProjectId, connected.repo_id);
         } else {
@@ -3979,14 +6147,32 @@ export function App() {
             apiProject.apiProjectId,
             connected.repo_id,
             session?.state,
+            repositoryUrl,
           );
         }
       } else {
-        await startGithubRepositorySync(projectId, apiProject.apiProjectId, repoId, session?.state);
+        await startGithubRepositorySync(
+          projectId,
+          apiProject.apiProjectId,
+          repoId,
+          session?.state,
+          getGithubRepositoryUrl(project.githubRepository),
+        );
       }
 
-      setDemoStatus({ ok: true, message: "GitHub repo 서버 동기화를 시작했습니다", scope: "github" });
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
+      setDemoStatus({
+        ok: true,
+        message: "GitHub repo 서버 동기화를 시작했습니다",
+        projectId,
+        scope: "github",
+      });
     } catch (error) {
+      if (!isGithubOperationCurrent(operation)) {
+        return;
+      }
       if (isGithubSessionExpiredError(error)) {
         handleGithubSessionExpired(projectId);
         return;
@@ -4002,33 +6188,43 @@ export function App() {
       setDemoStatus({
         ok: false,
         message,
+        projectId,
         scope: "overview",
       });
     } finally {
-      setIsGithubSyncing(false);
+      finishGithubOperation(operation);
     }
   }
 
-  async function handleDisconnectGithub(projectId: string, message = "GitHub 연동이 취소되었습니다") {
+  async function handleDisconnectGithub(projectId: string) {
     const project = projects.find((currentProject) => currentProject.id === projectId);
     const repoId = project?.githubRepository?.repoId;
 
     if (!project?.githubRepository) {
       return;
     }
+    const repositoryName =
+      project.githubRepository.remoteRepo ?? project.githubRepository.name;
+    if (shouldSkipProjectPermission(project, "github")) {
+      return;
+    }
 
     if (typeof repoId === "number" && pendingGithubDisconnectProjectId !== projectId) {
       setPendingGithubDisconnectProjectId(projectId);
       setDemoStatus({
+        kind: "warning",
         ok: false,
-        message: "한 번 더 누르면 서버 메모리와 GitHub 연결을 해제합니다",
+        message: t("{name} 연결을 해제하면 이 저장소에서 만든 서버 메모리 연결도 해제됩니다. 한 번 더 눌러 확인하세요.", {
+          name: repositoryName,
+        }),
+        projectId,
         scope: "github",
       });
       return;
     }
 
     if (typeof repoId === "number") {
-      if (shouldSkipServerAction("github")) {
+      if (shouldSkipProjectMutation(project, "github")) {
         return;
       }
 
@@ -4036,11 +6232,13 @@ export function App() {
         setDemoStatus({
           ok: false,
           message: "서버 GitHub 연결 해제에 필요한 프로젝트 정보를 찾을 수 없습니다",
+          projectId,
           scope: "github",
         });
         return;
       }
 
+      cancelGithubOperation(projectId);
       try {
         await fetchPaimJson<void>(
           `/projects/${project.apiProjectId}/repositories/${repoId}`,
@@ -4058,6 +6256,7 @@ export function App() {
           setDemoStatus({
             ok: false,
             message: detail,
+            projectId,
             scope: "github",
           });
           return;
@@ -4065,6 +6264,8 @@ export function App() {
       }
 
       clearGithubRepositoryPoll(projectId, repoId);
+    } else {
+      cancelGithubOperation(projectId);
     }
 
     updateProject(projectId, (project) => ({
@@ -4076,14 +6277,17 @@ export function App() {
     setPendingGithubDisconnectProjectId(null);
     setDemoStatus({
       ok: true,
-      message,
+      message: t("{name} 저장소 연결을 해제했습니다", { name: repositoryName }),
+      projectId,
       scope: "github",
     });
   }
 
   function toggleProjectActionMenu(projectId: string, event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
-    const position = getActionMenuPosition(event.currentTarget);
+    setIsAccountMenuOpen(false);
+    actionMenuTriggerRef.current = event.currentTarget;
+    const position = getActionMenuPosition(event.currentTarget, ACTION_MENU_PROJECT_HEIGHT);
 
     setOpenActionMenu((current) =>
       current?.type === "project" && current.projectId === projectId
@@ -4092,13 +6296,33 @@ export function App() {
     );
   }
 
+  function handleProjectContextMenu(projectId: string, event: MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsAccountMenuOpen(false);
+    actionMenuTriggerRef.current = event.currentTarget.matches("button")
+      ? event.currentTarget
+      : event.currentTarget.querySelector<HTMLElement>("button");
+    setOpenActionMenu({
+      type: "project",
+      projectId,
+      ...getActionMenuPositionAtPoint(
+        event.clientX,
+        event.clientY,
+        ACTION_MENU_PROJECT_HEIGHT,
+      ),
+    });
+  }
+
   function toggleSessionActionMenu(
     projectId: string,
     sessionId: string,
     event: MouseEvent<HTMLButtonElement>,
   ) {
     event.stopPropagation();
-    const position = getActionMenuPosition(event.currentTarget);
+    setIsAccountMenuOpen(false);
+    actionMenuTriggerRef.current = event.currentTarget;
+    const position = getActionMenuPosition(event.currentTarget, ACTION_MENU_SESSION_HEIGHT);
 
     setOpenActionMenu((current) =>
       current?.type === "session" &&
@@ -4109,12 +6333,119 @@ export function App() {
     );
   }
 
+  function handleSessionContextMenu(
+    projectId: string,
+    sessionId: string,
+    event: MouseEvent<HTMLElement>,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsAccountMenuOpen(false);
+    actionMenuTriggerRef.current = event.currentTarget.matches("button")
+      ? event.currentTarget
+      : event.currentTarget.querySelector<HTMLElement>("button");
+    setOpenActionMenu({
+      type: "session",
+      projectId,
+      sessionId,
+      ...getActionMenuPositionAtPoint(
+        event.clientX,
+        event.clientY,
+        ACTION_MENU_SESSION_HEIGHT,
+      ),
+    });
+  }
+
+  function handleActionMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        '[role="menuitem"]:not([aria-disabled="true"]):not(:disabled)',
+      ),
+    );
+
+    if (items.length === 0) {
+      return;
+    }
+
+    const currentIndex = Math.max(0, items.indexOf(document.activeElement as HTMLElement));
+    let nextIndex = currentIndex;
+
+    if (event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1) % items.length;
+    } else if (event.key === "ArrowUp") {
+      nextIndex = (currentIndex - 1 + items.length) % items.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = items.length - 1;
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenActionMenu(null);
+      window.requestAnimationFrame(() => actionMenuTriggerRef.current?.focus());
+      return;
+    } else if (event.key === "Tab") {
+      setOpenActionMenu(null);
+      return;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    items[nextIndex]?.focus();
+  }
+
+  function openAccountView(view: Extract<MainView, "profile" | "settings">) {
+    mainViewReturnFocusRef.current = accountMenuTriggerRef.current;
+    setMainView(view);
+    setIsAccountMenuOpen(false);
+    setOpenActionMenu(null);
+  }
+
+  function handleAccountMenuOpenChange(isOpen: boolean) {
+    setIsAccountMenuOpen(isOpen);
+
+    if (!isOpen) {
+      window.requestAnimationFrame(() => {
+        if (!document.activeElement || document.activeElement === document.body) {
+          accountMenuTriggerRef.current?.focus();
+        }
+      });
+    }
+  }
+
+  function handleAccountLogout() {
+    setIsAccountMenuOpen(false);
+    onLogout();
+  }
+
   // 행 안에서 바로 수정하도록 프로젝트명 입력을 연다.
-  function beginRenameProject(projectId: string) {
+  function openProjectMembers(projectId: string) {
+    const targetProject = projects.find((project) => project.id === projectId);
+    if (!targetProject || !authUser || typeof targetProject.apiProjectId !== "number") {
+      return;
+    }
+
+    const targetSessionId = targetProject.sessions[0]?.id ?? null;
+    mainViewReturnFocusRef.current = actionMenuTriggerRef.current;
+    rememberCurrentDraft();
+    setSelectedProjectId(projectId);
+    setSelectedSessionId(targetSessionId);
+    setMainView("members");
+    setOpenActionMenu(null);
+    showSessionDraft(projectId, targetSessionId);
+  }
+
+  // 행 안에서 바로 수정하도록 프로젝트명 입력을 연다.
+  function beginRenameProject(projectId: string, trigger?: HTMLElement) {
     const targetProject = projects.find((project) => project.id === projectId);
 
     if (!targetProject) {
       return;
+    }
+
+    if (trigger) {
+      actionMenuTriggerRef.current = trigger;
     }
 
     setRenameDraft({ type: "project", projectId, value: targetProject.name });
@@ -4123,7 +6454,7 @@ export function App() {
   }
 
   // 행 안에서 바로 수정하도록 채팅명 입력을 연다.
-  function beginRenameSession(projectId: string, sessionId: string) {
+  function beginRenameSession(projectId: string, sessionId: string, trigger?: HTMLElement) {
     const targetSession = projects
       .find((project) => project.id === projectId)
       ?.sessions.find((session) => session.id === sessionId);
@@ -4132,12 +6463,25 @@ export function App() {
       return;
     }
 
+    if (trigger) {
+      actionMenuTriggerRef.current = trigger;
+    }
+
     setRenameDraft({ type: "session", projectId, sessionId, value: targetSession.title });
     setOpenActionMenu(null);
   }
 
   // 빈 값은 저장하지 않고 편집만 닫는다.
-  function commitRenameDraft(rawValue: string) {
+  function restoreRenameTriggerFocus(force = false) {
+    window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (force || !activeElement || activeElement === document.body) {
+        actionMenuTriggerRef.current?.focus();
+      }
+    });
+  }
+
+  function commitRenameDraft(rawValue: string, restoreFocus = false) {
     if (!renameDraft) {
       return;
     }
@@ -4146,6 +6490,7 @@ export function App() {
 
     if (!nextValue) {
       setRenameDraft(null);
+      restoreRenameTriggerFocus(restoreFocus);
       return;
     }
 
@@ -4167,18 +6512,45 @@ export function App() {
     }
 
     setRenameDraft(null);
+    restoreRenameTriggerFocus(restoreFocus);
+  }
+
+  function updateRenameDraftValue(value: string) {
+    setRenameDraft((currentDraft) =>
+      currentDraft ? { ...currentDraft, value } : currentDraft,
+    );
   }
 
   function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
-      commitRenameDraft(event.currentTarget.value);
+      commitRenameDraft(event.currentTarget.value, true);
     }
 
     if (event.key === "Escape") {
       event.preventDefault();
       setRenameDraft(null);
+      restoreRenameTriggerFocus(true);
     }
+  }
+
+  function returnToWorkspace() {
+    const returnView = mainView;
+    setMainView("workspace");
+    window.requestAnimationFrame(() => {
+      const returnTarget = mainViewReturnFocusRef.current;
+      if (returnTarget?.isConnected) {
+        returnTarget.focus();
+      } else if (
+        (returnView === "profile" || returnView === "settings") &&
+        accountMenuTriggerRef.current?.isConnected
+      ) {
+        accountMenuTriggerRef.current.focus();
+      } else {
+        promptTextareaRef.current?.focus();
+      }
+      mainViewReturnFocusRef.current = null;
+    });
   }
 
   // 히스토리에서 채팅 세션을 제거하고 마지막 세션이면 빈 채팅으로 남긴다.
@@ -4195,18 +6567,37 @@ export function App() {
       return;
     }
 
+    if (
+      pendingDeleteSession?.projectId !== projectId ||
+      pendingDeleteSession.sessionId !== sessionId
+    ) {
+      setPendingDeleteSession({ projectId, sessionId });
+      setDemoStatus({
+        kind: "warning",
+        ok: false,
+        message: "한 번 더 누르면 이 채팅과 대화 기록을 삭제합니다",
+        scope: "overview",
+      });
+      return;
+    }
+
     const targetSession = targetProject.sessions.find((session) => session.id === sessionId);
 
     if (!targetSession || !(await deleteServerChatSession(targetProject, targetSession))) {
       return;
     }
 
-    const remainingSessions = targetProject.sessions.filter((session) => session.id !== sessionId);
+    const latestProject = projectsRef.current.find((project) => project.id === projectId);
+    if (!latestProject) {
+      return;
+    }
+
+    const remainingSessions = latestProject.sessions.filter((session) => session.id !== sessionId);
     const nextSessions = remainingSessions.length > 0 ? remainingSessions : [createEmptySession()];
     const shouldMoveSelection =
-      selectedProjectId === projectId &&
-      (sessionId === selectedSessionId ||
-        !nextSessions.some((session) => session.id === selectedSessionId));
+      selectedProjectIdRef.current === projectId &&
+      (sessionId === selectedSessionIdRef.current ||
+        !nextSessions.some((session) => session.id === selectedSessionIdRef.current));
 
     updateProject(projectId, (project) => ({
       ...project,
@@ -4215,11 +6606,17 @@ export function App() {
 
     if (shouldMoveSelection) {
       setSelectedSessionId(nextSessions[0]?.id ?? null);
-      setIsSending(false);
-      clearDraft();
+      if (pendingProjectId === projectId && pendingSessionId === sessionId) {
+        cancelActiveQueryForProject(projectId);
+      }
+      forgetSessionDraft(projectId, sessionId);
+      showSessionDraft(projectId, nextSessions[0]?.id ?? null);
+    } else {
+      forgetSessionDraft(projectId, sessionId);
     }
 
     setOpenActionMenu(null);
+    setPendingDeleteSession(null);
 
     focusPrompt();
   }
@@ -4246,26 +6643,7 @@ export function App() {
       return;
     }
 
-    if (shouldSkipServerAction("overview")) {
-      return;
-    }
-
-    let apiProjectId: number;
-
-    try {
-      const apiProject = await ensureApiProject(project);
-
-      if (typeof apiProject.apiProjectId !== "number") {
-        throw new Error("서버 프로젝트를 준비할 수 없습니다");
-      }
-
-      apiProjectId = apiProject.apiProjectId;
-    } catch (error) {
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "서버 브리핑을 준비할 수 없습니다"),
-        scope: "overview",
-      });
+    if (shouldSkipProjectMutation(project, "overview")) {
       return;
     }
 
@@ -4275,6 +6653,7 @@ export function App() {
       messages: [],
     };
     const requestStartedAt = Date.now();
+    const { controller, timeoutId } = beginActiveQuery();
 
     updateProject(project.id, (currentProject) => ({
       ...currentProject,
@@ -4282,12 +6661,33 @@ export function App() {
     }));
     setSelectedProjectId(project.id);
     setSelectedSessionId(nextSession.id);
+    closeProjectPanel();
     setIsSending(true);
+    setPendingProjectId(project.id);
+    setPendingSessionId(nextSession.id);
     setThinkingStartedAt(requestStartedAt);
-    clearDraft();
+    rememberCurrentDraft();
+    resetVisibleDraft();
+    focusPrompt();
 
     try {
-      const response = await fetchProjectQuery(apiProjectId, PROJECT_BRIEFING_QUESTION, []);
+      // Project creation is a mutation: always receive and persist its server id,
+      // then honor cancellation before starting the abortable query.
+      const apiProject = await ensureApiProject(project);
+      if (typeof apiProject.apiProjectId !== "number") {
+        throw new Error("서버 프로젝트를 준비할 수 없습니다");
+      }
+      if (controller.signal.aborted) {
+        throw new DOMException("Query cancelled", "AbortError");
+      }
+
+      const response = await fetchProjectQuery(
+        apiProject.apiProjectId,
+        PROJECT_BRIEFING_QUESTION,
+        [],
+        [],
+        controller.signal,
+      );
       const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
       updateSessionInProject(project.id, nextSession.id, (session) => ({
@@ -4304,21 +6704,26 @@ export function App() {
         ],
       }));
     } catch (error) {
-      updateSessionInProject(project.id, nextSession.id, (session) => ({
-        ...session,
-        messages: [
-          ...session.messages,
-          {
-            id: createId("error"),
-            role: "error",
-            content: getQueryErrorMessage(error),
-          },
-        ],
-      }));
+      if (!isUserCancelledQuery(error, controller)) {
+        updateSessionInProject(project.id, nextSession.id, (session) => ({
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              id: createId("error"),
+              role: "error",
+              content: t(getQueryErrorMessage(error)),
+            },
+          ],
+        }));
+      }
     } finally {
-      setIsSending(false);
-      setThinkingStartedAt(null);
-      focusPrompt();
+      if (finishActiveQuery(controller, timeoutId)) {
+        setIsSending(false);
+        setPendingProjectId(null);
+        setPendingSessionId(null);
+        setThinkingStartedAt(null);
+      }
     }
   }
 
@@ -4343,7 +6748,7 @@ export function App() {
       return;
     }
 
-    if (shouldSkipServerAction("overview")) {
+    if (shouldSkipProjectMutation(selectedProject, "overview")) {
       return;
     }
 
@@ -4361,14 +6766,18 @@ export function App() {
     }
 
     const requestStartedAt = Date.now();
+    const { controller, timeoutId } = beginActiveQuery();
     setIsSending(true);
+    setPendingProjectId(targetProjectId);
+    setPendingSessionId(targetSessionId);
     setThinkingStartedAt(requestStartedAt);
-    clearDraft();
+    focusPrompt();
 
     try {
       const response = await fetchProjectDeltaBriefing(
         selectedProject.apiProjectId,
         selectedProjectDelta.since,
+        controller.signal,
       );
       const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
@@ -4389,21 +6798,26 @@ export function App() {
       markProjectSeen(targetProjectId);
       setProjectDeltaBanner(null);
     } catch (error) {
-      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-        ...session,
-        messages: [
-          ...session.messages,
-          {
-            id: createId("error"),
-            role: "error",
-            content: getQueryErrorMessage(error),
-          },
-        ],
-      }));
+      if (!isUserCancelledQuery(error, controller)) {
+        updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              id: createId("error"),
+              role: "error",
+              content: t(getQueryErrorMessage(error)),
+            },
+          ],
+        }));
+      }
     } finally {
-      setIsSending(false);
-      setThinkingStartedAt(null);
-      focusPrompt();
+      if (finishActiveQuery(controller, timeoutId)) {
+        setIsSending(false);
+        setPendingProjectId(null);
+        setPendingSessionId(null);
+        setThinkingStartedAt(null);
+      }
     }
   }
 
@@ -4420,6 +6834,7 @@ export function App() {
     if (pendingDeleteProjectId !== projectId) {
       setPendingDeleteProjectId(projectId);
       setDemoStatus({
+        kind: "warning",
         ok: false,
         message:
           typeof targetProject.apiProjectId === "number"
@@ -4433,6 +6848,12 @@ export function App() {
     if (!(await deleteServerProject(targetProject))) {
       return;
     }
+
+    cancelGithubOperation(projectId);
+    cancelProjectFileImport(projectId);
+    (targetProject.files ?? []).forEach((attachment) =>
+      cancelProjectDocumentUploads(projectId, attachment),
+    );
 
     const currentProjects = projectsRef.current;
     const remainingProjects = currentProjects.filter((project) => project.id !== projectId);
@@ -4449,12 +6870,15 @@ export function App() {
     );
 
     applyProjectState(nextState);
+    forgetProjectDrafts(projectId);
     setPendingDeleteProjectId(null);
-    setIsSending(false);
+    if (pendingProjectId === projectId) {
+      cancelActiveQueryForProject(projectId);
+    }
     setOpenActionMenu(null);
 
     if (wasSelected) {
-      clearDraft();
+      showSessionDraft(nextState.selectedProjectId ?? "", nextState.selectedSessionId);
     }
   }
 
@@ -4465,27 +6889,97 @@ export function App() {
     });
   }
 
-  // 세션 이동 시 이전 채팅의 초안 텍스트와 첨부가 새 채팅으로 넘어가지 않게 비운다.
-  function clearDraft() {
+  function getSessionDraftKey(projectId: string, sessionId: string) {
+    return `${projectId}\u0000${sessionId}`;
+  }
+
+  function handlePromptChange(nextPrompt: string) {
+    setPrompt(nextPrompt);
+
+    const projectId = selectedProjectIdRef.current;
+    const sessionId = selectedSessionIdRef.current;
+    if (!projectId || !sessionId) {
+      return;
+    }
+
+    const key = getSessionDraftKey(projectId, sessionId);
+    if (!nextPrompt.trim() && attachments.length === 0) {
+      sessionDraftsRef.current.delete(key);
+      return;
+    }
+
+    sessionDraftsRef.current.set(key, {
+      attachments: [...attachments],
+      prompt: nextPrompt,
+    });
+  }
+
+  // 세션을 떠나도 작성 중인 텍스트와 첨부가 남도록 메모리 안에 세션별로 보관한다.
+  function rememberCurrentDraft() {
+    if (!selectedProjectId || !selectedSessionId) {
+      return;
+    }
+
+    // 세션 전환 클릭은 React state commit보다 먼저 들어올 수 있으므로 현재 DOM 값을 우선한다.
+    const currentPrompt = promptTextareaRef.current?.value ?? prompt;
+    const key = getSessionDraftKey(selectedProjectId, selectedSessionId);
+    if (!currentPrompt.trim() && attachments.length === 0) {
+      sessionDraftsRef.current.delete(key);
+      return;
+    }
+
+    sessionDraftsRef.current.set(key, { attachments: [...attachments], prompt: currentPrompt });
+  }
+
+  function showSessionDraft(projectId: string, sessionId: string | null) {
+    const draft = sessionId
+      ? sessionDraftsRef.current.get(getSessionDraftKey(projectId, sessionId))
+      : undefined;
+
+    setPrompt(draft?.prompt ?? "");
+    setAttachments(draft ? [...draft.attachments] : []);
+  }
+
+  function forgetSessionDraft(projectId: string, sessionId: string) {
+    sessionDraftsRef.current.delete(getSessionDraftKey(projectId, sessionId));
+  }
+
+  function forgetProjectDrafts(projectId: string) {
+    const prefix = `${projectId}\u0000`;
+    Array.from(sessionDraftsRef.current.keys()).forEach((key) => {
+      if (key.startsWith(prefix)) {
+        sessionDraftsRef.current.delete(key);
+      }
+    });
+  }
+
+  function resetVisibleDraft() {
     setPrompt("");
     setAttachments([]);
   }
 
   function handleSelectSession(projectId: string, sessionId: string) {
+    rememberCurrentDraft();
     setMainView("workspace");
     setSelectedProjectId(projectId);
     setSelectedSessionId(sessionId);
-    setCollapsedProjectIds((currentProjectIds) =>
-      currentProjectIds.filter((currentProjectId) => currentProjectId !== projectId),
-    );
-    clearDraft();
+    showSessionDraft(projectId, sessionId);
     focusPrompt();
   }
 
   async function handleCopy(message: Message) {
-    await navigator.clipboard.writeText(message.content);
-    setCopiedMessageId(message.id);
-    window.setTimeout(() => setCopiedMessageId(null), 900);
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId(null), 1200);
+    } catch {
+      setDemoStatus({
+        kind: "error",
+        message: "응답을 복사할 수 없습니다",
+        ok: false,
+        scope: "overview",
+      });
+    }
   }
 
   async function handlePickFiles() {
@@ -4496,7 +6990,8 @@ export function App() {
     const selectedPaths = await open({
       multiple: true,
       directory: false,
-      title: "PaiM에 첨부할 파일 선택",
+      filters: [{ name: t("지원 문서"), extensions: ["md", "txt", "pdf"] }],
+      title: t("PaiM에 첨부할 파일 선택"),
     });
 
     if (!selectedPaths) {
@@ -4514,10 +7009,15 @@ export function App() {
     }
 
     const supportedPaths = paths.filter((path) => isSupportedProjectDocument(getFileName(path)));
+    const skippedCount = paths.length - supportedPaths.length;
     if (supportedPaths.length !== paths.length) {
       setDemoStatus({
-        ok: true,
-        message: "채팅 첨부는 md/txt/pdf만 이번 질문 참고용으로 사용할 수 있습니다",
+        kind: "warning",
+        ok: false,
+        message: t("{added}개 추가 · {skipped}개 제외 — 채팅 첨부는 md/txt/pdf를 지원합니다", {
+          added: supportedPaths.length,
+          skipped: skippedCount,
+        }),
         scope: "overview",
       });
     }
@@ -4631,7 +7131,7 @@ export function App() {
       return;
     }
 
-    if (shouldSkipServerAction("overview")) {
+    if (shouldSkipProjectMutation(selectedProject, "overview")) {
       return;
     }
 
@@ -4644,29 +7144,6 @@ export function App() {
         ? (trimmedPrompt || messageAttachments[0]?.name || "File attachment").slice(0, 32)
         : selectedSession.title;
     const history = createQueryHistory(selectedSession.messages);
-    let queryAttachments: ApiQueryAttachment[] = [];
-    if (messageAttachments.length > 0) {
-      if (canUseTauriDialog()) {
-        try {
-          queryAttachments = await Promise.all(messageAttachments.map(readQueryAttachment));
-        } catch (error) {
-          setIsSending(false);
-          setThinkingStartedAt(null);
-          setDemoStatus({
-            ok: false,
-            message: getErrorMessage(error, "첨부 파일을 읽을 수 없습니다"),
-            scope: "overview",
-          });
-          return;
-        }
-      } else {
-        setDemoStatus({
-          ok: true,
-          message: "브라우저 모드에서는 채팅 첨부를 LLM에 전달하지 않습니다",
-          scope: "overview",
-        });
-      }
-    }
     const userMessage: Message = {
       id: createId("user"),
       role: "user",
@@ -4674,53 +7151,78 @@ export function App() {
       attachments: messageAttachments,
     };
     const requestStartedAt = Date.now();
+    const { controller, timeoutId } = beginActiveQuery();
 
     setIsSending(true);
+    setPendingProjectId(targetProjectId);
+    setPendingSessionId(targetSessionId);
     setThinkingStartedAt(requestStartedAt);
-
-    let apiProjectId: number;
-    let serverSessionId: string;
+    shouldStickToChatBottomRef.current = true;
+    setShowLatestMessageButton(false);
+    updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+      ...session,
+      title: nextSessionTitle,
+      messages: [...session.messages, userMessage],
+    }));
+    forgetSessionDraft(targetProjectId, targetSessionId);
+    resetVisibleDraft();
 
     try {
+      let queryAttachments: ApiQueryAttachment[] = [];
+      if (messageAttachments.length > 0) {
+        if (canUseTauriDialog()) {
+          queryAttachments = await Promise.all(messageAttachments.map(readQueryAttachment));
+          if (controller.signal.aborted) {
+            throw new DOMException("Query cancelled", "AbortError");
+          }
+        } else {
+          setDemoStatus({
+            ok: true,
+            message: "브라우저 모드에서는 채팅 첨부를 LLM에 전달하지 않습니다",
+            scope: "overview",
+          });
+        }
+      }
+
+      // Server ids created by a POST must be collected even when the user stops.
+      // Only the final query request is abortable; otherwise a commit-after-abort
+      // response could be lost and create duplicate projects or sessions later.
       const apiProject = await ensureApiProject(selectedProject);
 
       if (typeof apiProject.apiProjectId !== "number") {
         throw new Error("서버 프로젝트를 준비할 수 없습니다");
       }
+      if (controller.signal.aborted) {
+        throw new DOMException("Query cancelled", "AbortError");
+      }
 
-      apiProjectId = apiProject.apiProjectId;
-      serverSessionId = await ensureServerChatSession(
+      const serverSessionId = await ensureServerChatSession(
         targetProjectId,
         selectedSession,
-        apiProjectId,
+        apiProject.apiProjectId,
         nextSessionTitle,
       );
-    } catch (error) {
-      setIsSending(false);
-      setThinkingStartedAt(null);
-      setDemoStatus({
-        ok: false,
-        message: getErrorMessage(error, "서버 채팅 세션을 준비할 수 없습니다"),
-        scope: "overview",
-      });
-      return;
-    }
 
-    if (selectedSession.serverSessionId && nextSessionTitle !== selectedSession.title) {
-      void syncChatSessionTitle(targetProjectId, targetSessionId, nextSessionTitle);
-    }
+      if (selectedSession.serverSessionId && nextSessionTitle !== selectedSession.title) {
+        void syncChatSessionTitle(targetProjectId, targetSessionId, nextSessionTitle);
+      }
 
-    updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-      ...session,
-      serverSessionId,
-      title: nextSessionTitle,
-      messages: [...session.messages, userMessage],
-    }));
-    setPrompt("");
-    setAttachments([]);
+      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+        ...session,
+        serverSessionId,
+        title: nextSessionTitle,
+      }));
+      if (controller.signal.aborted) {
+        throw new DOMException("Query cancelled", "AbortError");
+      }
 
-    try {
-      const response = await fetchProjectQuery(apiProjectId, question, history, queryAttachments);
+      const response = await fetchProjectQuery(
+        apiProject.apiProjectId,
+        question,
+        history,
+        queryAttachments,
+        controller.signal,
+      );
       const thinkingSeconds = Math.max(1, Math.ceil((Date.now() - requestStartedAt) / 1000));
 
       updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
@@ -4737,21 +7239,26 @@ export function App() {
         ],
       }));
     } catch (error) {
-      updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
-        ...session,
-        messages: [
-          ...session.messages,
-          {
-            id: createId("error"),
-            role: "error",
-            content: getQueryErrorMessage(error),
-          },
-        ],
-      }));
+      if (!isUserCancelledQuery(error, controller)) {
+        updateSessionInProject(targetProjectId, targetSessionId, (session) => ({
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              id: createId("error"),
+              role: "error",
+              content: t(getQueryErrorMessage(error)),
+            },
+          ],
+        }));
+      }
     } finally {
-      setIsSending(false);
-      setThinkingStartedAt(null);
-      focusPrompt();
+      if (finishActiveQuery(controller, timeoutId)) {
+        setIsSending(false);
+        setPendingProjectId(null);
+        setPendingSessionId(null);
+        setThinkingStartedAt(null);
+      }
     }
   }
 
@@ -4765,528 +7272,1125 @@ export function App() {
     event.currentTarget.form?.requestSubmit();
   }
 
-  function renderSettingsPage() {
-    const effectiveServerUrl = settings.serverUrl || getPaimApiRootUrl() || DEFAULT_PAIM_API_ROOT_URL;
+  function handleChromeDragStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (isWindows || event.button !== 0 || isWindowControlTarget(event.target)) {
+      return;
+    }
 
+    void getCurrentWindow().startDragging();
+  }
+
+  function handleChromeToggleMaximize(event: MouseEvent<HTMLDivElement>) {
+    if (isWindows || isWindowControlTarget(event.target)) {
+      return;
+    }
+
+    void getCurrentWindow().toggleMaximize();
+  }
+
+  function handleProjectMembersChange(
+    _members: ProjectMember[],
+    currentRole: ProjectRole | null,
+  ) {
+    const apiProjectId = selectedProject?.apiProjectId;
+    if (typeof apiProjectId !== "number") {
+      return;
+    }
+
+    setProjectRolesByApiId((current) => ({ ...current, [apiProjectId]: currentRole }));
+  }
+
+  function handleLeaveSelectedProject() {
+    if (!selectedProject) {
+      return;
+    }
+
+    const remainingProjects = projectsRef.current.filter(
+      (project) => project.id !== selectedProject.id,
+    );
+    cancelActiveQueryForProject(selectedProject.id);
+    const nextState = createProjectState(remainingProjects, null, null);
+    applyProjectState(nextState);
+    forgetProjectDrafts(selectedProject.id);
+    setMainView("workspace");
+    setOpenActionMenu(null);
+    showSessionDraft(nextState.selectedProjectId ?? "", nextState.selectedSessionId);
+    mainViewReturnFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      const focusTarget =
+        promptTextareaRef.current ??
+        mainViewHeadingRef.current ??
+        document.querySelector<HTMLElement>(".project-start-button, .project-create-trigger");
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }
+
+  function renderMembersPage() {
     return (
-      <section className="settings-page" aria-label="설정">
-        <div className="settings-content">
-          <header className="settings-header">
-            <button
-              aria-label="설정에서 돌아가기"
+      <section className="members-page" aria-label={t("프로젝트 멤버 관리")}>
+        <div className="members-page-content">
+          <header className="settings-header members-page-header">
+            <Button
               className="settings-back-button"
-              onClick={() => setMainView("workspace")}
-              title="돌아가기"
-              type="button"
-            >
-              <ArrowLeft size={15} />
-            </button>
+              icon={<ArrowLeft size={15} />}
+              isIconOnly
+              label={t("멤버 관리에서 돌아가기")}
+              onClick={returnToWorkspace}
+              tooltip={t("돌아가기")}
+              variant="ghost"
+            />
             <div>
-              <p>Settings</p>
-              <h1>설정</h1>
+              <h1 ref={mainViewHeadingRef} tabIndex={-1}>{t("멤버 관리")}</h1>
+              {selectedProject ? <p>{selectedProject.name}</p> : null}
             </div>
           </header>
 
-          <section className="settings-group" aria-label="테마">
-            <div className="settings-copy">
-              <h2>테마</h2>
-              <p>시스템 설정을 따르거나 PaiM 화면만 고정합니다.</p>
-            </div>
-            <div className="settings-segmented">
-              {[
-                ["system", "시스템"],
-                ["dark", "다크"],
-                ["light", "라이트"],
-              ].map(([value, label]) => (
-                <button
-                  data-active={settings.theme === value ? "true" : undefined}
-                  key={value}
-                  onClick={() => handleThemeChange(value as ThemeSetting)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
+          {authUser && typeof selectedProject?.apiProjectId === "number" ? (
+            <Suspense fallback={<PanelLoadingState label={t("멤버를 불러오는 중")} />}>
+              <LazyProjectMembersPanel
+                currentUser={authUser}
+                onLeaveProject={handleLeaveSelectedProject}
+                onMembersChange={handleProjectMembersChange}
+                projectId={selectedProject.apiProjectId}
+              />
+            </Suspense>
+          ) : (
+            <Banner
+              container="card"
+              status="warning"
+              title={t("로그인된 서버 프로젝트에서만 멤버를 관리할 수 있습니다.")}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderProfilePage() {
+    return (
+      <section className="profile-page" aria-label={t("프로필")}>
+        <div className="profile-content">
+          <header className="settings-header">
+            <Button
+              className="settings-back-button"
+              icon={<ArrowLeft size={15} />}
+              isIconOnly
+              label={t("프로필에서 돌아가기")}
+              onClick={returnToWorkspace}
+              tooltip={t("돌아가기")}
+              variant="ghost"
+            />
+            <h1 ref={mainViewHeadingRef} tabIndex={-1}>{t("프로필")}</h1>
+          </header>
+
+          <section className="profile-identity-card" aria-label={t("계정 정보")}>
+            <span aria-hidden="true" className="account-avatar profile-avatar">
+              {accountInitials}
+            </span>
+            <div className="profile-identity-copy">
+              <h2>{accountDisplayName}</h2>
+              <p>{accountEmail}</p>
             </div>
           </section>
 
-          <section className="settings-group" aria-label="서버 주소">
+          <dl className="profile-details" aria-label={t("프로필 세부 정보")}>
+            <div>
+              <dt>{t("가입일")}</dt>
+              <dd>{formatAccountCreatedAt(authUser?.created_at, settings.language)}</dd>
+            </div>
+            <div>
+              <dt>{t("서버 상태")}</dt>
+              <dd>
+                <span className="profile-connection" data-status={serverStatus}>
+                  <span aria-hidden="true" className="profile-connection-dot" />
+                  {serverStatus === "online" ? t("서버 연결됨") : t("서버 오프라인")}
+                </span>
+              </dd>
+            </div>
+          </dl>
+
+          {authUser ? (
+            <p className="profile-note">
+              {t("계정 정보는 현재 연결된 PaiM 서버에서 관리됩니다.")}
+            </p>
+          ) : (
+            <Banner
+              container="card"
+              status="warning"
+              title={t("오프라인 또는 인증이 없는 개발 서버를 사용 중입니다.")}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderSettingsPage() {
+    const effectiveServerUrl = settings.serverUrl || getPaimApiRootUrl() || DEFAULT_PAIM_API_ROOT_URL;
+    const normalizedServerUrlDraft = normalizePaimServerUrl(serverUrlDraft);
+    const isServerUrlDirty = normalizedServerUrlDraft !== normalizePaimServerUrl(settings.serverUrl);
+    const draftServerUrl = resolvePaimApiRootUrl(normalizedServerUrlDraft);
+    const willServerApplyReload =
+      isServerUrlDirty &&
+      getProjectStorageKey(authUser, canLogout, draftServerUrl) !== projectStorageKey;
+
+    return (
+      <section className="settings-page" aria-label={t("설정")}>
+        <div className="settings-content">
+          <header className="settings-header">
+            <Button
+              className="settings-back-button"
+              icon={<ArrowLeft size={15} />}
+              isIconOnly
+              label={t("설정에서 돌아가기")}
+              onClick={returnToWorkspace}
+              tooltip={t("돌아가기")}
+              variant="ghost"
+            />
+            <h1 ref={mainViewHeadingRef} tabIndex={-1}>{t("설정")}</h1>
+          </header>
+
+          <section className="settings-group" aria-label={t("테마")}>
             <div className="settings-copy">
-              <h2>서버 주소</h2>
-              <p>비우면 기본 주소 {DEFAULT_PAIM_API_ROOT_URL}로 돌아갑니다.</p>
+              <h2>{t("테마")}</h2>
+              <p>{t("시스템 설정을 따르거나 PaiM 화면만 고정합니다.")}</p>
+            </div>
+            <SegmentedControl
+              label={t("테마 선택")}
+              layout="fill"
+              onChange={(value) => handleThemeChange(value as ThemeSetting)}
+              size="sm"
+              value={settings.theme}
+            >
+              <SegmentedControlItem label={t("시스템")} value="system" />
+              <SegmentedControlItem label={t("다크")} value="dark" />
+              <SegmentedControlItem label={t("라이트")} value="light" />
+            </SegmentedControl>
+          </section>
+
+          <section className="settings-group" aria-label={t("화면 확대")}>
+            <div className="settings-copy">
+              <h2>{t("화면 확대")}</h2>
+              <p>{t("텍스트와 인터페이스를 100%에서 200%까지 확대합니다.")}</p>
+            </div>
+            <div className="settings-range">
+              <Suspense fallback={<div className="settings-control-skeleton" aria-hidden="true" />}>
+                <LazySlider
+                  formatValue={(value: number) => `${Math.round(value * 100)}%`}
+                  isLabelHidden
+                  label={t("화면 확대")}
+                  max={MAX_ZOOM_SCALE}
+                  min={MIN_ZOOM_SCALE}
+                  onChange={applyZoomScale}
+                  step={ZOOM_STEP}
+                  value={zoomScale}
+                  valueDisplay="none"
+                  width="100%"
+                />
+              </Suspense>
+              <strong>{Math.round(zoomScale * 100)}%</strong>
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label={t("언어")}>
+            <div className="settings-copy">
+              <h2>{t("언어")}</h2>
+              <p>{t("PaiM 전체 표시 언어를 선택합니다.")}</p>
+            </div>
+            <SegmentedControl
+              label={t("언어 선택")}
+              layout="fill"
+              onChange={(value) => handleLanguageChange(value as LanguageSetting)}
+              size="sm"
+              value={settings.language}
+            >
+              <SegmentedControlItem label={t("한국어")} value="ko" />
+              <SegmentedControlItem label="English" value="en" />
+            </SegmentedControl>
+          </section>
+
+          <section className="settings-group" aria-label={t("서버 주소")}>
+            <div className="settings-copy">
+              <h2>{t("서버 주소")}</h2>
+              <p>{t("비우면 기본 주소 {url}로 돌아갑니다.", { url: DEFAULT_PAIM_API_ROOT_URL })}</p>
             </div>
             <div className="settings-control-stack">
               <div className="settings-inline-control">
-                <input
-                  aria-label="PaiM 서버 주소"
-                  onChange={(event) => updateSettings({ serverUrl: event.currentTarget.value })}
+                <TextInput
+                  isLabelHidden
+                  label={t("PaiM 서버 주소")}
+                  onChange={(value) => {
+                    setServerUrlDraft(value);
+                    setServerTestState({ message: "", status: "idle" });
+                    setIsServerApplyConfirming(false);
+                  }}
                   placeholder={DEFAULT_PAIM_API_ROOT_URL}
-                  value={settings.serverUrl}
+                  value={serverUrlDraft}
+                  width="100%"
                 />
-                <button
-                  disabled={serverTestState.status === "testing"}
-                  onClick={() => void handleTestServerConnection()}
-                  type="button"
-                >
-                  연결 테스트
-                </button>
               </div>
-              <p className="settings-status" data-kind={serverStatus === "online" ? "ok" : "error"}>
-                현재 {serverStatus === "online" ? "연결됨" : "오프라인"} · {effectiveServerUrl}
-                {serverTestState.message ? ` · ${serverTestState.message}` : ""}
+              <div className="settings-server-actions">
+                <Button
+                  isLoading={serverTestState.status === "testing"}
+                  label={t("연결 테스트")}
+                  onClick={() => void handleTestServerConnection()}
+                  variant="secondary"
+                />
+                {isServerApplyConfirming ? (
+                  <Button
+                    label={t("취소")}
+                    onClick={() => setIsServerApplyConfirming(false)}
+                    variant="secondary"
+                  />
+                ) : null}
+                <Button
+                  isDisabled={!isServerUrlDirty || serverTestState.status === "testing"}
+                  label={
+                    isServerApplyConfirming
+                      ? t("전환하고 다시 시작")
+                      : willServerApplyReload
+                        ? t("서버 전환 적용")
+                        : t("주소 적용")
+                  }
+                  onClick={handleApplyServerUrl}
+                  variant={isServerApplyConfirming ? "primary" : "secondary"}
+                />
+              </div>
+              <p
+                className="settings-status"
+                aria-atomic="true"
+                role="status"
+              >
+                <StatusDot
+                  label={serverStatus === "online" ? t("서버 연결됨") : t("서버 오프라인")}
+                  variant={serverStatus === "online" ? "success" : "error"}
+                />
+                {t(serverStatus === "online" ? "현재 연결됨 · {url}{message}" : "현재 오프라인 · {url}{message}", {
+                  message: "",
+                  url: effectiveServerUrl,
+                })}
               </p>
+              {isServerUrlDirty ? (
+                <p
+                  aria-live="polite"
+                  className="settings-draft-status"
+                  data-status={isServerApplyConfirming ? "warning" : serverTestState.status}
+                >
+                  {isServerApplyConfirming
+                    ? t("적용하면 앱이 다시 시작되고 새 서버의 프로젝트로 전환됩니다.")
+                    : serverTestState.message
+                      ? t(serverTestState.message)
+                      : willServerApplyReload
+                        ? t("새 서버 주소입니다. 연결을 확인한 뒤 적용하세요.")
+                        : t("적용하지 않은 변경 사항이 있습니다.")}
+                </p>
+              ) : null}
             </div>
           </section>
 
-          <section className="settings-group" aria-label="완료 제안 민감도">
+          <section className="settings-group" aria-label={t("완료 제안 민감도")}>
             <div className="settings-copy">
-              <h2>완료 제안 민감도</h2>
-              <p>서버 제안은 유지하고 인박스 표시만 조절합니다.</p>
+              <h2>{t("완료 제안 민감도")}</h2>
+              <p>{t("서버 제안은 유지하고 인박스 표시만 조절합니다.")}</p>
             </div>
-            <div className="settings-segmented">
-              <button
-                data-active={settings.suggestionMin === "high" ? "true" : undefined}
-                onClick={() => updateSettings({ suggestionMin: "high" })}
-                type="button"
-              >
-                확실할 때만
-              </button>
-              <button
-                data-active={settings.suggestionMin === "medium" ? "true" : undefined}
-                onClick={() => updateSettings({ suggestionMin: "medium" })}
-                type="button"
-              >
-                추정 포함
-              </button>
-            </div>
+            <SegmentedControl
+              label={t("완료 제안 민감도 선택")}
+              layout="fill"
+              onChange={(value) =>
+                updateSettings({ suggestionMin: value as SuggestionMinConfidence })
+              }
+              size="sm"
+              value={settings.suggestionMin}
+            >
+              <SegmentedControlItem label={t("확실할 때만")} value="high" />
+              <SegmentedControlItem label={t("추정 포함")} value="medium" />
+            </SegmentedControl>
           </section>
 
-          <section className="settings-group" aria-label="마감 임박 기준">
+          <section className="settings-group" aria-label={t("마감 임박 기준")}>
             <div className="settings-copy">
-              <h2>마감 임박 기준</h2>
-              <p>델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.</p>
+              <h2>{t("마감 임박 기준")}</h2>
+              <p>{t("델타 배너의 마감 임박 범위를 1일부터 7일까지 조절합니다.")}</p>
             </div>
             <div className="settings-range">
-              <input
-                aria-label="마감 임박 기준"
-                max={7}
-                min={1}
-                onChange={(event) => updateSettings({ dueSoonDays: Number(event.currentTarget.value) })}
-                type="range"
-                value={settings.dueSoonDays}
-              />
-              <strong>{settings.dueSoonDays}일</strong>
+              <Suspense fallback={<div className="settings-control-skeleton" aria-hidden="true" />}>
+                <LazySlider
+                  formatValue={(value: number) => t("{count}일", { count: value })}
+                  isLabelHidden
+                  label={t("마감 임박 기준")}
+                  max={7}
+                  min={1}
+                  onChange={(value: number) => updateSettings({ dueSoonDays: value })}
+                  value={settings.dueSoonDays}
+                  valueDisplay="none"
+                  width="100%"
+                />
+              </Suspense>
+              <strong>{t("{count}일", { count: settings.dueSoonDays })}</strong>
             </div>
           </section>
 
-          <section className="settings-group" aria-label="캐시 초기화">
+          <section className="settings-group settings-danger-group" aria-label={t("앱 설정 초기화")}>
             <div className="settings-copy">
-              <h2>캐시 초기화</h2>
-              <p>로컬 캐시와 설정만 지웁니다. 서버 데이터(프로젝트·메모리)는 삭제되지 않습니다.</p>
-            </div>
-            <button
-              className="settings-danger"
-              data-confirming={isCacheResetConfirming ? "true" : undefined}
-              onClick={handleClearLocalCache}
-              type="button"
-            >
-              {isCacheResetConfirming ? "다시 눌러 초기화" : "캐시 초기화"}
-            </button>
-          </section>
-
-          <section className="settings-group" aria-label="버전">
-            <div className="settings-copy">
-              <h2>버전</h2>
-              <p>
-                현재 {appVersion}
-                {latestReleaseTag ? ` · 최신 ${latestReleaseTag}` : ""}
+              <h2>{t("앱 설정 초기화")}</h2>
+              <p aria-live="polite">
+                {isSettingsResetConfirming
+                  ? t("계속하려면 초기화를 확인하세요. 화면·언어·분석 표시와 패널 배치만 기본값으로 되돌립니다.")
+                  : t("프로젝트·대화·계정·서버 주소는 유지하고 앱 설정만 기본값으로 되돌립니다.")}
               </p>
             </div>
-            <button onClick={handleOpenReleasePage} type="button">
-              릴리즈 페이지 열기
-            </button>
+            <div className="settings-confirm-actions">
+              {isSettingsResetConfirming ? (
+                <Button
+                  label={t("취소")}
+                  onClick={() => setIsSettingsResetConfirming(false)}
+                  variant="secondary"
+                />
+              ) : null}
+              <Button
+                label={isSettingsResetConfirming ? t("설정 초기화") : t("앱 설정 초기화")}
+                onClick={handleResetAppSettings}
+                variant={isSettingsResetConfirming ? "destructive" : "secondary"}
+              />
+            </div>
+          </section>
+
+          <section className="settings-group" aria-label={t("버전")}>
+            <div className="settings-copy">
+              <h2>{t("버전")}</h2>
+              <p>
+                {t("현재 {version}{latest}", {
+                  latest: latestReleaseTag ? t(" · 최신 {tag}", { tag: latestReleaseTag }) : "",
+                  version: appVersion,
+                })}
+              </p>
+            </div>
+            <Button
+              label={t("릴리즈 페이지 열기")}
+              onClick={handleOpenReleasePage}
+              variant="secondary"
+            />
           </section>
         </div>
       </section>
     );
   }
 
-  return (
-    <div
-      className="app-shell"
-      data-drag-active={isDragActive}
-      data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
-      data-project-panel={showProjectPanel ? "true" : "false"}
-      data-project-panel-collapsed={isProjectPanelCollapsed}
-      data-project-panel-maximized={isProjectPanelMaximized}
-      data-project-panel-resizing={isProjectPanelResizing}
-      data-project-file-tree-resizing={isProjectFileTreeResizing}
-      data-sidebar-collapsed={isSidebarCollapsed}
-      data-sidebar-resizing={isSidebarResizing}
-      onClick={() => setOpenActionMenu(null)}
-      style={appShellStyle}
+  const sidebarToggleLabel = isHighZoomViewport
+    ? t("사이드바를 펼치려면 창을 넓혀주세요")
+    : t(isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기");
+  const sidebarToggleControl = hasProjects ? (
+    <Tooltip
+      alignment="center"
+      content={sidebarToggleLabel}
+      delay={650}
+      hasHoverIndication={false}
+      placement="below"
     >
-      {isWindows ? <WindowsTitlebar /> : null}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <button
-            className="sidebar-toggle"
-            aria-label={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-            onClick={handleToggleSidebar}
-            title={isSidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기"}
-            type="button"
-          >
-            <PanelLeft size={17} />
-          </button>
-        </div>
+      <IconButton
+        className="sidebar-collapse-button"
+        icon={<PanelLeft size={16} />}
+        isDisabled={isHighZoomViewport}
+        label={sidebarToggleLabel}
+        onClick={handleToggleSidebar}
+        variant="ghost"
+      />
+    </Tooltip>
+  ) : null;
 
-        <nav className="sidebar-nav" aria-label="주요 메뉴">
-          <button
-            className="project-create-trigger"
-            onClick={() => createProjectFromName(createNextProjectName(projects))}
-            title="새 프로젝트"
-            type="button"
+  return (
+    <I18nProvider language={settings.language}>
+      <Theme theme={neutralTheme} mode={settings.theme}>
+        <AppShell
+          className="paim-app-shell"
+          contentPadding={0}
+          height="fill"
+          variant="wash"
+        >
+          <div
+            className="app-shell"
+            data-drag-active={isDragActive}
+            data-drag-zone={activeDropZone ?? undefined}
+            data-language={settings.language}
+            data-high-zoom-layout={isHighZoomViewport}
+            data-main-view={mainView}
+            data-platform={isWindows ? "windows" : isMac ? "macos" : "native"}
+            data-project-panel={showProjectPanel ? "true" : "false"}
+            data-project-panel-overlay={isProjectPanelOverlay ? "true" : "false"}
+            data-project-panel-state={visibleProjectPanelMode}
+            data-project-file-tree-resizing={isProjectFileTreeResizing}
+            data-sidebar-collapsed={isSidebarCollapsedForLayout}
+            data-sidebar-empty={!hasProjects}
+            data-sidebar-resizing={isSidebarResizing}
+            onClick={() => setOpenActionMenu(null)}
+            style={appShellStyle}
           >
-            <FolderPlus size={18} />
-            <span>New Project</span>
-          </button>
-        </nav>
-
-        <section className="projects project-tree" aria-label="프로젝트">
-          <h2>Projects</h2>
-          <div className="project-tree-list">
-            {projects.map((project) => (
-              <div
-                className="project-group"
-                data-active={project.id === selectedProjectId}
-                data-collapsed={collapsedProjectIdSet.has(project.id)}
-                data-project-id={project.id}
-                key={project.id}
+        {isWindows ? <WindowsTitlebar inert={shouldInertBackgroundForProjectPanel} /> : null}
+        {showProjectPanel && selectedProject ? (
+          <>
+            <div className="project-panel-header-meta" aria-label={t("프로젝트 상태")}>
+              <span
+                className="project-panel-header-meta-item"
+                aria-label={t("자료 {count}개", { count: selectedProjectFileCount })}
               >
-                <div className="project-row">
-                  <div className="project-title">
-                    {renameDraft?.type === "project" && renameDraft.projectId === project.id ? (
-                      <div className="project-item project-rename-editor">
-                        <FolderOpen size={15} />
-                        <input
-                          aria-label="프로젝트 이름 변경"
-                          autoFocus
-                          className="rename-input"
-                          defaultValue={renameDraft.value}
-                          onBlur={(event) => commitRenameDraft(event.currentTarget.value)}
-                          onClick={(event) => event.stopPropagation()}
-                          onFocus={(event) => event.currentTarget.select()}
-                          onKeyDown={handleRenameKeyDown}
-                        />
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          className="project-item"
-                          data-active={project.id === selectedProjectId}
-                          data-project-id={project.id}
-                          onClick={() => handleSelectProject(project.id)}
-                          title={project.name}
-                          type="button"
-                        >
-                          <FolderOpen size={15} />
-                          <span className="project-name">{project.name}</span>
-                        </button>
-                        {project.sessions.length > 0 ? (
-                          <button
-                            aria-expanded={!collapsedProjectIdSet.has(project.id)}
-                            aria-label={`${project.name} 채팅 목록 ${
-                              collapsedProjectIdSet.has(project.id) ? "펼치기" : "접기"
-                            }`}
-                            className="project-collapse-button"
-                            data-collapsed={collapsedProjectIdSet.has(project.id)}
-                            onClick={(event) => toggleProjectSessions(project.id, event)}
-                            title={
-                              collapsedProjectIdSet.has(project.id)
-                                ? `${project.name} 채팅 목록 펼치기`
-                                : `${project.name} 채팅 목록 접기`
-                            }
-                            type="button"
-                          >
-                            <ChevronDown size={14} />
-                          </button>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
-                  <div className="project-actions">
-                    <button
-                      aria-label={`${project.name}에 새 채팅 만들기`}
-                      className="project-chat-create-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleCreateChatInProject(project.id);
-                      }}
-                      title={`${project.name}에 새 채팅 만들기`}
-                      type="button"
-                    >
-                      <Plus size={13} />
-                    </button>
-                    <button
-                      aria-expanded={
-                        openActionMenu?.type === "project" &&
-                        openActionMenu.projectId === project.id
-                      }
-                      aria-haspopup="menu"
-                      aria-label={`${project.name} 메뉴`}
-                      className="project-action-menu-button"
-                      onClick={(event) => toggleProjectActionMenu(project.id, event)}
-                      title={`${project.name} 메뉴`}
-                      type="button"
-                    >
-                      <Ellipsis size={15} />
-                    </button>
-                  </div>
-                </div>
+                <Files aria-hidden="true" size={13} />
+                <span>{t("{count}개", { count: selectedProjectFileCount })}</span>
+              </span>
+              <span
+                aria-label={t("GitHub {status}", {
+                  status: t(getGithubPanelStateLabel(selectedProjectGithubPanelState)),
+                })}
+                className="project-panel-header-meta-item"
+                title={t("GitHub {status}", {
+                  status: t(getGithubPanelStateLabel(selectedProjectGithubPanelState)),
+                })}
+              >
+                <GitBranch aria-hidden="true" size={13} />
+                <span>GitHub</span>
+                <span aria-hidden="true" className="project-panel-header-status-label">
+                  · {t(getGithubPanelStateLabel(selectedProjectGithubPanelState))}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="project-panel-header-status-dot"
+                  data-state={selectedProjectGithubPanelState}
+                />
+              </span>
+            </div>
+            {isProjectPanelCollapsed ? (
+              <div className="project-panel-control-cluster" aria-label={t("프로젝트 패널 도구")}>
+                <IconButton
+                  className="project-panel-rail-toggle"
+                  icon={<PanelRight size={17} />}
+                  label={t("프로젝트 패널 펼치기")}
+                  onClick={handleToggleProjectPanel}
+                  tooltip={t("프로젝트 패널 펼치기")}
+                  variant="ghost"
+                />
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        <div
+          className="app-chrome"
+          aria-label={t("앱 상단 도구")}
+          inert={shouldInertBackgroundForProjectPanel}
+          onDoubleClick={handleChromeToggleMaximize}
+          onPointerDown={handleChromeDragStart}
+        >
+          {isMac && sidebarToggleControl ? (
+            <div className="app-chrome-sidebar-control">{sidebarToggleControl}</div>
+          ) : null}
+          {mainView === "workspace" && selectedSession ? (
+            <div className="chat-context-bar" aria-label={t("현재 채팅 정보")}>
+              <div className="chat-context-primary">
+                <h1
+                  aria-label={`${selectedProject?.name ?? "PaiM"} ${t(selectedSession.title)}`}
+                  className="chat-context-item chat-context-title"
+                  id="chat-context-heading"
+                  title={`${selectedProject?.name ?? "PaiM"} / ${t(selectedSession.title)}`}
+                >
+                  <MessageSquare aria-hidden="true" size={14} />
+                  <span className="chat-context-project">{selectedProject?.name}</span>
+                  <ChevronRight aria-hidden="true" className="chat-context-separator" size={12} />
+                  <span>{t(selectedSession.title)}</span>
+                </h1>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <aside className="sidebar" inert={shouldInertBackgroundForProjectPanel}>
+          <div aria-hidden="true" className="sidebar-drag-region" />
+          {!isMac && sidebarToggleControl ? (
+            <div className="sidebar-header">{sidebarToggleControl}</div>
+          ) : null}
 
-                {collapsedProjectIdSet.has(project.id) ? null : (
-                  <div className="project-sessions">
-                    {project.sessions.map((session) => (
+          <SideNav aria-label={t("프로젝트와 대화")} className="sidebar-panel">
+            {hasProjects ? (
+              <nav className="sidebar-nav" aria-label={t("프로젝트 작업")}>
+                <Button
+                  className="project-create-trigger"
+                  icon={<FolderPlus size={15} />}
+                  label={t("새 프로젝트")}
+                  onClick={() => createProjectFromName(createNextProjectName(projects))}
+                  size="sm"
+                  variant="ghost"
+                />
+              </nav>
+            ) : null}
+            {hasProjects ? (
+              <section className="projects project-tree" aria-label={t("프로젝트")}>
+              <h2>{t("프로젝트")}</h2>
+              <div className="project-tree-list" role="list">
+                {projects.map((project) => {
+                  const isActiveProject = project.id === selectedProjectId;
+
+                  return (
+                    <div
+                      className="project-group"
+                      data-active={isActiveProject ? "true" : undefined}
+                      data-project-id={project.id}
+                      key={project.id}
+                      role="listitem"
+                    >
                       <div
-                        className="history-row"
-                        data-active={
-                          project.id === selectedProjectId && session.id === selectedSessionId
-                        }
-                        key={session.id}
+                        className="project-row"
+                        onContextMenu={(event) => handleProjectContextMenu(project.id, event)}
                       >
-                        {renameDraft?.type === "session" &&
-                        renameDraft.projectId === project.id &&
-                        renameDraft.sessionId === session.id ? (
-                          <div className="history-item history-rename-editor">
-                            <MessageSquare size={13} />
-                            <input
-                              aria-label="채팅 이름 변경"
-                              autoFocus
-                              className="rename-input"
-                              defaultValue={renameDraft.value}
-                              onBlur={(event) => commitRenameDraft(event.currentTarget.value)}
-                              onClick={(event) => event.stopPropagation()}
-                              onFocus={(event) => event.currentTarget.select()}
-                              onKeyDown={handleRenameKeyDown}
+                        <div className="project-title">
+                          {renameDraft?.type === "project" &&
+                          renameDraft.projectId === project.id ? (
+                            <div className="project-item project-rename-editor">
+                              <FolderOpen aria-hidden="true" size={14} />
+                              <TextInput
+                                className="rename-input"
+                                hasAutoFocus
+                                isLabelHidden
+                                label={t("프로젝트 이름 변경")}
+                                onBlur={(event) =>
+                                  commitRenameDraft((event.target as HTMLInputElement).value)
+                                }
+                                onChange={updateRenameDraftValue}
+                                onClick={(event) => event.stopPropagation()}
+                                onFocus={(event) =>
+                                  (event.target as HTMLInputElement).select()
+                                }
+                                onKeyDown={handleRenameKeyDown}
+                                size="sm"
+                                value={renameDraft.value}
+                                width="100%"
+                              />
+                            </div>
+                          ) : (
+                            <Button
+                              aria-current={isActiveProject ? "page" : undefined}
+                              className="project-item"
+                              data-active={isActiveProject ? "true" : undefined}
+                              data-project-id={project.id}
+                              data-project-name={project.name}
+                              icon={<FolderOpen size={14} />}
+                              label={project.name}
+                              onClick={() => handleSelectProject(project.id)}
+                              onContextMenu={(event) =>
+                                handleProjectContextMenu(project.id, event)
+                              }
+                              tooltip={project.name}
+                              variant="ghost"
+                            >
+                              <span className="project-name">{project.name}</span>
+                            </Button>
+                          )}
+                        </div>
+                        {isActiveProject ? (
+                          <div className="project-actions">
+                            <IconButton
+                              className="project-chat-create-button"
+                              icon={<Plus size={13} />}
+                              isDisabled={!canMutateSelectedProject}
+                              label={t("{name}에 새 채팅 만들기", { name: project.name })}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleCreateChatInProject(project.id);
+                              }}
+                              tooltip={t("{name}에 새 채팅 만들기", {
+                                name: project.name,
+                              })}
+                              variant="ghost"
+                            />
+                            <IconButton
+                              aria-expanded={
+                                openActionMenu?.type === "project" &&
+                                openActionMenu.projectId === project.id
+                              }
+                              aria-haspopup="menu"
+                              className="project-action-menu-button"
+                              icon={<Ellipsis size={14} />}
+                              label={t("{name} 메뉴", { name: project.name })}
+                              onClick={(event) =>
+                                toggleProjectActionMenu(project.id, event)
+                              }
+                              tooltip={t("{name} 메뉴", { name: project.name })}
+                              variant="ghost"
                             />
                           </div>
-                        ) : (
-                          <button
-                            className="history-item"
-                            data-active={
-                              project.id === selectedProjectId && session.id === selectedSessionId
-                            }
-                            onClick={() => handleSelectSession(project.id, session.id)}
-                            type="button"
-                          >
-                            <MessageSquare size={13} />
-                            <span className="history-title">{session.title}</span>
-                            <small className="history-age">
-                              {formatRelativeAge(session.createdAt)}
-                            </small>
-                          </button>
-                        )}
-                        <button
-                          aria-expanded={
-                            openActionMenu?.type === "session" &&
-                            openActionMenu.projectId === project.id &&
-                            openActionMenu.sessionId === session.id
-                          }
-                          aria-haspopup="menu"
-                          aria-label={`${session.title} 메뉴`}
-                          className="history-action-menu-button"
-                          onClick={(event) =>
-                            toggleSessionActionMenu(project.id, session.id, event)
-                          }
-                          title={`${session.title} 메뉴`}
-                          type="button"
-                        >
-                          <Ellipsis size={14} />
-                        </button>
+                        ) : null}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
 
-        <div className="sidebar-footer">
-          <button
-            className="sidebar-settings-button"
-            data-active={mainView === "settings" ? "true" : undefined}
-            onClick={() => {
-              setMainView("settings");
-              setOpenActionMenu(null);
-            }}
-            title="설정"
-            type="button"
-          >
-            <SettingsIcon size={17} />
-            <span>Settings</span>
-          </button>
-        </div>
+                      {isActiveProject ? (
+                        <div className="project-sessions" role="list">
+                          {project.sessions.map((session) => (
+                            <div
+                              className="history-row"
+                              data-active={
+                                session.id === selectedSessionId ? "true" : undefined
+                              }
+                              key={session.id}
+                              onContextMenu={(event) =>
+                                handleSessionContextMenu(project.id, session.id, event)
+                              }
+                              role="listitem"
+                            >
+                              {renameDraft?.type === "session" &&
+                              renameDraft.projectId === project.id &&
+                              renameDraft.sessionId === session.id ? (
+                                <div className="history-item history-rename-editor">
+                                  <MessageSquare size={13} />
+                                  <TextInput
+                                    className="rename-input"
+                                    hasAutoFocus
+                                    isLabelHidden
+                                    label={t("채팅 이름 변경")}
+                                    onBlur={(event) =>
+                                      commitRenameDraft((event.target as HTMLInputElement).value)
+                                    }
+                                    onChange={updateRenameDraftValue}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onFocus={(event) =>
+                                      (event.target as HTMLInputElement).select()
+                                    }
+                                    onKeyDown={handleRenameKeyDown}
+                                    size="sm"
+                                    value={renameDraft.value}
+                                    width="100%"
+                                  />
+                                </div>
+                              ) : (
+                                <Button
+                                  aria-current={
+                                    session.id === selectedSessionId ? "page" : undefined
+                                  }
+                                  className="history-item"
+                                  data-active={
+                                    session.id === selectedSessionId ? "true" : undefined
+                                  }
+                                  endContent={
+                                    <small className="history-age">
+                                      {formatRelativeAge(session.createdAt, settings.language)}
+                                    </small>
+                                  }
+                                  icon={<MessageSquare size={13} />}
+                                  label={t(session.title)}
+                                  onClick={() =>
+                                    handleSelectSession(project.id, session.id)
+                                  }
+                                  onContextMenu={(event) =>
+                                    handleSessionContextMenu(project.id, session.id, event)
+                                  }
+                                  variant="ghost"
+                                >
+                                  <span className="history-title">{t(session.title)}</span>
+                                </Button>
+                              )}
+                              <IconButton
+                                aria-expanded={
+                                  openActionMenu?.type === "session" &&
+                                  openActionMenu.projectId === project.id &&
+                                  openActionMenu.sessionId === session.id
+                                }
+                                aria-haspopup="menu"
+                                className="history-action-menu-button"
+                                icon={<Ellipsis size={14} />}
+                                label={t("{name} 메뉴", { name: session.title })}
+                                onClick={(event) =>
+                                  toggleSessionActionMenu(project.id, session.id, event)
+                                }
+                                tooltip={t("{name} 메뉴", { name: session.title })}
+                                variant="ghost"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              </section>
+            ) : null}
+          </SideNav>
+
+          <div className="sidebar-footer">
+            <DropdownMenu
+              button={{
+                children: <span className="sidebar-account-name">{accountDisplayName}</span>,
+                className: "sidebar-account-button",
+                icon: (
+                  <span aria-hidden="true" className="account-avatar sidebar-account-avatar">
+                    {accountInitials}
+                  </span>
+                ),
+                isIconOnly: isSidebarCollapsedForLayout,
+                label: t("{name} 계정 메뉴", { name: accountDisplayName }),
+                ref: accountMenuTriggerRef,
+                size: "sm",
+                tooltip: t("{name} 계정 메뉴", { name: accountDisplayName }),
+                variant: "ghost",
+              }}
+              className="account-menu"
+              hasChevron={false}
+              isMenuOpen={isAccountMenuOpen}
+              menuWidth={isSidebarCollapsedForLayout ? 232 : Math.max(212, sidebarWidth - 20)}
+              onClick={() => setOpenActionMenu(null)}
+              onOpenChange={handleAccountMenuOpenChange}
+              placement="above"
+            >
+              <div className="account-menu-identity" role="presentation">
+                <span aria-hidden="true" className="account-avatar account-menu-avatar">
+                  {accountInitials}
+                </span>
+                <span className="account-menu-identity-copy">
+                  <strong>{accountDisplayName}</strong>
+                  <small>{accountEmail}</small>
+                </span>
+              </div>
+              <div aria-hidden="true" className="account-menu-divider" role="separator" />
+              <DropdownMenuItem
+                className="account-menu-profile"
+                icon={<UserRound size={15} />}
+                label={t("프로필")}
+                onClick={() => openAccountView("profile")}
+              />
+              <DropdownMenuItem
+                className="account-menu-settings"
+                icon={<SettingsIcon size={15} />}
+                label={t("설정")}
+                onClick={() => openAccountView("settings")}
+              />
+              {canLogout ? (
+                <>
+                  <div aria-hidden="true" className="account-menu-divider" role="separator" />
+                  <DropdownMenuItem
+                    className="account-menu-logout"
+                    icon={<LogOut size={15} />}
+                    label={t("로그아웃")}
+                    onClick={handleAccountLogout}
+                  />
+                </>
+              ) : null}
+            </DropdownMenu>
+          </div>
 
         <div
-          aria-label="사이드바 크기 조절"
+          aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+          aria-label={t("사이드바 크기 조절")}
           aria-orientation="vertical"
           aria-valuemax={MAX_SIDEBAR_WIDTH}
           aria-valuemin={MIN_SIDEBAR_WIDTH}
           aria-valuenow={sidebarWidth}
           className="sidebar-resize-handle"
-          onMouseDown={handleSidebarResizeStart}
+          onKeyDown={handleSidebarResizeKeyDown}
+          onPointerDown={handleSidebarResizeStart}
           role="separator"
+          tabIndex={0}
         />
 
         {openActionMenu && actionMenuProject ? (
           <div
             className="item-action-menu"
+            data-origin={openActionMenu.origin}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={handleActionMenuKeyDown}
             role="menu"
             style={{ top: openActionMenu.top, left: openActionMenu.left }}
           >
             {openActionMenu.type === "project" ? (
               <>
-                <button
+                <Button
                   data-action="rename-project"
+                  isDisabled={!canMutateActionMenuProject}
+                  label={t("Name change")}
                   onClick={() => beginRenameProject(actionMenuProject.id)}
                   role="menuitem"
-                  type="button"
-                >
-                  Name change
-                </button>
-                <button
+                  size="sm"
+                  variant="ghost"
+                />
+                {authUser && typeof actionMenuProject.apiProjectId === "number" ? (
+                  <Button
+                    data-action="manage-project-members"
+                    icon={<Users size={14} />}
+                    label={t("멤버 관리")}
+                    onClick={() => openProjectMembers(actionMenuProject.id)}
+                    role="menuitem"
+                    size="sm"
+                    variant="ghost"
+                  />
+                ) : null}
+                <Button
                   className="danger"
                   data-action="delete-project"
+                  isDisabled={!canDeleteActionMenuProject || isActionMenuProjectQueryPending}
+                  label={pendingDeleteProjectId === actionMenuProject.id ? t("Delete again") : t("Delete")}
                   onClick={(event) => void handleDeleteProject(actionMenuProject.id, event)}
                   role="menuitem"
-                  type="button"
-                >
-                  {pendingDeleteProjectId === actionMenuProject.id ? "Delete again" : "Delete"}
-                </button>
+                  size="sm"
+                  variant="destructive"
+                />
               </>
             ) : actionMenuSession ? (
               <>
-                <button
+                <Button
                   data-action="rename-session"
+                  isDisabled={!canMutateActionMenuProject}
+                  label={t("Name change")}
                   onClick={() => beginRenameSession(actionMenuProject.id, actionMenuSession.id)}
                   role="menuitem"
-                  type="button"
-                >
-                  Name change
-                </button>
-                <button
+                  size="sm"
+                  variant="ghost"
+                />
+                <Button
                   className="danger"
                   data-action="delete-session"
+                  isDisabled={!canMutateActionMenuProject || isActionMenuSessionQueryPending}
+                  label={
+                    pendingDeleteSession?.projectId === actionMenuProject.id &&
+                    pendingDeleteSession.sessionId === actionMenuSession.id
+                      ? t("Delete again")
+                      : t("Delete")
+                  }
                   onClick={(event) =>
                     void handleDeleteSession(actionMenuProject.id, actionMenuSession.id, event)
                   }
                   role="menuitem"
-                  type="button"
-                >
-                  Delete
-                </button>
+                  size="sm"
+                  variant="destructive"
+                />
               </>
             ) : null}
           </div>
         ) : null}
       </aside>
 
-      <main
+      <LayoutContent
         className="chat"
+        data-notice-count={noticeCount > 0 ? String(noticeCount) : undefined}
         data-empty-chat={
           mainView === "workspace" && selectedSession?.messages.length === 0 ? "true" : undefined
         }
+        isScrollable={false}
+        inert={shouldInertBackgroundForProjectPanel}
+        padding={0}
+        style={
+          showNoticeStack
+            ? ({ "--notice-stack-height": `${noticeStackHeight}px` } as CSSProperties)
+            : undefined
+        }
       >
         {showNoticeStack ? (
-          <div className="notice-stack" aria-live="polite">
+          <div className="notice-stack" ref={noticeStackRef}>
             {serverStatus === "offline" ? (
-              <div className="notice" data-kind="offline" role="status">
-                <i aria-hidden="true" />
-                <span>PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중</span>
-                <span className="notice-spacer" />
-                <button onClick={() => void syncProjectsWithServer(true)} type="button">
-                  다시 연결
-                </button>
-              </div>
+              <Banner
+                className="notice"
+                container="card"
+                endContent={
+                  <Button
+                    label={t("다시 연결")}
+                    onClick={() => void syncProjectsWithServer(true)}
+                    size="sm"
+                    variant="primary"
+                  />
+                }
+                status="error"
+                title={t("PaiM 서버에 연결할 수 없습니다 — 마지막 저장 상태를 표시 중")}
+              />
+            ) : null}
+            {showBackgroundQueryNotice && pendingQueryProject && pendingQuerySession ? (
+              <Banner
+                className="notice pending-query-notice"
+                container="card"
+                endContent={
+                  <div className="notice-actions">
+                    <Button
+                      label={t("채팅으로 이동")}
+                      onClick={() =>
+                        handleSelectSession(pendingQueryProject.id, pendingQuerySession.id)
+                      }
+                      size="sm"
+                      variant="primary"
+                    />
+                    <Button
+                      label={t("응답 중지")}
+                      onClick={handleCancelQuery}
+                      size="sm"
+                      variant="ghost"
+                    />
+                  </div>
+                }
+                status="info"
+                title={t("{project} · {chat}에서 응답을 생성 중입니다", {
+                  chat: t(pendingQuerySession.title),
+                  project: pendingQueryProject.name,
+                })}
+              />
             ) : null}
             {selectedProjectDelta ? (
-              <div className="notice" data-kind="delta" role="status">
-                <i aria-hidden="true" />
-                <span>지난 확인 이후 — {formatProjectDeltaSummary(selectedProjectDelta.delta)}</span>
-                <span className="notice-spacer" />
-                <div className="notice-actions">
-                  <button
-                    onClick={() => void handleRequestProjectDeltaBriefing()}
-                    type="button"
-                    disabled={isSending}
-                  >
-                    브리핑 받기
-                  </button>
-                  <button onClick={handleDismissProjectDelta} type="button">
-                    닫기
-                  </button>
-                </div>
-              </div>
+              <Banner
+                className="notice"
+                container="card"
+                endContent={
+                  <div className="notice-actions">
+                  {canBriefProjectDelta(selectedProjectDelta.delta) ? (
+                    <Button
+                      isDisabled={isSending || !canMutateSelectedProject}
+                      label={t("브리핑 받기")}
+                      onClick={() => void handleRequestProjectDeltaBriefing()}
+                      size="sm"
+                      variant="primary"
+                    />
+                  ) : null}
+                  <Button
+                    label={t("닫기")}
+                    onClick={handleDismissProjectDelta}
+                    size="sm"
+                    variant="ghost"
+                  />
+                  </div>
+                }
+                status="info"
+                title={t("지난 확인 이후 — {summary}", {
+                  summary: formatProjectDeltaSummary(selectedProjectDelta.delta, t),
+                })}
+              />
             ) : null}
             {selectedProject?.serverMissing ? (
-              <div className="notice" data-kind="error" role="status">
-                <i aria-hidden="true" />
-                <span>서버에서 찾을 수 없어 로컬 캐시를 표시 중</span>
-              </div>
+              <Banner
+                className="notice"
+                container="card"
+                status="error"
+                title={t("서버에서 찾을 수 없어 로컬 캐시를 표시 중")}
+              />
             ) : null}
             {mainDemoStatus ? (
-              <div
+              <Banner
                 className="notice runtime-status"
-                data-kind={mainDemoStatusKind}
+                container="card"
+                endContent={
+                  mainDemoStatusKind === "error" ? (
+                    <Button
+                      label={t("닫기")}
+                      onClick={() => setDemoStatus(null)}
+                      size="sm"
+                      variant="ghost"
+                    />
+                  ) : undefined
+                }
                 key={statusRevision}
-                role="status"
-              >
-                <i aria-hidden="true" />
-                <span>{mainDemoStatus.message}</span>
-              </div>
+                status={mainDemoStatusKind}
+                title={t(mainDemoStatus.message)}
+              />
             ) : null}
           </div>
         ) : null}
         {mainView === "settings" ? (
           renderSettingsPage()
+        ) : mainView === "profile" ? (
+          renderProfilePage()
+        ) : mainView === "members" ? (
+          renderMembersPage()
         ) : selectedSession ? (
           <>
             {selectedSession.messages.length === 0 ? (
+              isProjectBriefingPending ? (
+                <div className="chat-empty chat-analysis-pending">
+                  <div className="analysis-progress">
+                    <Spinner aria-label={t("프로젝트 분석 중")} shade="subtle" size="md" />
+                    <h1>{t("프로젝트를 분석하고 있습니다")}</h1>
+                    <p>
+                      {t("{step} · {seconds}초", {
+                        seconds: thinkingElapsedSeconds,
+                        step: t(projectAnalysisPendingStep),
+                      })}
+                    </p>
+                  </div>
+                </div>
+              ) : (
               <div className="chat-empty">
                 <h1>
-                  <span className="chat-empty-project-name">{selectedProject?.name ?? "PaiM"}</span>
-                  에서 무엇을 도와드릴까요?
+                  {t("{name}에서 무엇을 도와드릴까요?", {
+                    name: selectedProject?.name ?? "PaiM",
+                  })}
                 </h1>
               </div>
+              )
             ) : (
-              <div className="chat-scroll" ref={chatScrollRef}>
-                <div className="chat-project-badge">
-                  <FolderOpen aria-hidden="true" size={12} />
-                  <span>{selectedProject?.name ?? "PaiM"}</span>
-                </div>
-                <div className="conversation">
-                  {selectedSession.messages.map((message) => (
-                    <article className="message" data-role={message.role} key={message.id}>
+              <>
+                <div
+                  className="chat-scroll"
+                  onKeyDownCapture={handleChatKeyDown}
+                  onPointerDown={interruptChatAutoScroll}
+                  onScroll={handleChatScroll}
+                  onWheel={interruptChatAutoScroll}
+                  ref={chatScrollRef}
+                >
+                  <div
+                    aria-labelledby="chat-context-heading"
+                    aria-live="polite"
+                    aria-relevant="additions text"
+                    className="conversation"
+                    role="log"
+                  >
+                  {selectedSession.messages.map((message, messageIndex) => (
+                    <article
+                      className="message"
+                      data-briefing={
+                        selectedSession.title === "Project Briefing" &&
+                        message.role === "assistant" &&
+                        messageIndex === 0
+                          ? "true"
+                          : undefined
+                      }
+                      data-role={message.role}
+                      key={message.id}
+                      role={message.role === "error" ? "alert" : undefined}
+                    >
+                      <span className="message-author">
+                        {t(
+                          message.role === "assistant"
+                            ? "PaiM 응답"
+                            : message.role === "error"
+                              ? "오류 메시지"
+                              : "내 메시지",
+                        )}
+                      </span>
                       <div className="message-content">
                         {message.role === "assistant" ? (
                           <div className="assistant">
+                            {selectedSession.title === "Project Briefing" && messageIndex === 0 ? (
+                              <span className="message-briefing-label">{t("프로젝트 브리핑")}</span>
+                            ) : null}
                             {typeof message.thinkingSeconds === "number" ? (
                               <div className="thought-for">
-                                {message.thinkingSeconds}초 동안 생각함
+                                {t("{seconds}초 동안 생각함", {
+                                  seconds: message.thinkingSeconds,
+                                })}
                               </div>
                             ) : null}
-                            <div className="md">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                            </div>
+                            <Suspense
+                              fallback={
+                                <div
+                                  aria-label={t("응답 표시 준비 중")}
+                                  className="message-content-skeleton"
+                                />
+                              }
+                            >
+                              <LazyMarkdown
+                                className="md"
+                                density="compact"
+                                headingLevelStart={3}
+                              >
+                                {message.content}
+                              </LazyMarkdown>
+                            </Suspense>
                             {message.sources && message.sources.length > 0 ? (
-                              <div className="sources" aria-label="출처">
-                                <span className="label">출처</span>
+                              <div className="sources" aria-label={t("출처")}>
+                                <span className="label">{t("출처")}</span>
                                 {message.sources.map((source, sourceIndex) => (
-                                  <span className="chip" key={`${message.id}-${sourceIndex}`}>
-                                    {source}
-                                  </span>
+                                  <Badge
+                                    className="source-chip"
+                                    icon={<Files aria-hidden="true" size={11} />}
+                                    key={`${message.id}-${sourceIndex}`}
+                                    label={<span className="source-chip-label">{source}</span>}
+                                    variant="neutral"
+                                  />
                                 ))}
                               </div>
                             ) : null}
@@ -5300,79 +8404,117 @@ export function App() {
                         )}
                         {message.attachments && message.attachments.length > 0 ? (
                           <>
-                            <AttachmentList attachments={message.attachments} label="첨부 파일" />
+                            <AttachmentList attachments={message.attachments} label={t("첨부 파일")} />
                             {message.role === "user" ? (
-                              <span className="attachment-scope-note">이번 질문 참고용</span>
+                              <span className="attachment-scope-note">{t("이번 질문 참고용")}</span>
                             ) : null}
                           </>
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
-                        <button
+                        <IconButton
                           className="copy-button"
-                          data-copied={copiedMessageId === message.id}
+                          data-copied={copiedMessageId === message.id ? "true" : undefined}
+                          icon={copiedMessageId === message.id ? <Check size={16} /> : <Copy size={16} />}
+                          label={copiedMessageId === message.id ? t("복사됨") : t("응답 복사")}
                           onClick={() => void handleCopy(message)}
-                          aria-label={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                          title={copiedMessageId === message.id ? "복사됨" : "응답 복사"}
-                          type="button"
-                        >
-                          <Copy size={16} />
-                        </button>
+                          size="sm"
+                          tooltip={copiedMessageId === message.id ? t("복사됨") : t("응답 복사")}
+                          variant="ghost"
+                        />
                       ) : null}
                     </article>
                   ))}
 
-                  {isSending ? (
+                  {isCurrentSessionSending ? (
                     <article className="message" data-role="assistant">
-                      <div className="thinking" aria-live="polite">
-                        <span className="spinner" aria-hidden="true" />
-                        <span>
-                          <span className="dots">생각 중</span> · {thinkingElapsedSeconds}초
+                      <div className="thinking">
+                        <Spinner aria-label={t("응답 생성 중")} shade="subtle" size="sm" />
+                        <span aria-hidden="true">
+                          <span className="dots">{t("생각 중")}</span> · {t("{seconds}초", {
+                            seconds: thinkingElapsedSeconds,
+                          })}
                         </span>
                       </div>
                     </article>
                   ) : null}
+                  </div>
                 </div>
-              </div>
+                {showLatestMessageButton ? (
+                  <Button
+                    className="chat-latest-button"
+                    icon={<ArrowDown size={15} />}
+                    label={t("최신 메시지")}
+                    onClick={handleScrollToLatest}
+                    size="sm"
+                    variant="secondary"
+                  />
+                ) : null}
+              </>
             )}
 
-            <form className="prompt" onSubmit={handleSubmit}>
-              <textarea
-                aria-label="메시지 입력"
-                onChange={(event) => setPrompt(event.target.value)}
+            <form className="prompt" data-drop-zone="prompt" onSubmit={handleSubmit}>
+              {selectedProjectReadOnlyReason ? (
+                <p className="prompt-readonly-note">{selectedProjectReadOnlyReason}</p>
+              ) : null}
+              <TextArea
+                className="prompt-textarea"
+                disabledMessage={selectedProjectReadOnlyReason}
+                isDisabled={!canMutateSelectedProject}
+                isLabelHidden
+                label={t("메시지 입력")}
+                onChange={handlePromptChange}
                 onKeyDown={handlePromptKeyDown}
-                placeholder="Send a message"
+                placeholder={t("Send a message")}
                 ref={promptTextareaRef}
                 rows={1}
+                size="sm"
                 value={prompt}
+                width="100%"
               />
               {attachments.length > 0 ? (
                 <div className="draft-attachments">
                   <AttachmentList
                     attachments={attachments}
-                    label="전송할 첨부 파일"
+                    label={t("전송할 첨부 파일")}
                     onRemove={removeAttachment}
                   />
                 </div>
               ) : null}
               <div className="prompt-actions">
-                <button
-                  aria-label="파일 추가"
+                <IconButton
+                  icon={<Plus size={17} />}
+                  isDisabled={!canMutateSelectedProject}
+                  label={t("파일 추가")}
                   onClick={() => void handlePickFiles()}
-                  title="파일 추가"
-                  type="button"
-                >
-                  <Plus size={17} />
-                </button>
-                <button
-                  aria-label="메시지 보내기"
-                  className="send-button"
-                  disabled={(!prompt.trim() && attachments.length === 0) || isSending}
-                  title="메시지 보내기"
-                  type="submit"
-                >
-                  <ArrowUp size={16} />
-                </button>
+                  tooltip={selectedProjectReadOnlyReason ?? t("파일 추가")}
+                  variant="ghost"
+                />
+                {isCurrentSessionSending ? (
+                  <IconButton
+                    className="send-button stop-button"
+                    icon={<Square fill="currentColor" size={12} />}
+                    label={t("응답 중지")}
+                    onClick={handleCancelQuery}
+                    tooltip={t("응답 중지")}
+                    type="button"
+                    variant="secondary"
+                  />
+                ) : (
+                  <IconButton
+                    className="send-button"
+                    icon={<ArrowUp size={16} />}
+                    isDisabled={
+                      !canMutateSelectedProject ||
+                      (!prompt.trim() && attachments.length === 0) ||
+                      isSending
+                    }
+                    label={t("메시지 보내기")}
+                    tooltip={selectedProjectReadOnlyReason ?? t("메시지 보내기")}
+                    type="submit"
+                    variant="primary"
+                  />
+                )}
               </div>
             </form>
           </>
@@ -5381,232 +8523,414 @@ export function App() {
             <section
               className="project-home"
               data-drop-zone="project-files"
-              aria-label="프로젝트 시작 화면"
+              aria-label={t("프로젝트 시작 화면")}
             >
-              <div className="project-home-content">
-              <div className="project-home-name-row">
-                <input
-                  aria-label="프로젝트 이름"
-                  className="project-home-name"
-                  onBlur={(event) => {
-                    const nextName =
-                      event.currentTarget.value.trim() ||
-                      createNextProjectName(
-                        projects.filter((project) => project.id !== selectedProject.id),
-                      );
+              <div
+                className="project-home-content"
+                data-has-sources={selectedProjectFileCount > 0 ? "true" : "false"}
+              >
+                <div className="project-home-main">
+                  <div className="project-home-name-row">
+                    <TextInput
+                      className="project-home-name"
+                      isDisabled={!canMutateSelectedProject}
+                      isLabelHidden
+                      label={t("프로젝트 이름")}
+                      onBlur={(event) => {
+                        const currentValue = (event.target as HTMLInputElement).value;
+                        const previousName =
+                          projectHomeNameBeforeEditRef.current ?? selectedProject.name;
+                        const nextName =
+                          currentValue.trim() ||
+                          createNextProjectName(
+                            projects.filter((project) => project.id !== selectedProject.id),
+                          );
 
-                    if (nextName !== selectedProject.name) {
+                        updateProject(selectedProject.id, (project) => ({
+                          ...project,
+                          name: nextName,
+                        }));
+                        projectHomeNameBeforeEditRef.current = null;
+
+                        if (nextName !== previousName) {
+                          void syncProjectName(selectedProject.id, nextName, previousName);
+                        }
+                      }}
+                      onChange={(nextName) => {
+                        updateProject(selectedProject.id, (project) => ({
+                          ...project,
+                          name: nextName,
+                        }));
+                      }}
+                      onFocus={() => {
+                        projectHomeNameBeforeEditRef.current = selectedProject.name;
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                          return;
+                        }
+
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          const previousName =
+                            projectHomeNameBeforeEditRef.current ?? selectedProject.name;
+                          event.currentTarget.value = previousName;
+                          updateProject(selectedProject.id, (project) => ({
+                            ...project,
+                            name: previousName,
+                          }));
+                          projectHomeNameBeforeEditRef.current = previousName;
+                          event.currentTarget.blur();
+                        }
+                      }}
+                      data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
+                      placeholder={t("New Project 1")}
+                      value={selectedProject.name}
+                      width="100%"
+                    />
+                    <Pencil aria-hidden="true" className="project-home-name-edit" size={15} />
+                  </div>
+                  <p className="project-home-subtitle">
+                    {selectedProjectFileCount > 0
+                      ? t("{count}개 자료가 연결되었습니다", { count: selectedProjectFileCount })
+                      : t("자료를 추가하거나 설명만으로 바로 대화를 시작하세요")}
+                  </p>
+                  <TextArea
+                    className="project-home-description"
+                    isDisabled={!canMutateSelectedProject}
+                    isLabelHidden
+                    label={t("프로젝트 설명")}
+                    onChange={(nextDescription) => {
                       updateProject(selectedProject.id, (project) => ({
                         ...project,
-                        name: nextName,
+                        description: nextDescription,
                       }));
-                    }
-                  }}
-                  onChange={(event) => {
-                    const nextName = event.currentTarget.value;
+                    }}
+                    placeholder={t("프로젝트 설명을 적어두면 PaiM이 맥락을 잡는 데 도움이 됩니다.")}
+                    rows={2}
+                    value={selectedProject.description ?? ""}
+                    width="100%"
+                  />
 
-                    updateProject(selectedProject.id, (project) => ({
-                      ...project,
-                      name: nextName,
-                    }));
-                  }}
-                  data-default-name={isSelectedProjectDefaultName ? "true" : undefined}
-                  placeholder="New Project 1"
-                  value={selectedProject.name}
-                />
-                <Pencil aria-hidden="true" className="project-home-name-edit" size={16} />
-              </div>
-              <textarea
-                aria-label="프로젝트 설명"
-                className="project-home-description"
-                onChange={(event) => {
-                  const nextDescription = event.currentTarget.value;
-
-                  updateProject(selectedProject.id, (project) => ({
-                    ...project,
-                    description: nextDescription,
-                  }));
-                }}
-                placeholder="프로젝트 설명을 적어두면 PaiM이 맥락을 잡는 데 도움이 됩니다."
-                rows={2}
-                value={selectedProject.description ?? ""}
-              />
-              <div className="project-home-divider" />
-
-              <div className="project-home-section-title">시작하기</div>
-              <div className="project-home-upload-list">
-                <div className="project-home-upload-card" data-ready={selectedProjectFileCardReady}>
-                  <span className="project-home-upload-state">
-                    {selectedProjectFileCardLabel}
-                  </span>
-                  <Files size={18} />
-                  <span className="project-home-upload-copy">
-                    <strong>프로젝트 관련 파일 업로드</strong>
-                    <small>PDF, PPT, README, 회의록 같은 자료를 한 번에 추가하세요</small>
-                  </span>
-                  <span className="project-home-upload-actions">
-                    <button onClick={() => void handleOpenProjectFiles(selectedProject.id)} type="button">
-                      {selectedProjectRootFileCount > 0 ? "추가" : "파일 선택"}
-                    </button>
+                  <div
+                    className="project-home-canvas"
+                    data-state={selectedProjectFileCount > 0 ? "filled" : "empty"}
+                  >
                     {selectedProjectFileCount > 0 ? (
-                      <button
-                        onClick={() => {
-                          setIsProjectPanelCollapsed(false);
-                          openProjectPanelTool("files");
-                        }}
-                        type="button"
+                      <div
+                        aria-label={t("프로젝트 자료")}
+                        className="project-home-canvas-filled"
+                        role="group"
                       >
-                        자료 수정
-                      </button>
-                    ) : null}
-                  </span>
-                </div>
-                <div className="project-home-upload-card" data-ready={selectedProjectFolderCardReady}>
-                  <span className="project-home-upload-state">
-                    {selectedProjectFolderCardLabel}
-                  </span>
-                  <FolderOpen size={18} />
-                  <span className="project-home-upload-copy">
-                    <strong>프로젝트 폴더 업로드</strong>
-                    <small>소스 폴더나 문서 폴더를 통째로 추가하세요</small>
-                  </span>
-                  <span className="project-home-upload-actions">
-                    <button
-                      onClick={() => void handleOpenProjectDirectory(selectedProject.id)}
-                      type="button"
-                    >
-                      {selectedProjectFolderCount > 0 ? "추가" : "폴더 선택"}
-                    </button>
-                    {selectedProjectFileCount > 0 ? (
-                      <button
-                        onClick={() => {
-                          setIsProjectPanelCollapsed(false);
-                          openProjectPanelTool("files");
-                        }}
-                        type="button"
-                      >
-                        자료 수정
-                      </button>
-                    ) : null}
-                  </span>
-                </div>
-                <div
-                  className="project-home-upload-card"
-                  data-ready={selectedProjectGithubPanelState === "connected"}
-                >
-                  <span className="project-home-upload-state">
-                    {selectedProjectGithubPanelState === "connected" ? "완료" : "GitHub"}
-                  </span>
-                  <GitBranch size={18} />
-                  <span className="project-home-upload-copy">
-                    <strong>GitHub 저장소 연결</strong>
-                    <small>지금 연결하거나 나중에 프로젝트 패널에서 연결할 수 있습니다</small>
-                  </span>
-                  <span className="project-home-upload-actions">
-                    <button
-                      onClick={() => {
-                        setIsProjectPanelCollapsed(false);
-                        openProjectPanelTool("github");
-                      }}
-                      type="button"
-                    >
-                      {getGithubPanelStateLabel(selectedProjectGithubPanelState)}
-                    </button>
-                  </span>
-                </div>
-              </div>
+                        <div className="project-home-upload-summary">
+                          <span className="project-home-summary-item" data-kind="ready">
+                            {t("{count}개 완료", { count: selectedProjectSetupStatusCounts.ready })}
+                          </span>
+                          <span className="project-home-summary-item" data-kind="processing">
+                            {t("{count}개 처리 중", {
+                              count: selectedProjectSetupStatusCounts.processing,
+                            })}
+                          </span>
+                          <span className="project-home-summary-item" data-kind="failed">
+                            {t("{count}개 실패", { count: selectedProjectSetupStatusCounts.failed })}
+                          </span>
+                          <Button
+                            className="project-home-summary-action"
+                            isDisabled={!canMutateSelectedProject}
+                            label={t("자료 더 추가")}
+                            onClick={() => void handleOpenProjectFiles(selectedProject.id)}
+                            size="sm"
+                            variant="ghost"
+                          />
+                        </div>
+                        {selectedProjectSetupVisibleSources.map((source) => {
+                          const sourceMeta =
+                            source.kind === "directory"
+                              ? { Icon: FolderOpen, color: "var(--muted)" }
+                              : getProjectFileVisualMeta(source.name);
+                          const SourceIcon = sourceMeta.Icon;
+                          const sourceStatus =
+                            source.documentStatus ?? (source.kind === "directory" ? "folder" : "local");
 
-              <div className="project-home-spacer" />
+                          return (
+                            <div
+                              className="project-home-source-row"
+                              data-delete={
+                                pendingSetupDeleteProjectFileId === source.id ? "confirm" : undefined
+                              }
+                              data-status={sourceStatus}
+                              key={source.id}
+                            >
+                              <span className="project-home-source-icon" style={{ color: sourceMeta.color }}>
+                                <SourceIcon size={15} />
+                              </span>
+                              <span className="project-home-source-name">{source.name}</span>
+                              <span className="project-home-source-status">
+                                {t(getProjectSetupSourceStatusLabel(source))}
+                              </span>
+                              <IconButton
+                                className="project-home-source-delete"
+                                icon={<X size={12} />}
+                                isDisabled={!canMutateSelectedProject}
+                                label={
+                                  pendingSetupDeleteProjectFileId === source.id
+                                    ? t("자료 삭제 확인")
+                                    : t("자료 삭제")
+                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRequestDeleteProjectSetupSource(selectedProject.id, source);
+                                }}
+                                size="sm"
+                                tooltip={
+                                  pendingSetupDeleteProjectFileId === source.id
+                                    ? t("한 번 더 누르면 삭제")
+                                    : t("자료 삭제")
+                                }
+                                variant="ghost"
+                              />
+                            </div>
+                          );
+                        })}
+                        {selectedProjectSetupHiddenSourceCount > 0 ? (
+                          <Button
+                            className="project-home-source-more"
+                            label={t("외 {count}개 자료 보기", {
+                              count: selectedProjectSetupHiddenSourceCount,
+                            })}
+                            onClick={() => {
+                              openProjectPanel();
+                              openProjectPanelTool("files");
+                            }}
+                            size="sm"
+                            variant="ghost"
+                          />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="project-home-canvas-empty">
+                        <div className="project-home-paper-stack" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <h2>{t("자료를 여기에 끌어다 놓으세요")}</h2>
+                        <p>{t("회의록, README, PDF, 스펙 문서를 읽고 프로젝트 맥락을 정리합니다")}</p>
+                        <div className="project-home-picker-row">
+                          <Button
+                            className="project-home-picker"
+                            icon={<FileText size={14} />}
+                            isDisabled={!canMutateSelectedProject}
+                            label={t("파일 선택")}
+                            onClick={() => void handleOpenProjectFiles(selectedProject.id)}
+                            size="sm"
+                            variant="secondary"
+                          />
+                          <Button
+                            className="project-home-picker"
+                            icon={<FolderOpen size={14} />}
+                            isDisabled={!canMutateSelectedProject}
+                            label={t("폴더 선택")}
+                            onClick={() => void handleOpenProjectDirectory(selectedProject.id)}
+                            size="sm"
+                            variant="secondary"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-              <p className="project-home-note">
-                분석을 시작하면 PaiM이 입력한 설명과 연결된 자료를 읽고 브리핑을 만든 뒤 채팅으로 이어집니다.
-              </p>
-              {selectedProjectHasDocumentInProgress ? (
-                <p className="project-home-action-hint" role="status">
-                  자료 처리 중 — 완료 후 분석할 수 있습니다
-                </p>
-              ) : null}
-              <div className="project-home-actions">
-                <button
-                  className="project-home-primary"
-                  disabled={isProjectBriefingDisabled}
-                  onClick={() =>
-                    void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
-                  }
-                  type="button"
-                >
-                  <Brain size={16} />
-                  <span>{isSending ? "분석 중" : "분석 시작"}</span>
-                </button>
-                <button
-                  className="project-home-secondary"
-                  onClick={() => handleCreateChatInProject(selectedProject.id)}
-                  type="button"
-                >
-                  <MessageSquare size={16} />
-                  <span>분석 없이 채팅 시작하기</span>
-                </button>
-              </div>
+                  <div className="project-home-footer">
+                    <p
+                      aria-live="polite"
+                      className="project-home-note"
+                      id="project-home-analysis-note"
+                    >
+                      {!canMutateSelectedProject
+                        ? t("프로젝트 편집 권한이 있어야 분석할 수 있습니다")
+                        : selectedProjectHasDocumentInProgress
+                        ? t("자료 처리 중 — 완료 후 분석할 수 있습니다")
+                        : !hasProjectHomeContext
+                          ? t("설명이나 자료를 추가하면 분석할 수 있습니다")
+                        : t("분석하면 설명과 자료를 읽고 첫 브리핑을 만든 뒤 채팅으로 이어집니다.")}
+                    </p>
+                    <div className="project-home-actions">
+                      <Button
+                        className="project-home-secondary"
+                        isDisabled={!canMutateSelectedProject}
+                        label={t("분석 없이 채팅")}
+                        onClick={() => handleCreateChatInProject(selectedProject.id)}
+                        size="sm"
+                        variant="ghost"
+                      />
+                      <Button
+                        aria-describedby="project-home-analysis-note"
+                        className="project-home-primary"
+                        isDisabled={isProjectBriefingDisabled}
+                        label={isSending ? t("분석 중") : t("분석 시작")}
+                        onClick={() =>
+                          void handleStartProjectBriefing(selectedProject, selectedProjectAttachments)
+                        }
+                        size="sm"
+                        variant="primary"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <aside className="project-home-slots" aria-label={t("추출될 항목")}>
+                  <div>
+                    <p className="project-home-slots-title">{t("추출될 항목")}</p>
+                    <p className="project-home-slots-hint">
+                      {canOpenProjectMemory
+                        ? t("서버 프로젝트 메모리 개수를 표시합니다")
+                        : t("자료 업로드 후 서버 메모리 개수를 표시합니다")}
+                    </p>
+                  </div>
+                  <div className="project-home-slot-list">
+                    <div
+                      className="project-home-slot"
+                      data-kind="action"
+                      data-state={getProjectMemorySlotState(
+                        canOpenProjectMemory,
+                        selectedProjectMemorySlotCounts.action,
+                      )}
+                    >
+                      <Zap size={13} />
+                      <span>{t("액션")}</span>
+                      <strong>
+                        {canOpenProjectMemory ? selectedProjectMemorySlotCounts.action : "—"}
+                      </strong>
+                    </div>
+                    <div
+                      className="project-home-slot"
+                      data-kind="decision"
+                      data-state={getProjectMemorySlotState(
+                        canOpenProjectMemory,
+                        selectedProjectMemorySlotCounts.decision,
+                      )}
+                    >
+                      <Check size={13} />
+                      <span>{t("결정")}</span>
+                      <strong>
+                        {canOpenProjectMemory ? selectedProjectMemorySlotCounts.decision : "—"}
+                      </strong>
+                    </div>
+                    <div
+                      className="project-home-slot"
+                      data-kind="issue"
+                      data-state={getProjectMemorySlotState(
+                        canOpenProjectMemory,
+                        selectedProjectMemorySlotCounts.issue,
+                      )}
+                    >
+                      <AlertTriangle size={13} />
+                      <span>{t("이슈")}</span>
+                      <strong>
+                        {canOpenProjectMemory ? selectedProjectMemorySlotCounts.issue : "—"}
+                      </strong>
+                    </div>
+                    <div
+                      className="project-home-slot"
+                      data-kind="risk"
+                      data-state={getProjectMemorySlotState(
+                        canOpenProjectMemory,
+                        selectedProjectMemorySlotCounts.risk,
+                      )}
+                    >
+                      <Flag size={13} />
+                      <span>{t("리스크")}</span>
+                      <strong>
+                        {canOpenProjectMemory ? selectedProjectMemorySlotCounts.risk : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                  <p className="project-home-slots-foot">
+                    {t("업로드와 분석 결과가 서버에 반영되면 자동으로 갱신됩니다.")}
+                  </p>
+                </aside>
               </div>
             </section>
           </>
         ) : (
-          <div className="project-start" role="status">
+          <section className="project-start" aria-labelledby="project-start-title">
             <div className="project-start-content">
-              <img
-                className="project-start-watermark"
-                src={paimWatermark}
-                alt="PaiM AI Project Manager"
-              />
-              <button
+              <div className="project-start-mark" aria-hidden="true">PaiM</div>
+              <div className="project-start-copy">
+                <h1 id="project-start-title" ref={mainViewHeadingRef} tabIndex={-1}>
+                  {t("프로젝트의 맥락을 놓치지 마세요")}
+                </h1>
+                <p>
+                  {t("자료와 대화를 연결해 결정, 액션, 이슈와 리스크를 한곳에서 정리합니다.")}
+                </p>
+              </div>
+              <Button
                 className="project-start-button"
+                icon={<FolderPlus size={16} />}
+                label={t("새 프로젝트 시작하기")}
                 onClick={() => createProjectFromName(createNextProjectName(projects))}
-                title="새 프로젝트 시작하기"
-                type="button"
-              >
-                <FolderPlus size={16} />
-                <span>새 프로젝트 시작하기</span>
-              </button>
+                tooltip={t("새 프로젝트 시작하기")}
+                variant="primary"
+              />
             </div>
-          </div>
+          </section>
         )}
-      </main>
+      </LayoutContent>
+
+      {showProjectPanel && !isProjectPanelCollapsed ? (
+        <button
+          aria-label={t("프로젝트 패널 닫기")}
+          className="project-panel-backdrop"
+          data-mode={projectPanelMode}
+          onClick={closeProjectPanel}
+          tabIndex={-1}
+          type="button"
+        />
+      ) : null}
 
       {showProjectPanel && selectedProject ? (
-        <aside
+        <LayoutPanel
+          aria-hidden={isProjectPanelCollapsed || undefined}
+          aria-modal={shouldInertBackgroundForProjectPanel || undefined}
           className="project-panel"
-          data-collapsed={isProjectPanelCollapsed}
+          data-state={projectPanelMode}
           data-view={projectPanelView}
-          aria-label="프로젝트 보조 패널"
+          inert={isProjectPanelCollapsed}
+          isScrollable={false}
+          label={t("프로젝트 보조 패널")}
+          padding={0}
+          resizable={projectPanelMode === "open" ? projectPanelResizable.props : undefined}
+          role={shouldInertBackgroundForProjectPanel ? "dialog" : "complementary"}
+          tabIndex={isProjectPanelCollapsed ? undefined : -1}
         >
-          {isProjectPanelCollapsed ? (
-            <button
-              aria-label="프로젝트 패널 펼치기"
-              className="project-panel-rail-toggle"
-              onClick={handleToggleProjectPanel}
-              title="프로젝트 패널 펼치기"
-              type="button"
-            >
-              <PanelRight size={17} />
-            </button>
-          ) : (
-            <>
-          <div
-            aria-label="프로젝트 패널 크기 조절"
-            aria-orientation="vertical"
-            aria-valuemax={MAX_PROJECT_PANEL_WIDTH}
-            aria-valuemin={MIN_PROJECT_PANEL_WIDTH}
-            aria-valuenow={projectPanelWidth}
-            className="project-panel-resize-handle"
-            onMouseDown={handleProjectPanelResizeStart}
-            role="separator"
-          />
-	          <div className="project-panel-topbar">
-	            {projectPanelView === "menu" ? (
-	              <span className="project-panel-kicker">도구 선택</span>
-	            ) : (
-	              <div className="project-panel-tabs">
-	                {projectPanelTabs.map((tab) => {
+          {projectPanelMode === "open" ? (
+            <ResizeHandle
+              className="project-panel-resize-handle"
+              direction="horizontal"
+              isAlwaysVisible={false}
+              isReversed
+              label={t("프로젝트 패널 크기 조절")}
+              onKeyDown={handleProjectPanelResizeKeyDown}
+              pillPlacement="center"
+              position="overlay"
+              resizable={projectPanelResizable.props}
+            />
+          ) : null}
+          <div className="project-panel-topbar">
+            {projectPanelView === "menu" ? (
+              <span className="project-panel-kicker">{t("도구 선택")}</span>
+            ) : (
+	              <div
+	                className="project-panel-tabs"
+	                data-scroll-end={projectPanelTabScrollState.canScrollEnd ? "true" : undefined}
+	                data-scroll-start={projectPanelTabScrollState.canScrollStart ? "true" : undefined}
+	                aria-label={t("열린 프로젝트 패널 탭")}
+	                ref={projectPanelTabsRef}
+	                role="tablist"
+	              >
+	                {projectPanelTabs.map((tab, tabIndex) => {
 	                  const tabLabel = getProjectPanelTabLabel(tab);
 	                  const { Icon, color } = getProjectPanelTabVisualMeta(
 	                    tab.view,
@@ -5614,210 +8938,297 @@ export function App() {
 	                  );
 
 	                  return (
-	                    <div
-	                      aria-label={`${tabLabel} 탭`}
-	                      className="project-panel-tab"
-	                      data-active={activeProjectPanelTabId === tab.id ? "true" : undefined}
-	                      key={tab.id}
-	                      onClick={() => setActiveProjectPanelTabId(tab.id)}
-	                      onKeyDown={(event) => {
-	                        if (event.key === "Enter" || event.key === " ") {
-	                          event.preventDefault();
-	                          setActiveProjectPanelTabId(tab.id);
-	                        }
-	                      }}
-	                      role="tab"
-	                      tabIndex={0}
-	                      title={tabLabel}
-	                    >
-	                      <Icon size={16} style={{ color }} />
-	                      <span>{tabLabel}</span>
+	                    <div className="project-panel-tab-shell" key={tab.id}>
 	                      <button
-	                        aria-label={`${tabLabel} 탭 닫기`}
-	                        className="project-panel-tab-close"
-	                        onClick={(event) => {
-	                          event.stopPropagation();
-	                          handleCloseProjectPanelTab(tab.id);
-	                        }}
-	                        title={`${tabLabel} 탭 닫기`}
+	                        aria-controls={`project-panel-content-${tab.id}`}
+	                        aria-label={t("{label} 탭", { label: tabLabel })}
+	                        aria-selected={activeProjectPanelTabId === tab.id}
+	                        className="project-panel-tab"
+	                        data-active={activeProjectPanelTabId === tab.id ? "true" : undefined}
+	                        data-tab-id={tab.id}
+	                        id={`project-panel-tab-${tab.id}`}
+	                        onClick={() => setActiveProjectPanelTabId(tab.id)}
+	                        onKeyDown={(event) => handleProjectPanelTabKeyDown(event, tabIndex)}
+	                        role="tab"
+	                        tabIndex={activeProjectPanelTabId === tab.id ? 0 : -1}
+	                        title={tabLabel}
 	                        type="button"
 	                      >
-	                        <X size={13} />
+	                        <Icon aria-hidden="true" size={16} style={{ color }} />
+	                        <span>{tabLabel}</span>
 	                      </button>
+	                      <IconButton
+	                        className="project-panel-tab-close"
+	                        icon={<X size={13} />}
+	                        label={t("{label} 탭 닫기", { label: tabLabel })}
+	                        onClick={() => handleCloseProjectPanelTab(tab.id)}
+	                        size="sm"
+	                        tooltip={t("{label} 탭 닫기", { label: tabLabel })}
+	                        variant="ghost"
+	                      />
 	                    </div>
 	                  );
 	                })}
-	                <details className="project-panel-tab-add">
-	                  <summary aria-label="패널 탭 추가" title="패널 탭 추가">
-	                    <Plus size={18} />
-	                  </summary>
-	                  <div className="project-panel-tab-menu">
-		                    {PROJECT_PANEL_TOOL_VIEWS
-		                      .filter((view) => view !== "memory" || canOpenProjectMemory)
-		                      .map((view) => (
-		                        <button
-		                          key={view}
-		                          onClick={(event) => {
-		                            event.currentTarget.closest("details")?.removeAttribute("open");
-		                            openProjectPanelTool(view);
-		                          }}
-		                          type="button"
-		                        >
-		                          {getProjectPanelTitle(view)}
-		                        </button>
-		                      ))}
-	                  </div>
-	                </details>
-	              </div>
-	            )}
-            <div className="project-panel-topbar-actions">
-              {projectPanelView !== "menu" ? (
-                <button
-                  aria-label={`${getProjectPanelTitle(projectPanelView)} 패널 ${
-                    isProjectPanelMaximized ? "축소" : "최대화"
-                  }`}
-                  className="project-panel-toggle"
-                  onClick={() => setIsProjectPanelMaximized((current) => !current)}
-                  title={`${getProjectPanelTitle(projectPanelView)} 패널 ${
-                    isProjectPanelMaximized ? "축소" : "최대화"
-                  }`}
-                  type="button"
-                >
-                  {isProjectPanelMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                </button>
-              ) : null}
-              <button
-                aria-label="프로젝트 패널 접기"
-                className="project-panel-toggle"
+	                <DropdownMenu
+	                  button={{
+	                    className: "project-panel-tab-add",
+	                    icon: <Plus size={18} />,
+	                    isIconOnly: true,
+	                    label: t("패널 탭 추가"),
+	                    size: "sm",
+	                    tooltip: t("패널 탭 추가"),
+	                    variant: "ghost",
+	                  }}
+	                  items={PROJECT_PANEL_TOOL_VIEWS
+	                    .filter((view) => view !== "memory" || canOpenProjectMemory)
+	                    .map((view) => ({
+                      label: t(getProjectPanelTitle(view)),
+	                      onClick: () => openProjectPanelTool(view),
+	                    }))}
+	                  menuWidth={132}
+	                />
+              </div>
+            )}
+            <div className="project-panel-inline-controls" aria-label={t("프로젝트 패널 도구")}>
+              <IconButton
+                className="project-panel-toggle project-panel-maximize-toggle"
+                icon={isProjectPanelMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                label={t(isProjectPanelMaximized ? "{title} 패널 축소" : "{title} 패널 최대화", {
+                  title: getProjectPanelTitle(projectPanelView),
+                })}
+                onClick={handleToggleProjectPanelMaximized}
+                tooltip={t(isProjectPanelMaximized ? "{title} 패널 축소" : "{title} 패널 최대화", {
+                  title: getProjectPanelTitle(projectPanelView),
+                })}
+                variant="ghost"
+              />
+              <IconButton
+                className="project-panel-toggle project-panel-collapse-toggle"
+                icon={<PanelRight size={16} />}
+                label={t("프로젝트 패널 접기")}
                 onClick={handleToggleProjectPanel}
-                title="프로젝트 패널 접기"
-                type="button"
-              >
-                <PanelRight size={16} />
-              </button>
+                tooltip={t("프로젝트 패널 접기")}
+                variant="ghost"
+              />
             </div>
           </div>
 
           {projectPanelView === "menu" ? (
-	            <div className="project-panel-menu" role="list">
-	              {canOpenProjectMemory ? (
-	                <button onClick={() => openProjectPanelTool("memory")} role="listitem" type="button">
-	                  <span>
-	                    <Brain size={18} />
-	                    <span>
-	                      <strong>메모리</strong>
-	                      <small>결정·액션·이슈·리스크</small>
-	                    </span>
-	                  </span>
-	                  <ChevronRight size={16} />
-	                </button>
-	              ) : null}
-		              <button
-		                onClick={() => openProjectPanelTool("files")}
-                role="listitem"
-                type="button"
+            <div
+              aria-label={t("프로젝트 패널 도구")}
+              className="project-panel-menu"
+              role="group"
+            >
+              {canOpenProjectMemory ? (
+                <Button
+                  className="project-panel-menu-item"
+                  label={t("메모리 열기")}
+                  onClick={() => openProjectPanelTool("memory")}
+                  variant="secondary"
+                >
+                  <span className="project-panel-menu-row">
+                    <span className="project-panel-menu-leading">
+                      <Brain className="project-panel-menu-icon" size={18} />
+                      <span className="project-panel-menu-copy">
+                        <strong>{t("메모리")}</strong>
+                        <small>{t("결정·액션·이슈·리스크")}</small>
+                      </span>
+                    </span>
+                    <ChevronRight className="project-panel-menu-chevron" size={16} />
+                  </span>
+                </Button>
+              ) : null}
+              <Button
+                className="project-panel-menu-item"
+                label={t("자료 열기")}
+                onClick={() => openProjectPanelTool("files")}
+                variant="secondary"
               >
-                <span>
-                  <Files size={18} />
-                  <span>
-                    <strong>자료</strong>
-                    <small>{selectedProjectAttachments.length}개 소스</small>
+                <span className="project-panel-menu-row">
+                  <span className="project-panel-menu-leading">
+                    <Files className="project-panel-menu-icon" size={18} />
+                    <span className="project-panel-menu-copy">
+                      <strong>{t("자료")}</strong>
+                      <small>{t("{count}개 소스", { count: selectedProjectAttachments.length })}</small>
+                    </span>
                   </span>
+                  <ChevronRight className="project-panel-menu-chevron" size={16} />
                 </span>
-                <ChevronRight size={16} />
-              </button>
-	              <button onClick={() => openProjectPanelTool("github")} role="listitem" type="button">
-                <span>
-                  <GitBranch size={18} />
-                  <span>
-                    <strong>GitHub</strong>
-                    <small>{getGithubPanelStateLabel(selectedProjectGithubPanelState)}</small>
+              </Button>
+              <Button
+                className="project-panel-menu-item"
+                label={t("GitHub 열기")}
+                onClick={() => openProjectPanelTool("github")}
+                variant="secondary"
+              >
+                <span className="project-panel-menu-row">
+                  <span className="project-panel-menu-leading">
+                    <GitBranch className="project-panel-menu-icon" size={18} />
+                    <span className="project-panel-menu-copy">
+                      <strong>GitHub</strong>
+                      <small>{t(getGithubPanelStateLabel(selectedProjectGithubPanelState))}</small>
+                    </span>
                   </span>
+                  <ChevronRight className="project-panel-menu-chevron" size={16} />
                 </span>
-                <ChevronRight size={16} />
-              </button>
+              </Button>
             </div>
           ) : null}
 
-          {projectPanelView === "memory" ? (
-            <ProjectMemoryPanel
-              canManage={canOpenProjectMemory}
-              isMaximized={isProjectPanelMaximized}
-              project={selectedProject}
-              reloadRevision={postSyncRefreshRevision}
-              suggestionMin={settings.suggestionMin}
-            />
-          ) : null}
+          {projectPanelTabs.map((tab) => {
+            const isActiveTab = activeProjectPanelTabId === tab.id;
+            const tabSelectedSource =
+              selectedProjectAttachments.find((source) => source.id === tab.selectedProjectSourceId) ??
+              null;
+            const tabTreeAttachments = tabSelectedSource
+              ? [tabSelectedSource]
+              : selectedProjectAttachments;
+            const tabFilteredFiles = filterProjectFileEntries(
+              sortedSelectedProjectAttachments,
+              tab.fileQuery,
+            );
 
-          {projectPanelView === "files" ? (
-            <ProjectFilesPanel
-              attachments={selectedProjectAttachments}
-              demoStatus={demoStatus}
-              filteredTreeFiles={filteredSelectedProjectTreeFiles}
-              groupedFiles={groupedSelectedProjectFiles}
-              isSelectedSourceFile={isSelectedProjectSourceFile}
-              isTreeCollapsed={isProjectFileTreeCollapsed}
-              mode={projectSourcesMode}
-              onBackToLibrary={() => {
-                setProjectFilePreview(null);
-                setSelectedProjectSourceId(null);
-                setProjectSourcesMode("library");
-              }}
-              onOpenDirectory={() => void handleOpenProjectDirectory(selectedProject.id)}
-              onOpenFiles={() => void handleOpenProjectFiles(selectedProject.id)}
-              onOpenSource={handleOpenProjectSource}
-              onQueryChange={setProjectFileQuery}
-              onRequestDelete={(entry) => handleRequestDeleteProjectFile(selectedProject.id, entry)}
-              onSelectFile={(entry) => void handleSelectProjectFile(entry)}
-              onToggleFile={(entry) => void handleToggleProjectFileEntry(selectedProject.id, entry)}
-              onToggleTreeCollapsed={() => setIsProjectFileTreeCollapsed((current) => !current)}
-              onTreeResizeStart={handleProjectFileTreeResizeStart}
-              pendingDeleteEntryId={pendingDeleteProjectFileId}
-              preview={projectFilePreview}
-              query={projectFileQuery}
-              statusRevision={statusRevision}
-              treeAttachments={selectedProjectTreeAttachments}
-              treeFileCount={selectedProjectTreeFileCount}
-              treeWidth={projectFileTreeWidth}
-            />
-          ) : null}
+            return (
+              <div
+                aria-labelledby={`project-panel-tab-${tab.id}`}
+                className="project-panel-tabpanel"
+                hidden={!isActiveTab}
+                id={`project-panel-content-${tab.id}`}
+                inert={!isActiveTab ? true : undefined}
+                key={tab.id}
+                role="tabpanel"
+              >
+                {tab.view === "memory" ? (
+                  <Suspense fallback={<PanelLoadingState label={t("메모리 불러오는 중")} />}>
+                    <LazyProjectMemoryPanel
+                      canManage={canOpenProjectMemory && canMutateSelectedProject}
+                      isMaximized={isProjectPanelMaximized}
+                      project={selectedProject}
+                      reloadRevision={postSyncRefreshRevision}
+                      suggestionMin={settings.suggestionMin}
+                    />
+                  </Suspense>
+                ) : null}
 
-          {projectPanelView === "github" ? (
-            <GithubPanel
-              demoStatus={demoStatus}
-              events={selectedProjectGithubEvents}
-              filteredRepositories={filteredSelectedProjectGithubRepositories}
-              githubConnected={selectedProject.githubConnected}
-              isAuthChecking={isGithubAuthChecking}
-	              isAuthStarting={isGithubAuthStarting}
-	              isConnecting={isGithubConnecting}
-	              isDisconnectConfirming={pendingGithubDisconnectProjectId === selectedProject.id}
-	              isRepoLoading={isGithubRepoLoading}
-	              isSyncing={isGithubSyncing}
-              onCheckLogin={() => void handleCheckGithubLogin(selectedProject.id)}
-              onConnectRepository={(repositoryUrl) =>
-                void connectGithubRepository(selectedProject.id, repositoryUrl)
-              }
-	              onDisconnect={(message) => void handleDisconnectGithub(selectedProject.id, message)}
-              onLoadRepositories={() => void handleLoadGithubRepositories(selectedProject.id)}
-              onOpenVerification={() => void handleOpenGithubVerification(selectedProject.id)}
-              onQueryChange={setGithubRepositoryQuery}
-              onResetLogin={() => handleResetGithubLogin(selectedProject.id)}
-              onStartLogin={() => void handleStartGithubLogin(selectedProject.id)}
-              onStartPrivateLogin={() => void handleStartGithubPrivateLogin(selectedProject.id)}
-              onSyncRepository={() => void handleSyncGithubRepository(selectedProject.id)}
-              panelState={selectedProjectGithubPanelState}
-              repositories={selectedProjectGithubRepositories}
-              repository={selectedProject.githubRepository}
-              repositoryQuery={githubRepositoryQuery}
-              session={selectedProjectGithubSession}
-              statusRevision={statusRevision}
-            />
-          ) : null}
-            </>
-          )}
-        </aside>
+                {tab.view === "files" ? (
+                  <Suspense fallback={<PanelLoadingState label={t("자료 불러오는 중")} />}>
+                    <LazyProjectFilesPanel
+                      attachments={selectedProjectAttachments}
+                      canManage={canMutateSelectedProject}
+                      demoStatus={visibleDemoStatus}
+                      filteredTreeFiles={filterProjectFileEntries(
+                        tabTreeAttachments,
+                        tab.fileQuery,
+                      )}
+                      groupedFiles={groupProjectSourcesByUploadedDate(tabFilteredFiles)}
+                      isMaximized={isProjectPanelMaximized}
+                      isImporting={Boolean(selectedProjectFileImport)}
+                      isSelectedSourceFile={tabSelectedSource?.kind === "file"}
+                      isTreeCollapsed={isProjectFileTreeCollapsed}
+                      loadingEntryIds={Array.from(loadingProjectFileEntryKeys)
+                        .filter((key) => key.startsWith(`${selectedProject.id}:`))
+                        .map((key) => key.slice(selectedProject.id.length + 1))}
+                      mode={tab.projectSourcesMode}
+                      onBackToLibrary={() =>
+                        updateProjectPanelTab(tab.id, (currentTab) => ({
+                          ...currentTab,
+                          filePreview: null,
+                          projectSourcesMode: "library",
+                          selectedProjectSourceId: null,
+                        }))
+                      }
+                      onClosePreview={() =>
+                        setProjectFilePreviewForTab(tab.id, null)
+                      }
+                      onCancelImport={() => cancelProjectFileImport(selectedProject.id)}
+                      onOpenDirectory={() => void handleOpenProjectDirectory(selectedProject.id)}
+                      onOpenFiles={() => void handleOpenProjectFiles(selectedProject.id)}
+                      onOpenSource={handleOpenProjectSource}
+                      onQueryChange={(query) =>
+                        updateProjectPanelTab(tab.id, (currentTab) => ({
+                          ...currentTab,
+                          fileQuery: query,
+                        }))
+                      }
+                      onConfirmDelete={(entry) =>
+                        handleDeleteProjectFile(selectedProject.id, entry)
+                      }
+                      onSelectFile={(entry) => void handleSelectProjectFile(entry)}
+                      onToggleFile={(entry) =>
+                        void handleToggleProjectFileEntry(selectedProject.id, entry)
+                      }
+                      onToggleTreeCollapsed={() =>
+                        setIsProjectFileTreeCollapsed((current) => !current)
+                      }
+                      onTreeResizeStart={handleProjectFileTreeResizeStart}
+                      onTreeWidthChange={setProjectFileTreeWidth}
+                      preview={tab.filePreview}
+                      query={tab.fileQuery}
+                      statusRevision={statusRevision}
+                      treeAttachments={tabTreeAttachments}
+                      treeFileCount={countProjectFileEntries(tabTreeAttachments)}
+                      treeWidth={projectFileTreeWidth}
+                    />
+                  </Suspense>
+                ) : null}
+
+                {tab.view === "github" ? (
+                  <Suspense fallback={<PanelLoadingState label={t("GitHub 불러오는 중")} />}>
+                    <LazyGithubPanel
+                      canManage={canMutateSelectedProject}
+                      demoStatus={visibleDemoStatus}
+                      events={selectedProjectGithubEvents}
+                      filteredRepositories={filteredSelectedProjectGithubRepositories}
+                      githubConnected={selectedProject.githubConnected}
+                      isAuthChecking={isGithubAuthChecking}
+                      isAuthStarting={isGithubAuthStarting}
+                      isConnecting={isGithubConnecting}
+                      connectingRepositoryUrl={githubConnectingRepositoryUrl}
+                      isDisconnectConfirming={
+                        pendingGithubDisconnectProjectId === selectedProject.id
+                      }
+                      isRepoLoading={isGithubRepoLoading}
+                      isSyncing={isGithubSyncing}
+                      onCheckLogin={() => void handleCheckGithubLogin(selectedProject.id)}
+                      onConnectRepository={(repositoryUrl) =>
+                        void connectGithubRepository(selectedProject.id, repositoryUrl)
+                      }
+                      onDisconnect={() => void handleDisconnectGithub(selectedProject.id)}
+                      onLoadRepositories={() =>
+                        void handleLoadGithubRepositories(selectedProject.id)
+                      }
+                      onOpenVerification={() =>
+                        void handleOpenGithubVerification(selectedProject.id)
+                      }
+                      onQueryChange={(query) =>
+                        setGithubRepositoryQueryForProject(selectedProject.id, query)
+                      }
+                      onResetLogin={() => handleResetGithubLogin(selectedProject.id)}
+                      onStartLogin={() => void handleStartGithubLogin(selectedProject.id)}
+                      onStartPrivateLogin={() =>
+                        void handleStartGithubPrivateLogin(selectedProject.id)
+                      }
+                      onSyncRepository={() =>
+                        void handleSyncGithubRepository(selectedProject.id)
+                      }
+                      panelState={selectedProjectGithubPanelState}
+                      memoryItems={selectedProjectMemoryItems}
+                      repositories={selectedProjectGithubRepositories}
+                      repository={selectedProject.githubRepository}
+                      repositoryQuery={githubRepositoryQuery}
+                      session={selectedProjectGithubSession}
+                      statusRevision={statusRevision}
+                    />
+                  </Suspense>
+                ) : null}
+              </div>
+            );
+          })}
+        </LayoutPanel>
       ) : null}
-    </div>
+          </div>
+        </AppShell>
+      </Theme>
+    </I18nProvider>
   );
 }
