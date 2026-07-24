@@ -165,7 +165,7 @@ def test_memory_tool_caps_rows_and_preserves_total(monkeypatch):
 
 
 def test_memory_tool_all_scope_omits_sql_category(monkeypatch):
-    search = MagicMock(return_value=[])
+    search = MagicMock(return_value=[_memory_row(1, "SDK 연동")])
     monkeypatch.setattr(qa_tools.mysql_search, "search", search)
 
     content, _ = query_structured_memory.func(
@@ -175,8 +175,26 @@ def test_memory_tool_all_scope_omits_sql_category(monkeypatch):
         category="all",
     )
 
+    assert json.loads(content)["count"] == 1
     assert json.loads(content)["filters"]["category"] == "all"
     assert search.call_args.kwargs["category"] is None
+    assert search.call_args.kwargs["text_query"] is None
+
+
+def test_memory_tool_all_scope_count_accepts_empty_text_query(monkeypatch):
+    search = MagicMock(return_value=[_memory_row(1, "SDK 연동")])
+    monkeypatch.setattr(qa_tools.mysql_search, "search", search)
+
+    content, artifact = query_structured_memory.func(
+        operation="count",
+        text_query="",
+        project_id=1,
+        category="all",
+    )
+
+    assert json.loads(content)["count"] == 1
+    assert artifact["status"] == "ok"
+    assert search.call_args.kwargs["text_query"] is None
 
 
 def test_memory_count_deduplicates_join_expanded_rows(monkeypatch):
@@ -189,13 +207,29 @@ def test_memory_count_deduplicates_join_expanded_rows(monkeypatch):
 
     content, artifact = query_structured_memory.func(
         operation="count",
-        text_query="액션",
+        text_query="",
         category="action",
         project_id=1,
     )
 
     assert json.loads(content)["count"] == 1
     assert artifact["total_rows"] == 1
+
+
+def test_memory_count_applies_target_phrase_to_structured_search(monkeypatch):
+    search = MagicMock(return_value=[_memory_row(1, "SDK 연동")])
+    monkeypatch.setattr(qa_tools.mysql_search, "search", search)
+
+    content, artifact = query_structured_memory.func(
+        operation="count",
+        text_query="SDK 연동",
+        category="action",
+        project_id=1,
+    )
+
+    assert json.loads(content)["count"] == 1
+    assert artifact["total_rows"] == 1
+    assert search.call_args.kwargs["text_query"] == "SDK 연동"
 
 
 def test_agent_calls_evidence_tool_then_synthesizes_one_answer(monkeypatch):

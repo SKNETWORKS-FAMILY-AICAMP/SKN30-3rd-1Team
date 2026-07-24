@@ -22,6 +22,17 @@ MemoryCategory = Literal["decision", "action", "issue", "risk", "all"]
 MemoryOperation = Literal["list", "count"]
 CompletionStatus = Literal["open", "completed", "unknown"]
 MEMORY_TOOL_MAX_ROWS = 10
+_ALL_SCOPE_WORDS = frozenset({"전체", "모든", "프로젝트", "기록", "항목", "메모리"})
+
+
+def _count_text_filter(category: MemoryCategory, text_query: str) -> Optional[str]:
+    """Return a real count target, excluding phrases that only mean all rows."""
+    normalized = " ".join(text_query.split())
+    if not normalized:
+        return None
+    if category == "all" and set(normalized.split()) <= _ALL_SCOPE_WORDS:
+        return None
+    return normalized
 
 
 def _dedupe_rows(rows: list[dict]) -> list[dict]:
@@ -138,7 +149,9 @@ def query_structured_memory(
     spans categories or names no category.
     ``completion_status`` is ``open``, ``completed``, or ``unknown``; do not
     turn an unknown status into open.
-    Put the original target phrase in ``text_query`` so records can be ranked.
+    Put a concrete target phrase in ``text_query`` so list records can be ranked
+    and count records can be restricted by that phrase. Leave it empty when the
+    structured filters define the complete target set, including an all-record count.
     Raw SQL is not supported, and list output is always capped at ten rows.
     """
     text_query = str(text_query or "").strip()
@@ -148,7 +161,7 @@ def query_structured_memory(
         value is not None
         for value in (owner, db_category, completion_status, due_within_days, overdue)
     )
-    if not text_query and not has_filter:
+    if operation == "list" and not text_query and not has_filter:
         content = (
             "구조화 조건과 검색 대상이 모두 비어 있어 전체 기록 조회를 거부했습니다. "
             "구체적인 근거 검색에는 search_project_evidence를 사용하세요."
@@ -161,10 +174,15 @@ def query_structured_memory(
             "returned_rows": 0,
         }
 
+    count_text_filter = (
+        _count_text_filter(category, text_query)
+        if operation == "count" else None
+    )
     rows = _dedupe_rows(mysql_search.search(
         project_id,
         category=db_category,
         owner=owner,
+        text_query=count_text_filter,
         completion_status=completion_status,
         due_within_days=due_within_days,
         overdue=overdue,

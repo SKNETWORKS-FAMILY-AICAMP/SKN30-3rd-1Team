@@ -139,6 +139,11 @@ def test_include_superseded_returns_active_and_superseded_rows():
         ({"completed": True}, ["m.completion_status = %s"], [1, "completed"]),
         ({"completed": False}, ["m.completion_status = %s"], [1, "open"]),
         (
+            {"text_query": "API_v2 100%!"},
+            ["CONCAT_WS(' ', m.content, m.topic, m.reason) LIKE %s ESCAPE '!'"],
+            [1, "%API!_v2 100!%!!%"],
+        ),
+        (
             {"overdue": True},
             ["m.due_date < CURDATE()", "m.completion_status = 'open'"],
             [1],

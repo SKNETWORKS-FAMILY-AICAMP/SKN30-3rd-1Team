@@ -189,6 +189,7 @@ def test_memory_patch_completed_true_sets_completed_at_without_verifying():
         "completed_at": "2026-07-02 12:00:00", "sort_order": None,
     }
     conn, cur = _conn_for_memory_patch(row)
+    cur.fetchone.side_effect = [{"category": "action"}, row]
     with patch("backend.api.upload.require_project_access"), \
          patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
@@ -196,7 +197,11 @@ def test_memory_patch_completed_true_sets_completed_at_without_verifying():
 
     assert resp.status_code == 200
     assert resp.json()["completed_at"] == "2026-07-02 12:00:00"
-    update_sql = cur.execute.call_args_list[0].args[0]
+    update_sql = next(
+        call.args[0]
+        for call in cur.execute.call_args_list
+        if "UPDATE memory SET" in call.args[0]
+    )
     assert "completed_at = NOW()" in update_sql
     assert "completion_status = 'completed'" in update_sql
     assert "completion_status_source = 'user'" in update_sql
@@ -210,6 +215,7 @@ def test_memory_patch_completed_false_clears_completed_at():
         "completed_at": None, "sort_order": None,
     }
     conn, cur = _conn_for_memory_patch(row)
+    cur.fetchone.side_effect = [{"category": "action"}, row]
     with patch("backend.api.upload.require_project_access"), \
          patch("backend.api.upload._upsert_memory_vector_best_effort"), \
          patch("backend.api.upload.get_connection", return_value=conn):
@@ -217,7 +223,11 @@ def test_memory_patch_completed_false_clears_completed_at():
 
     assert resp.status_code == 200
     assert resp.json()["completed_at"] is None
-    update_call = cur.execute.call_args_list[0]
+    update_call = next(
+        call
+        for call in cur.execute.call_args_list
+        if "UPDATE memory SET" in call.args[0]
+    )
     assert "completed_at = %s" in update_call.args[0]
     assert "completion_status = 'open'" in update_call.args[0]
     assert "completion_status_source = 'user'" in update_call.args[0]
@@ -287,6 +297,29 @@ def test_memory_patch_rejects_completed_for_non_action_category():
 
     assert resp.status_code == 400
     assert "action category" in resp.json()["detail"]
+
+
+def test_memory_patch_rejects_completed_only_for_existing_non_action():
+    """category를 생략해도 기존 행이 action인지 확인한 뒤 completed를 적용한다."""
+    row = {
+        "id": 10, "project_id": 1, "category": "decision", "content": "decided",
+        "completed_at": None, "completion_status": "unknown", "sort_order": None,
+    }
+    conn, cur = _conn_for_memory_patch(row)
+
+    with patch("backend.api.upload.require_project_access"), \
+         patch("backend.api.upload.get_connection", return_value=conn):
+        resp = _client.patch(
+            "/api/v1/projects/1/memory/10", json={"completed": True}
+        )
+
+    assert resp.status_code == 400
+    assert "action category" in resp.json()["detail"]
+    assert "FOR UPDATE" in cur.execute.call_args_list[0].args[0]
+    assert not any(
+        "UPDATE memory SET" in call.args[0]
+        for call in cur.execute.call_args_list
+    )
 
 
 def test_memory_patch_sort_order_allows_int_and_null_without_verifying():

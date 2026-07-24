@@ -498,6 +498,20 @@ def update_memory(project_id: int, memory_id: int, body: MemoryUpdate):
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
+            if has_completed_update and "category" not in fields:
+                cursor.execute(
+                    "SELECT category FROM memory"
+                    " WHERE id = %s AND project_id = %s FOR UPDATE",
+                    (memory_id, project_id),
+                )
+                current_memory = cursor.fetchone()
+                if not current_memory:
+                    raise HTTPException(status_code=404, detail="Memory item not found")
+                if current_memory.get("category") != "action":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="completed는 action category에서만 설정할 수 있습니다.",
+                    )
             # category를 decision 밖으로 바꾸는 변경은, 이 row를 대체자(superseded_by)로
             # 참조하는 결정이 있으면 거부 — accept 시점 검증(살아있는 decision만 대체자 허용)이
             # 사후 PATCH로 무력화되어 비decision이 결정을 숨기는 상태를 만들지 않도록.

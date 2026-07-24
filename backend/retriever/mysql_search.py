@@ -2,6 +2,12 @@ from typing import Optional, List, Dict
 from ..db.mysql import get_connection
 
 
+def _literal_like_pattern(value: str) -> str:
+    """Wrap a literal substring for LIKE using ``!`` as the escape character."""
+    escaped = value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"%{escaped}%"
+
+
 def search(
     project_id: int,
     category: Optional[str] = None,
@@ -11,6 +17,7 @@ def search(
     due_within_days: Optional[int] = None,
     overdue: Optional[bool] = None,
     include_superseded: bool = False,
+    text_query: Optional[str] = None,
 ) -> List[Dict]:
     if completed is not None:
         legacy_status = "completed" if completed else "open"
@@ -35,6 +42,11 @@ def search(
     if owner:
         conditions.append("m.owner = %s")
         params.append(owner)
+    if text_query and text_query.strip():
+        conditions.append(
+            "CONCAT_WS(' ', m.content, m.topic, m.reason) LIKE %s ESCAPE '!'"
+        )
+        params.append(_literal_like_pattern(text_query.strip()))
     if completion_status:
         conditions.append("m.completion_status = %s")
         params.append(completion_status)
