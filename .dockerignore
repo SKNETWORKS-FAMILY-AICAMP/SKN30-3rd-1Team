@@ -1,0 +1,44 @@
+# Docker 빌드 컨텍스트 제외 목록.
+#
+# .gitignore와 별개 규칙이다 — Git이 무시하는 파일도 빌드 컨텍스트에는 그대로
+# 들어간다. 루트 .env에는 실제 API key·DB 비밀번호·JWT secret·세션 암호화 키가
+# 들어 있으므로 여기서 명시적으로 막아야 한다.
+
+# 비밀 파일 (템플릿만 예외)
+.env
+.env.*
+!.env.example
+!.env.deploy.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# VCS·에이전트 워크플로
+.git
+.gitignore
+.agent-workflow
+.claude
+
+# 파이썬 환경·캐시
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# 런타임 데이터 (볼륨으로 제공된다)
+.chroma
+data/
+
+# 서버 배포 대상이 아닌 것
+desktop/
+tests/
+evals/
+docs/
+meeting_notes/
+*.zip
+*.xlsx
+*.pdf

@@ -1,0 +1,31 @@
+# PaiM 리버스 프록시 · TLS 종단.
+#
+# PAIM_DOMAIN이 설정되면 그 도메인의 사이트 블록이 되고, Caddy가 Let's Encrypt
+# 인증서를 자동 발급·갱신하며 HTTP를 HTTPS로 리다이렉트한다. WBS 완료 조건인
+# "HTTP-only 상태 없음"과 "인증서 갱신 가능 상태"가 기본 동작으로 충족된다.
+#
+# 미설정이면 :80으로 폴백해 로컬 리허설에서 전체 스택을 HTTP로 검증할 수 있다.
+# 도메인 확보 후 .env의 PAIM_DOMAIN 한 줄만 채우면 HTTPS로 전환된다.
+
+# 이 전역 옵션 블록을 지우지 말 것. Caddyfile의 첫 블록이 `{`로 시작하면 파서가
+# 그것을 전역 옵션으로 해석한다. 아래 사이트 주소가 `{$PAIM_DOMAIN::80}`이라
+# 이 블록이 없으면 파일 전체가 전역 옵션으로 읽혀
+# "unrecognized global option: request_body"로 기동이 실패한다.
+{
+	admin off
+}
+
+{$PAIM_DOMAIN::80} {
+	# 업로드 상한은 backend/api/upload.py의 10MB보다 약간 위로 잡는다. 프록시가
+	# 과대 업로드를 조기 차단하되, 10~12MB 구간은 애플리케이션까지 도달시켜
+	# "파일 크기는 10 MB를 초과할 수 없습니다" 메시지를 그대로 보여주기 위함이다.
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy backend:8000
+
+	log {
+		output stdout
+	}
+}

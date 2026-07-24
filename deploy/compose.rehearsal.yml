@@ -1,0 +1,36 @@
+# 리허설 override — 로컬에서 운영 스택을 검증할 때 쓴다.
+#
+# deploy/stack.sh rehearsal ... 로만 실행한다.
+#
+# 핵심은 서비스의 env_file 교체다. CLI --env-file은 YAML 보간 입력만 바꾸므로,
+# 이 override가 없으면 리허설 컨테이너가 계속 사용자 루트 .env를 읽는다.
+# 그러면 유료 외부 호출이나 예상치 못한 WEB_CONCURRENCY가 섞여 들어오고,
+# "다른 키로는 복호화 실패" 검증을 위해 루트 .env를 건드려야 하는 상황이 된다.
+#
+# 포트도 옮긴다. project 이름은 컨테이너·네트워크·볼륨만 격리할 뿐 호스트 포트는
+# 공유 자원이라, 개발 스택이나 다른 프로필과 80/443을 다투면 기동조차 못 한다.
+name: paim-rehearsal
+
+services:
+  backend:
+    # `!override`가 없으면 Compose는 env_file 시퀀스를 **병합(append)**한다.
+    # base의 `.env`가 그대로 남아 리허설 컨테이너가 사용자 루트 .env를 읽고,
+    # 여기서 재정의하지 않은 production 자격증명·GitHub 설정이 격리 스택으로
+    # 새어 들어간다. 실제로 루트 전용 키가 렌더링되는 것을 확인했다.
+    #
+    # 경로는 이 override 파일이 아니라 **프로젝트 디렉터리**(리포지토리 루트)
+    # 기준으로 해석된다. `.env.rehearsal`로 쓰면 루트에서 찾다가 실패한다.
+    env_file: !override
+      - deploy/.env.rehearsal
+
+  caddy:
+    environment:
+      # 리허설은 항상 로컬 HTTP다. 프로필 env 파일을 운영 .env에서 복사해오면
+      # PAIM_DOMAIN이 딸려와 Caddy가 실도메인 TLS 사이트로 뜨고,
+      # `curl http://localhost:8080/health` 검증이 어긋난다.
+      PAIM_DOMAIN: ":80"
+
+# 포트는 여기서 재선언하지 않는다. Compose는 ports 시퀀스를 **병합(append)**하므로
+# override에 8080을 적으면 80과 8080이 함께 열려 운영 스택과 충돌한다.
+# docker-compose.prod.yml이 이미 ${PAIM_HTTP_PORT:-80} 형태로 받으므로,
+# deploy/.env.rehearsal에서 PAIM_HTTP_PORT·PAIM_HTTPS_PORT를 지정해 옮긴다.
