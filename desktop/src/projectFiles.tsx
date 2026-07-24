@@ -1,85 +1,97 @@
 import {
-  Braces,
-  Check,
+  ArrowLeft,
   ChevronRight,
-  CodeXml,
-  Database,
   Ellipsis,
-  FileCode2,
-  FileIcon,
-  FileJson,
-  FileText,
   Folder,
   FolderOpen,
-  GitBranch,
-  Image,
-  Lock,
-  Music,
-  NotebookTabs,
+  LoaderCircle,
   Search,
-  Settings,
-  Sparkles,
-  Table,
-  Terminal,
   Upload,
   X,
-  type LucideIcon,
 } from "lucide-react";
-import type { CSSProperties, MouseEvent } from "react";
+import { Badge, type BadgeVariant } from "@astryxdesign/core/Badge";
+import { Banner } from "@astryxdesign/core/Banner";
+import { BreadcrumbItem, Breadcrumbs } from "@astryxdesign/core/Breadcrumbs";
+import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 
+import { useI18n } from "./i18n";
+import {
+  clampProjectFileTreeWidth,
+  countProjectFileEntries,
+  getProjectFileVisualMeta,
+  MAX_PROJECT_FILE_TREE_WIDTH,
+  MIN_PROJECT_FILE_TREE_WIDTH,
+  type ProjectFileGroup,
+  type ProjectFileVisualMeta,
+} from "./projectFileUtils";
 import type {
   Attachment,
   DemoStatus,
-  DirectoryChildEntry,
   ProjectDocumentStatus,
   ProjectFilePreview,
   ProjectSourcesMode,
 } from "./types";
 
-export const DEFAULT_PROJECT_FILE_TREE_WIDTH = 300;
-export const MIN_PROJECT_FILE_TREE_WIDTH = 220;
-export const MAX_PROJECT_FILE_TREE_WIDTH = 520;
+const PROJECT_FILE_TREE_KEYBOARD_STEP = 10;
+const PROJECT_FILE_TREE_KEYBOARD_LARGE_STEP = 50;
 
-export type ProjectFileVisualMeta = {
-  Icon: LucideIcon;
-  color: string;
-  muted?: boolean;
-};
+function getProjectSourceManageButtonId(sourceId: string) {
+  return `project-source-manage-${sourceId}`;
+}
 
 type ProjectFileTreeProps = {
+  canManage: boolean;
   entries: Attachment[];
+  loadingEntryIds: ReadonlySet<string>;
   level?: number;
   onDelete: (entry: Attachment) => void;
   onSelect: (entry: Attachment) => void;
   onToggle: (entry: Attachment) => void;
-  pendingDeleteEntryId?: string | null;
+  reviewingDeleteEntryId?: string | null;
   selectedEntryId?: string;
-};
-
-type ProjectFileGroup = {
-  label: string;
-  sources: Attachment[];
 };
 
 type ProjectFilesPanelProps = {
   attachments: Attachment[];
+  canManage: boolean;
   demoStatus: DemoStatus | null;
   filteredTreeFiles: Attachment[];
   groupedFiles: ProjectFileGroup[];
   isSelectedSourceFile: boolean;
+  isMaximized: boolean;
+  isImporting: boolean;
   isTreeCollapsed: boolean;
+  loadingEntryIds: string[];
   mode: ProjectSourcesMode;
   onBackToLibrary: () => void;
+  onClosePreview: () => void;
+  onCancelImport: () => void;
   onOpenDirectory: () => void;
   onOpenFiles: () => void;
   onOpenSource: (source: Attachment) => void;
+  onConfirmDelete: (source: Attachment) => Promise<boolean>;
   onQueryChange: (query: string) => void;
-  onRequestDelete: (source: Attachment) => void;
   onSelectFile: (entry: Attachment) => void;
   onToggleFile: (entry: Attachment) => void;
   onToggleTreeCollapsed: () => void;
-  onTreeResizeStart: (event: MouseEvent<HTMLDivElement>) => void;
-  pendingDeleteEntryId: string | null;
+  onTreeResizeStart: (event: PointerEvent<HTMLDivElement>) => void;
+  onTreeWidthChange: (width: number) => void;
   preview: ProjectFilePreview | null;
   query: string;
   statusRevision: number;
@@ -88,39 +100,101 @@ type ProjectFilesPanelProps = {
   treeWidth: number;
 };
 
-export function clampProjectFileTreeWidth(width: number) {
-  return Math.min(
-    MAX_PROJECT_FILE_TREE_WIDTH,
-    Math.max(MIN_PROJECT_FILE_TREE_WIDTH, width),
-  );
-}
-
-export function countProjectFileEntries(entries: Attachment[]): number {
-  return entries.reduce(
-    (count, entry) => count + 1 + countProjectFileEntries(entry.children ?? []),
-    0,
-  );
-}
-
-function getProjectFileRootLabel(entries: Attachment[]) {
+function getProjectFileRootLabel(entries: Attachment[], multipleLocationsLabel: string) {
   if (entries.length === 0) {
     return "/";
   }
 
-  return entries.length === 1 ? entries[0].name : `${entries.length} roots`;
+  return entries.length === 1 ? entries[0].name : multipleLocationsLabel;
 }
 
-function padTimePart(value: number) {
-  return String(value).padStart(2, "0");
-}
+function countLinkedProjectDocuments(entry: Attachment) {
+  const linkedDocumentIds = new Set<number>();
 
-function getProjectSourceTimeLabel(source: Attachment) {
-  if (!source.uploadedAt) {
-    return "이전";
+  function collectLinkedDocuments(currentEntry: Attachment) {
+    if (typeof currentEntry.docId === "number") {
+      linkedDocumentIds.add(currentEntry.docId);
+    }
+    currentEntry.children?.forEach(collectLinkedDocuments);
   }
 
-  const date = new Date(source.uploadedAt);
-  return `${date.getFullYear()}.${padTimePart(date.getMonth() + 1)}.${padTimePart(date.getDate())}`;
+  collectLinkedDocuments(entry);
+  return linkedDocumentIds.size;
+}
+
+function ProjectFileDeleteConfirmation({
+  entry,
+  isDeleting,
+  onCancel,
+  onConfirm,
+}: {
+  entry: Attachment;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useI18n();
+  const entryKind = t(entry.kind === "directory" ? "폴더" : "파일");
+  const linkedDocumentCount = countLinkedProjectDocuments(entry);
+
+  return (
+    <Banner
+      className="project-file-delete-confirmation"
+      container="card"
+      description={
+        <div style={{ display: "grid", gap: 4 }}>
+          <span>
+            {t(
+              "PaiM의 로컬 파일 목록에서 이 {kind} 참조를 제거합니다. 디스크의 원본은 삭제하지 않습니다.",
+              { kind: entryKind },
+            )}
+          </span>
+          <span>
+            {linkedDocumentCount > 0
+              ? t(
+                  "확인된 연결 서버 문서 {count}개를 삭제하며, 해당 문서에서 파생된 메모리가 변경되거나 사라질 수 있습니다.",
+                  { count: linkedDocumentCount },
+                )
+              : t(
+                  "연결 상태에 따라 서버 문서와 해당 문서에서 파생된 메모리가 변경되거나 사라질 수 있습니다.",
+                )}
+          </span>
+          <strong>
+            {t("서버에서 삭제된 문서와 파생 데이터는 PaiM에서 되돌릴 수 없습니다.")}
+          </strong>
+        </div>
+      }
+      endContent={
+        <>
+          <Button
+            isDisabled={isDeleting}
+            label={t("취소")}
+            onClick={onCancel}
+            size="sm"
+            variant="ghost"
+          />
+          <Button
+            isDisabled={isDeleting}
+            isLoading={isDeleting}
+            label={t("삭제")}
+            onClick={onConfirm}
+            size="sm"
+            variant="destructive"
+          />
+        </>
+      }
+      id="project-file-delete-confirmation"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !isDeleting) {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        }
+      }}
+      status="warning"
+      title={t("{kind} “{name}” 삭제 확인", { kind: entryKind, name: entry.name })}
+    />
+  );
 }
 
 function getProjectDocumentStatusPriority(status?: ProjectDocumentStatus) {
@@ -154,7 +228,9 @@ function findProjectDocumentStatusSource(source: Attachment): Attachment | null 
   return currentSource;
 }
 
-function getProjectDocumentStatusMeta(source: Attachment) {
+function getProjectDocumentStatusMeta(
+  source: Attachment,
+): { label: string; title: string; variant: BadgeVariant } | null {
   const statusSource = findProjectDocumentStatusSource(source);
 
   if (!statusSource?.documentStatus) {
@@ -162,191 +238,162 @@ function getProjectDocumentStatusMeta(source: Attachment) {
   }
 
   if (statusSource.documentStatus === "uploading") {
-    return { label: "업로드중", tone: "pending", title: "서버로 업로드 중" };
+    return { label: "업로드중", title: "서버로 업로드 중", variant: "yellow" };
   }
 
   if (statusSource.documentStatus === "uploaded" || statusSource.documentStatus === "processing") {
-    return { label: "처리중", tone: "pending", title: "서버에서 문서를 처리 중" };
+    return { label: "처리중", title: "서버에서 문서를 처리 중", variant: "yellow" };
   }
 
   if (statusSource.documentStatus === "indexed") {
-    return { label: "완료", tone: "success", title: "서버 인덱싱 완료" };
+    return { label: "완료", title: "서버 인덱싱 완료", variant: "green" };
   }
 
   if (statusSource.documentStatus === "delayed") {
     return {
       label: "처리 지연",
-      tone: "muted",
       title: statusSource.lastError ?? "처리 지연 — 나중에 다시 확인",
+      variant: "neutral",
     };
   }
 
   return {
     label: "실패",
-    tone: "danger",
     title: statusSource.lastError ?? "문서 처리 실패",
+    variant: "red",
   };
-}
-
-export function sortProjectSourcesByUploadedAt(sources: Attachment[]) {
-  return sources
-    .map((source, index) => ({ source, index }))
-    .sort((left, right) => (right.source.uploadedAt ?? 0) - (left.source.uploadedAt ?? 0) || left.index - right.index)
-    .map(({ source }) => source);
-}
-
-export function groupProjectSourcesByUploadedDate(sources: Attachment[]) {
-  return sources.reduce<ProjectFileGroup[]>((groups, source) => {
-    const label = getProjectSourceTimeLabel(source);
-    const currentGroup = groups[groups.length - 1];
-
-    if (currentGroup?.label === label) {
-      currentGroup.sources.push(source);
-    } else {
-      groups.push({ label, sources: [source] });
-    }
-
-    return groups;
-  }, []);
-}
-
-export function createProjectFileEntry(entry: DirectoryChildEntry): Attachment {
-  return {
-    id: `project-file-${crypto.randomUUID()}`,
-    name: entry.name,
-    path: entry.path,
-    kind: entry.kind,
-    children: entry.kind === "directory" ? [] : undefined,
-    childrenLoaded: false,
-    isExpanded: false,
-  };
-}
-
-export function updateProjectFileEntry(
-  entries: Attachment[],
-  entryId: string,
-  updater: (entry: Attachment) => Attachment,
-): Attachment[] {
-  return entries.map((entry) => {
-    if (entry.id === entryId) {
-      return updater(entry);
-    }
-
-    if (!entry.children) {
-      return entry;
-    }
-
-    return {
-      ...entry,
-      children: updateProjectFileEntry(entry.children, entryId, updater),
-    };
-  });
-}
-
-export function deleteProjectFileEntry(entries: Attachment[], entryId: string): Attachment[] {
-  return entries
-    .filter((entry) => entry.id !== entryId)
-    .map((entry) => ({
-      ...entry,
-      children: entry.children ? deleteProjectFileEntry(entry.children, entryId) : undefined,
-    }));
-}
-
-export function filterProjectFileEntries(entries: Attachment[], query: string): Attachment[] {
-  const normalizedQuery = query.trim().toLowerCase();
-
-  if (!normalizedQuery) {
-    return entries;
-  }
-
-  return entries.flatMap((entry) => {
-    const filteredChildren = filterProjectFileEntries(entry.children ?? [], normalizedQuery);
-    const matches =
-      entry.name.toLowerCase().includes(normalizedQuery) ||
-      entry.path.toLowerCase().includes(normalizedQuery);
-
-    return matches || filteredChildren.length > 0
-      ? [{ ...entry, children: filteredChildren, isExpanded: true }]
-      : [];
-  });
-}
-
-// 파일명과 확장자로 파일 트리 아이콘 톤을 정한다.
-export function getProjectFileVisualMeta(name: string): ProjectFileVisualMeta {
-  const lowerName = name.toLowerCase();
-
-  if (lowerName === ".gitignore" || lowerName === ".gitattributes") {
-    return { Icon: GitBranch, color: "#f05033" };
-  }
-
-  if (lowerName === ".ds_store") {
-    return { Icon: FileIcon, color: "var(--faint)", muted: true };
-  }
-
-  if (lowerName === ".env" || lowerName.startsWith(".env")) {
-    return { Icon: Settings, color: "var(--issue-fg)" };
-  }
-
-  if (lowerName.endsWith(".python-version")) {
-    return { Icon: FileCode2, color: "#4b8bbe" };
-  }
-
-  const extension = lowerName.includes(".") ? lowerName.split(".").pop() : "";
-  const extensionMeta: Record<string, ProjectFileVisualMeta> = {
-    py: { Icon: FileCode2, color: "#4b8bbe" },
-    md: { Icon: FileText, color: "var(--decision-fg)" },
-    txt: { Icon: FileText, color: "#9aa0b5" },
-    json: { Icon: FileJson, color: "var(--issue-fg)" },
-    toml: { Icon: Settings, color: "var(--accent-purple)" },
-    yaml: { Icon: Settings, color: "var(--accent-purple)" },
-    yml: { Icon: Settings, color: "var(--accent-purple)" },
-    lock: { Icon: Lock, color: "var(--muted)" },
-    skill: { Icon: Sparkles, color: "var(--accent-purple)" },
-    png: { Icon: Image, color: "var(--action-fg)" },
-    jpg: { Icon: Image, color: "var(--action-fg)" },
-    jpeg: { Icon: Image, color: "var(--action-fg)" },
-    gif: { Icon: Image, color: "var(--action-fg)" },
-    svg: { Icon: Image, color: "var(--issue-fg)" },
-    csv: { Icon: Table, color: "var(--decision-fg)" },
-    xlsx: { Icon: Table, color: "var(--decision-fg)" },
-    pdf: { Icon: FileText, color: "#e24b4a" },
-    m4a: { Icon: Music, color: "#d4537e" },
-    mp3: { Icon: Music, color: "#d4537e" },
-    wav: { Icon: Music, color: "#d4537e" },
-    js: { Icon: Braces, color: "#efd81d" },
-    ts: { Icon: Braces, color: "#378add" },
-    jsx: { Icon: CodeXml, color: "#61dafb" },
-    tsx: { Icon: CodeXml, color: "#61dafb" },
-    html: { Icon: CodeXml, color: "#d85a30" },
-    css: { Icon: CodeXml, color: "#378add" },
-    sh: { Icon: Terminal, color: "#97c459" },
-    ipynb: { Icon: NotebookTabs, color: "var(--issue-fg)" },
-    sql: { Icon: Database, color: "var(--action-fg)" },
-  };
-
-  return extensionMeta[extension ?? ""] ?? { Icon: FileIcon, color: "var(--muted)" };
 }
 
 function getProjectFilePathSegments(path: string) {
   return path.split(/[\\/]+/).filter(Boolean).slice(-4);
 }
 
-function getProjectFilePreviewLines(content: string) {
-  const lines = content.split(/\r?\n/);
+function getProjectFilePreviewLanguage(name: string) {
+  const lowerName = name.toLowerCase();
+  const extension = lowerName.includes(".") ? lowerName.split(".").pop() : "";
+  const languageByExtension: Record<string, string> = {
+    css: "css",
+    html: "html",
+    js: "javascript",
+    json: "json",
+    jsx: "jsx",
+    md: "markdown",
+    py: "python",
+    sh: "bash",
+    svg: "svg",
+    ts: "typescript",
+    tsx: "tsx",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    zsh: "bash",
+  };
 
-  return lines.length === 0 ? [""] : lines;
+  return languageByExtension[extension ?? ""] ?? "plaintext";
+}
+
+function hasVisibleProjectFileEntry(entries: Attachment[], entryId: string): boolean {
+  return entries.some(
+    (entry) =>
+      entry.id === entryId ||
+      (entry.kind === "directory" &&
+        Boolean(entry.isExpanded) &&
+        Boolean(entry.children && hasVisibleProjectFileEntry(entry.children, entryId))),
+  );
 }
 
 // Codex 파일 패널처럼 폴더를 접고 펼칠 수 있는 프로젝트 파일 트리를 렌더링한다.
 function ProjectFileTree({
+  canManage,
   entries,
+  loadingEntryIds,
   level = 0,
   onDelete,
   onSelect,
   onToggle,
-  pendingDeleteEntryId,
+  reviewingDeleteEntryId,
   selectedEntryId,
 }: ProjectFileTreeProps) {
+  const { t } = useI18n();
+
+  function handleTreeItemKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+    entry: Attachment,
+    isDirectory: boolean,
+    isExpanded: boolean,
+  ) {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    const rootTree = event.currentTarget.closest<HTMLElement>('[role="tree"]');
+    const visibleItems = rootTree
+      ? Array.from(rootTree.querySelectorAll<HTMLElement>('[role="treeitem"]')).filter(
+          (item) => item.getClientRects().length > 0,
+        )
+      : [];
+    const currentIndex = visibleItems.indexOf(event.currentTarget);
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const offset = event.key === "ArrowDown" ? 1 : -1;
+      const nextItem = visibleItems[currentIndex + offset];
+      if (nextItem) {
+        event.preventDefault();
+        nextItem.focus();
+      }
+      return;
+    }
+
+    if (event.key === "Home" || event.key === "End") {
+      const nextItem =
+        event.key === "Home" ? visibleItems[0] : visibleItems[visibleItems.length - 1];
+      if (nextItem) {
+        event.preventDefault();
+        nextItem.focus();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowRight" && isDirectory) {
+      event.preventDefault();
+      if (!isExpanded) {
+        onToggle(entry);
+      } else {
+        event.currentTarget.parentElement
+          ?.querySelector<HTMLElement>('[role="group"] [role="treeitem"]')
+          ?.focus();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowLeft" && isDirectory) {
+      event.preventDefault();
+      if (isExpanded) {
+        onToggle(entry);
+      } else {
+        event.currentTarget.parentElement?.parentElement?.parentElement
+          ?.querySelector<HTMLElement>(':scope > [role="treeitem"]')
+          ?.focus();
+      }
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (isDirectory) {
+        onToggle(entry);
+      } else {
+        onSelect(entry);
+      }
+      return;
+    }
+
+    if (event.key === "Delete" && canManage) {
+      event.preventDefault();
+      onDelete(entry);
+    }
+  }
+
   return (
     <div className="project-file-tree" role={level === 0 ? "tree" : "group"}>
       {entries.map((entry) => {
@@ -356,35 +403,60 @@ function ProjectFileTree({
           ? { Icon: isExpanded ? FolderOpen : Folder, color: "var(--muted)" }
           : getProjectFileVisualMeta(entry.name);
         const ProjectFileIcon = fileVisualMeta.Icon;
+        const isLoading = loadingEntryIds.has(entry.id);
 
         return (
           <div className="project-file-node" key={entry.id}>
             <div
               aria-expanded={isDirectory ? isExpanded : undefined}
+              aria-busy={isLoading || undefined}
+              aria-keyshortcuts={canManage ? "Delete" : undefined}
               className="project-file-row"
               data-kind={isDirectory ? "directory" : "file"}
               data-selected={entry.id === selectedEntryId ? "true" : undefined}
+              aria-selected={!isDirectory ? entry.id === selectedEntryId : undefined}
               onClick={() => {
-                if (!isDirectory) {
+                if (isDirectory && !isLoading) {
+                  onToggle(entry);
+                } else {
                   onSelect(entry);
                 }
               }}
+              onKeyDown={(event) =>
+                handleTreeItemKeyDown(event, entry, isDirectory, isExpanded)
+              }
               role="treeitem"
               style={{ "--file-depth": level } as CSSProperties}
+              tabIndex={
+                entry.id === selectedEntryId ||
+                (level === 0 &&
+                  entry.id === entries[0]?.id &&
+                  (!selectedEntryId || !hasVisibleProjectFileEntry(entries, selectedEntryId)))
+                  ? 0
+                  : -1
+              }
             >
               {isDirectory ? (
-                <button
-                  aria-label={`${entry.name} ${isExpanded ? "접기" : "펼치기"}`}
+                <IconButton
                   className="project-file-disclosure"
+                  icon={
+                    isLoading ? (
+                      <LoaderCircle aria-hidden="true" className="project-file-loading-icon" size={14} />
+                    ) : (
+                      <ChevronRight size={16} />
+                    )
+                  }
+                  isDisabled={isLoading}
+                  label={t(isExpanded ? "{name} 접기" : "{name} 펼치기", { name: entry.name })}
                   onClick={(event) => {
                     event.stopPropagation();
                     onToggle(entry);
                   }}
-                  title={`${entry.name} ${isExpanded ? "접기" : "펼치기"}`}
-                  type="button"
-                >
-                  <ChevronRight size={16} />
-                </button>
+                  size="sm"
+                  tabIndex={-1}
+                  tooltip={t(isExpanded ? "{name} 접기" : "{name} 펼치기", { name: entry.name })}
+                  variant="ghost"
+                />
               ) : (
                 <span className="project-file-disclosure" />
               )}
@@ -401,27 +473,37 @@ function ProjectFileTree({
               >
                 {entry.name}
               </span>
-              <button
-                aria-label={`${entry.name} ${pendingDeleteEntryId === entry.id ? "제거 확인" : "제거"}`}
+              <IconButton
+                aria-controls={
+                  reviewingDeleteEntryId === entry.id
+                    ? "project-file-delete-confirmation"
+                    : undefined
+                }
+                aria-expanded={reviewingDeleteEntryId === entry.id}
                 className="project-file-remove"
+                icon={<X size={13} />}
+                isDisabled={!canManage}
+                label={t("{name} 제거", { name: entry.name })}
                 onClick={(event) => {
                   event.stopPropagation();
                   onDelete(entry);
                 }}
-                title={`${entry.name} ${pendingDeleteEntryId === entry.id ? "제거 확인" : "제거"}`}
-                type="button"
-              >
-                {pendingDeleteEntryId === entry.id ? <Check size={13} /> : <X size={13} />}
-              </button>
+                size="sm"
+                tabIndex={-1}
+                tooltip={t("{name} 제거", { name: entry.name })}
+                variant="ghost"
+              />
             </div>
             {isDirectory && isExpanded && entry.children ? (
               <ProjectFileTree
+                canManage={canManage}
                 entries={entry.children}
                 level={level + 1}
+                loadingEntryIds={loadingEntryIds}
                 onDelete={onDelete}
                 onSelect={onSelect}
                 onToggle={onToggle}
-                pendingDeleteEntryId={pendingDeleteEntryId}
+                reviewingDeleteEntryId={reviewingDeleteEntryId}
                 selectedEntryId={selectedEntryId}
               />
             ) : null}
@@ -435,23 +517,29 @@ function ProjectFileTree({
 // 우측 프로젝트 패널의 자료함과 파일 트리 화면을 렌더링한다.
 export function ProjectFilesPanel({
   attachments,
+  canManage,
   demoStatus,
   filteredTreeFiles,
   groupedFiles,
   isSelectedSourceFile,
+  isMaximized,
+  isImporting,
   isTreeCollapsed,
+  loadingEntryIds,
   mode,
   onBackToLibrary,
+  onClosePreview,
+  onCancelImport,
   onOpenDirectory,
   onOpenFiles,
   onOpenSource,
+  onConfirmDelete,
   onQueryChange,
-  onRequestDelete,
   onSelectFile,
   onToggleFile,
   onToggleTreeCollapsed,
   onTreeResizeStart,
-  pendingDeleteEntryId,
+  onTreeWidthChange,
   preview,
   query,
   statusRevision,
@@ -459,66 +547,194 @@ export function ProjectFilesPanel({
   treeFileCount,
   treeWidth,
 }: ProjectFilesPanelProps) {
+  const { t } = useI18n();
+  const [deleteReview, setDeleteReview] = useState<Attachment | null>(null);
+  const [isDeletingReview, setIsDeletingReview] = useState(false);
+  const deleteConfirmationRef = useRef<HTMLDivElement | null>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
+  const clampedTreeWidth = clampProjectFileTreeWidth(treeWidth);
+  const isCompactPreview = Boolean(preview && !isMaximized && !isSelectedSourceFile);
+  const loadingEntryIdSet = new Set(loadingEntryIds);
+  const importStatus = isImporting ? (
+    <div className="project-file-import-status" role="status">
+      <Spinner label={t("폴더 구조를 읽는 중...")} shade="subtle" />
+      <Button
+        label={t("가져오기 중지")}
+        onClick={onCancelImport}
+        size="sm"
+        variant="ghost"
+      />
+    </div>
+  ) : null;
+
+  useEffect(() => {
+    if (!deleteReview) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      deleteConfirmationRef.current?.querySelector<HTMLElement>("button")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [deleteReview]);
+
+  function openDeleteReview(entry: Attachment) {
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    deleteReturnFocusRef.current =
+      activeElement?.closest<HTMLElement>('[role="treeitem"]') ??
+      document.getElementById(getProjectSourceManageButtonId(entry.id)) ??
+      activeElement;
+    setIsDeletingReview(false);
+    setDeleteReview(entry);
+  }
+
+  function cancelDeleteReview() {
+    const returnTarget =
+      deleteReturnFocusRef.current?.closest<HTMLElement>('[role="treeitem"]') ??
+      deleteReturnFocusRef.current;
+    setDeleteReview(null);
+    setIsDeletingReview(false);
+    window.requestAnimationFrame(() => returnTarget?.focus({ preventScroll: true }));
+  }
+
+  async function confirmDeleteReview() {
+    if (!deleteReview) {
+      return;
+    }
+
+    const returnTarget =
+      deleteReturnFocusRef.current?.closest<HTMLElement>('[role="treeitem"]') ??
+      deleteReturnFocusRef.current;
+    const isTreeDelete = returnTarget?.matches('[role="treeitem"]') ?? false;
+    const focusCandidates = isTreeDelete
+      ? (() => {
+          const visibleTreeItems = Array.from(
+            returnTarget
+              ?.closest<HTMLElement>('[role="tree"]')
+              ?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [],
+          ).filter((item) => item.getClientRects().length > 0);
+          const currentIndex = returnTarget ? visibleTreeItems.indexOf(returnTarget) : -1;
+          return [
+            visibleTreeItems[currentIndex + 1],
+            visibleTreeItems[currentIndex - 1],
+          ];
+        })()
+      : (() => {
+          const manageButtons = Array.from(
+            document.querySelectorAll<HTMLElement>(".project-source-actions button"),
+          );
+          const currentIndex = returnTarget ? manageButtons.indexOf(returnTarget) : -1;
+          return [
+            manageButtons[currentIndex + 1],
+            manageButtons[currentIndex - 1],
+          ];
+        })();
+
+    setIsDeletingReview(true);
+    const deleted = await onConfirmDelete(deleteReview);
+
+    if (!deleted) {
+      setIsDeletingReview(false);
+      window.requestAnimationFrame(() => {
+        deleteConfirmationRef.current
+          ?.querySelectorAll<HTMLElement>("button")
+          .item(1)
+          ?.focus({ preventScroll: true });
+      });
+      return;
+    }
+
+    setDeleteReview(null);
+    setIsDeletingReview(false);
+    window.requestAnimationFrame(() => {
+      const fallback = isTreeDelete
+        ? document.querySelector<HTMLElement>(".project-files-search input") ??
+          document.querySelector<HTMLElement>(".project-files-open-button")
+        : document.querySelector<HTMLElement>(".project-files-open-button");
+      const focusTarget = focusCandidates.find((candidate) => candidate?.isConnected) ?? fallback;
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }
+
+  const deleteConfirmation = deleteReview ? (
+    <div ref={deleteConfirmationRef}>
+      <ProjectFileDeleteConfirmation
+        entry={deleteReview}
+        isDeleting={isDeletingReview}
+        onCancel={cancelDeleteReview}
+        onConfirm={() => void confirmDeleteReview()}
+      />
+    </div>
+  ) : null;
+
+  function handleTreeResizeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const step = event.shiftKey
+      ? PROJECT_FILE_TREE_KEYBOARD_LARGE_STEP
+      : PROJECT_FILE_TREE_KEYBOARD_STEP;
+    let nextWidth: number | null = null;
+
+    if (event.key === "ArrowLeft") {
+      nextWidth = clampedTreeWidth + step;
+    } else if (event.key === "ArrowRight") {
+      nextWidth = clampedTreeWidth - step;
+    } else if (event.key === "Home") {
+      nextWidth = MIN_PROJECT_FILE_TREE_WIDTH;
+    } else if (event.key === "End") {
+      nextWidth = MAX_PROJECT_FILE_TREE_WIDTH;
+    }
+
+    if (nextWidth === null) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onTreeWidthChange(clampProjectFileTreeWidth(nextWidth));
+  }
+
   if (mode === "library") {
     return (
       <div className="project-panel-content project-sources-panel" data-drop-zone="project-files">
         <div className="project-sources-header">
           <div className="project-sources-actions">
-            <details className="project-upload-menu">
-              <summary className="project-files-open-button" title="프로젝트 자료 업로드">
-                <Upload size={15} />
-                <span>업로드</span>
-              </summary>
-              <div className="project-upload-menu-popover">
-                <button
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    onOpenFiles();
-                  }}
-                  type="button"
-                >
-                  파일
-                </button>
-                <button
-                  onClick={(event) => {
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                    onOpenDirectory();
-                  }}
-                  type="button"
-                >
-                  폴더
-                </button>
-              </div>
-            </details>
+            <DropdownMenu
+              button={{
+                className: "project-files-open-button",
+                icon: <Upload size={15} />,
+                isDisabled: !canManage,
+                label: t("자료 추가"),
+                size: "sm",
+                tooltip: t("자료 추가"),
+                variant: "secondary",
+              }}
+              items={[
+                { label: t("파일 추가"), onClick: onOpenFiles },
+                { label: t("폴더 추가"), onClick: onOpenDirectory },
+              ]}
+            />
           </div>
           {attachments.length > 0 ? (
-            <label className="project-files-search project-sources-search">
-              <Search size={15} />
-              <input
-                aria-label="프로젝트 자료 검색"
-                onChange={(event) => onQueryChange(event.target.value)}
-                placeholder="자료 검색..."
-                type="text"
-                value={query}
-              />
-              {query ? (
-                <button
-                  aria-label="프로젝트 자료 검색 지우기"
-                  onClick={() => onQueryChange("")}
-                  title="프로젝트 자료 검색 지우기"
-                  type="button"
-                >
-                  <X size={14} />
-                </button>
-              ) : null}
-            </label>
+            <TextInput
+              className="project-files-search project-sources-search"
+              hasClear
+              isLabelHidden
+              label={t("프로젝트 자료 검색")}
+              onChange={onQueryChange}
+              placeholder={t("자료 검색...")}
+              startIcon={<Search size={15} />}
+              value={query}
+              width="100%"
+            />
           ) : null}
         </div>
+        {importStatus}
+        {deleteConfirmation}
 
-        <section className="project-sources-section" aria-label="프로젝트 자료">
+        <section className="project-sources-section" aria-label={t("프로젝트 자료")}>
           <div className="project-sources-section-title">
-            <h2>업로드한 자료</h2>
-            <span>{attachments.length}개</span>
+            <h2>{t("업로드한 자료")}</h2>
+            <span>{t("{count}개", { count: attachments.length })}</span>
           </div>
           {attachments.length > 0 ? (
             groupedFiles.length > 0 ? (
@@ -537,18 +753,12 @@ export function ProjectFilesPanel({
                         const documentStatusMeta = getProjectDocumentStatusMeta(source);
 
                         return (
-                          <article
+                          <ClickableCard
                             className="project-source-card"
                             key={source.id}
+                            label={t("{name} 열기", { name: source.name })}
                             onClick={() => onOpenSource(source)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                onOpenSource(source);
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
+                            padding={2}
                           >
                             <div className="project-source-icon">
                               <SourceIcon size={18} style={{ color: sourceMeta.color }} />
@@ -556,35 +766,43 @@ export function ProjectFilesPanel({
                             <div className="project-source-body">
                               <strong title={source.path}>{source.name}</strong>
                               <span>
-                                {source.kind === "directory" ? `폴더 · ${sourceCount}개 항목` : "파일"}
+                                {source.kind === "directory"
+                                  ? t("폴더 · {count}개 항목", { count: sourceCount })
+                                  : t("파일")}
                               </span>
                               {documentStatusMeta ? (
-                                <small
+                                <Badge
                                   className="project-document-status"
-                                  data-status={documentStatusMeta.tone}
-                                  title={documentStatusMeta.title}
-                                >
-                                  {documentStatusMeta.label}
-                                </small>
+                                  label={t(documentStatusMeta.label)}
+                                  variant={documentStatusMeta.variant}
+                                />
                               ) : null}
                             </div>
                             <div className="project-source-actions">
-                              <details className="project-source-menu" onClick={(event) => event.stopPropagation()}>
-                                <summary aria-label={`${source.name} 관리`} title={`${source.name} 관리`}>
-                                  <Ellipsis size={15} />
-                                </summary>
-                                <div className="project-source-menu-popover">
-                                  <button
-                                    data-confirming={pendingDeleteEntryId === source.id ? "true" : undefined}
-                                    onClick={() => onRequestDelete(source)}
-                                    type="button"
-                                  >
-                                    {pendingDeleteEntryId === source.id ? "삭제 확인" : "삭제"}
-                                  </button>
-                                </div>
-                              </details>
+                              <DropdownMenu
+                                button={{
+                                  icon: <Ellipsis size={15} />,
+                                  id: getProjectSourceManageButtonId(source.id),
+                                  isIconOnly: true,
+                                  isDisabled: !canManage,
+                                  label: t("{name} 관리", { name: source.name }),
+                                  size: "sm",
+                                  tooltip: t("{name} 관리", { name: source.name }),
+                                  variant: "ghost",
+                                }}
+                                items={[
+                                  {
+                                    label:
+                                      deleteReview?.id === source.id
+                                        ? t("삭제 확인 열림")
+                                        : t("삭제…"),
+                                    onClick: () => openDeleteReview(source),
+                                  },
+                                ]}
+                                menuWidth={112}
+                              />
                             </div>
-                          </article>
+                          </ClickableCard>
                         );
                       })}
                     </div>
@@ -592,17 +810,20 @@ export function ProjectFilesPanel({
                 ))}
               </div>
             ) : (
-              <p className="overview-empty-text">
-                <Search size={17} />
-                검색 결과가 없습니다.
-              </p>
+              <EmptyState
+                className="project-panel-empty-state"
+                icon={<Search size={17} />}
+                isCompact
+                title={t("검색 결과가 없습니다.")}
+              />
             )
           ) : (
-            <div className="project-sources-empty">
-              <FolderOpen size={32} />
-              <strong>등록된 자료가 없습니다</strong>
-              <span>PaiM에게 제공할 파일이나 폴더를 업로드하세요.</span>
-            </div>
+            <EmptyState
+              className="project-sources-empty"
+              description={t("PaiM에게 제공할 파일이나 폴더를 업로드하세요.")}
+              icon={<FolderOpen size={32} />}
+              title={t("등록된 자료가 없습니다")}
+            />
           )}
         </section>
       </div>
@@ -613,129 +834,165 @@ export function ProjectFilesPanel({
     <div
       className="project-panel-content project-files-panel"
       data-drop-zone="project-files"
+      data-compact-preview={isCompactPreview ? "true" : undefined}
       data-single-file={isSelectedSourceFile ? "true" : undefined}
       data-tree-collapsed={isTreeCollapsed}
     >
       <div className="project-files-header">
         <div className="project-files-toolbar">
-          <button className="project-sources-secondary" onClick={onBackToLibrary} type="button">
-            자료함
-          </button>
-          <span className="project-files-count">{treeFileCount}</span>
+          <Button
+            className="project-sources-secondary"
+            label={t("자료함")}
+            onClick={onBackToLibrary}
+            size="sm"
+            variant="ghost"
+          />
+          <Badge className="project-files-count" label={treeFileCount} />
         </div>
         <div className="project-files-pathbar">
-          <p className="project-files-root">{getProjectFileRootLabel(treeAttachments)}</p>
-          {!isSelectedSourceFile ? (
-            <button
-              aria-label={isTreeCollapsed ? "파일 트리 펼치기" : "파일 트리 접기"}
+          <p className="project-files-root">
+            {getProjectFileRootLabel(
+              treeAttachments,
+              t("{count}개 위치", { count: treeAttachments.length }),
+            )}
+          </p>
+          {isCompactPreview ? (
+            <IconButton
               className="project-files-tree-toggle"
+              icon={<ArrowLeft size={16} />}
+              label={t("파일 목록으로 돌아가기")}
+              onClick={onClosePreview}
+              size="sm"
+              tooltip={t("파일 목록으로 돌아가기")}
+              variant="ghost"
+            />
+          ) : !isSelectedSourceFile ? (
+            <IconButton
+              className="project-files-tree-toggle"
+              icon={<FolderOpen size={16} />}
+              label={isTreeCollapsed ? t("파일 목록 펼치기") : t("파일 목록 접기")}
               onClick={onToggleTreeCollapsed}
-              title={isTreeCollapsed ? "파일 트리 펼치기" : "파일 트리 접기"}
-              type="button"
-            >
-              <FolderOpen size={16} />
-            </button>
+              size="sm"
+              tooltip={isTreeCollapsed ? t("파일 목록 펼치기") : t("파일 목록 접기")}
+              variant="ghost"
+            />
           ) : null}
         </div>
         {demoStatus && demoStatus.scope !== "github" ? (
-          <p
-            className="notice runtime-status project-panel-status"
-            data-kind={demoStatus.ok ? "info" : "error"}
+          <Banner
+            className="runtime-status project-panel-status"
+            container="card"
             key={statusRevision}
-            role="status"
-          >
-            <i aria-hidden="true" />
-            <span>{demoStatus.message}</span>
-          </p>
+            status={demoStatus.kind ?? (demoStatus.ok ? "success" : "error")}
+            title={t(demoStatus.message)}
+          />
         ) : null}
+        {importStatus}
+        {deleteConfirmation}
       </div>
       <div className="project-files-main">
         {preview ? (
           <div className="project-file-preview">
-            <div className="project-file-preview-path">
+            <Breadcrumbs
+              className="project-file-preview-path"
+              label={t("{name} 경로", { name: preview.name })}
+              separator={<ChevronRight size={14} />}
+              variant="supporting"
+            >
               {getProjectFilePathSegments(preview.path).map((segment, index, segments) => (
-                <span data-current={index === segments.length - 1 ? "true" : undefined} key={`${segment}-${index}`}>
+                <BreadcrumbItem
+                  isCurrent={index === segments.length - 1}
+                  key={`${segment}-${index}`}
+                >
                   {segment}
-                  {index < segments.length - 1 ? <ChevronRight size={14} /> : null}
-                </span>
+                </BreadcrumbItem>
               ))}
-            </div>
-            {preview.isLoading || preview.error ? (
-              <div className="project-file-preview-state">
-                {preview.error ?? "파일을 읽는 중입니다..."}
-              </div>
+            </Breadcrumbs>
+            {preview.isLoading ? (
+              <Center height="100%" minHeight={0} width="100%">
+                <Spinner label={t("파일을 읽는 중입니다...")} shade="subtle" />
+              </Center>
+            ) : preview.error ? (
+              <Center height="100%" minHeight={0} width="100%">
+                <EmptyState isCompact title={preview.error} />
+              </Center>
             ) : (
-              <div className="project-file-code" aria-label={`${preview.name} 미리보기`}>
-                {getProjectFilePreviewLines(preview.content).map((line, index) => (
-                  <div className="project-file-code-line" key={`${index}-${line}`}>
-                    <span className="project-file-code-line-number">{index + 1}</span>
-                    <code>{line || " "}</code>
-                  </div>
-                ))}
-              </div>
+              <CodeBlock
+                className="project-file-code"
+                code={preview.content}
+                container="section"
+                hasLineNumbers
+                language={getProjectFilePreviewLanguage(preview.name)}
+                maxHeight="100%"
+                size="sm"
+                title={preview.name}
+                width="100%"
+              />
             )}
           </div>
         ) : (
-          <div className="project-files-preview-empty">
-            <FolderOpen size={34} />
-            <strong>파일 열기</strong>
-            <span>워크스페이스 트리에서 파일을 선택하세요</span>
-          </div>
+          <EmptyState
+            className="project-files-preview-empty"
+            description={t("파일 목록에서 파일을 선택하세요")}
+            icon={<FolderOpen size={34} />}
+            title={t("파일 열기")}
+          />
         )}
       </div>
       {!isSelectedSourceFile ? (
         <div className="project-files-tree-pane">
           <div
-            aria-label="파일 트리 크기 조절"
+            aria-keyshortcuts="ArrowLeft ArrowRight Home End"
+            aria-label={t("파일 목록 너비 조절")}
             aria-orientation="vertical"
             aria-valuemax={MAX_PROJECT_FILE_TREE_WIDTH}
             aria-valuemin={MIN_PROJECT_FILE_TREE_WIDTH}
-            aria-valuenow={treeWidth}
+            aria-valuenow={clampedTreeWidth}
+            aria-valuetext={`${clampedTreeWidth}px`}
             className="project-files-tree-resize-handle"
-            onMouseDown={onTreeResizeStart}
+            onKeyDown={handleTreeResizeKeyDown}
+            onPointerDown={onTreeResizeStart}
             role="separator"
+            tabIndex={0}
           />
-          <label className="project-files-search">
-            <Search size={15} />
-            <input
-              aria-label="파일 필터링"
-              onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="파일 필터링..."
-              type="text"
-              value={query}
-            />
-            {query ? (
-              <button
-                aria-label="파일 필터 지우기"
-                onClick={() => onQueryChange("")}
-                title="파일 필터 지우기"
-                type="button"
-              >
-                <X size={14} />
-              </button>
-            ) : null}
-          </label>
+          <TextInput
+            className="project-files-search"
+            hasClear
+            isLabelHidden
+            label={t("파일 필터링")}
+            onChange={onQueryChange}
+            placeholder={t("파일 필터링...")}
+            startIcon={<Search size={15} />}
+            value={query}
+            width="100%"
+          />
           {treeAttachments.length > 0 ? (
             filteredTreeFiles.length > 0 ? (
               <ProjectFileTree
+                canManage={canManage}
                 entries={filteredTreeFiles}
-                onDelete={onRequestDelete}
+                loadingEntryIds={loadingEntryIdSet}
+                onDelete={openDeleteReview}
                 onSelect={onSelectFile}
                 onToggle={onToggleFile}
-                pendingDeleteEntryId={pendingDeleteEntryId}
+                reviewingDeleteEntryId={deleteReview?.id}
                 selectedEntryId={preview?.id}
               />
             ) : (
-              <p className="overview-empty-text">
-                <Search size={17} />
-                검색 결과가 없습니다.
-              </p>
+              <EmptyState
+                className="project-panel-empty-state"
+                icon={<Search size={17} />}
+                isCompact
+                title={t("검색 결과가 없습니다.")}
+              />
             )
           ) : (
-            <p className="overview-empty-text">
-              <FolderOpen size={18} />
-              아직 열린 프로젝트 폴더가 없습니다.
-            </p>
+              <EmptyState
+                className="project-panel-empty-state"
+                icon={<FolderOpen size={18} />}
+                isCompact
+                title={t("파일 목록이 비어 있습니다.")}
+              />
           )}
         </div>
       ) : null}

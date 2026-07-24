@@ -9,15 +9,7 @@ import type {
   GitHubTimelineEvent,
   GitRepositoryInfo,
 } from "./types";
-import { fetchPaimRootJson } from "./paimApi";
-export {
-  fetchPaimFormData,
-  fetchPaimJson,
-  fetchPaimRootJson,
-  getErrorMessage,
-  isPaimApiError,
-  PaimApiError,
-} from "./paimApi";
+import { fetchPaimRootJson, fetchPaimRootJsonPreservingSession } from "./paimApi";
 
 type GitHubRepoApiResponse = {
   default_branch: string;
@@ -124,7 +116,6 @@ const GITHUB_CLIENT_ID_STORAGE_KEY = "paim.githubClientId.v1";
 const GITHUB_LOGIN_CONFIG_ERROR_MESSAGE =
   "이 앱 빌드에는 GitHub 로그인이 아직 설정되어 있지 않습니다. 개발팀에 문의해 주세요.";
 const GITHUB_LOGIN_SCOPE = "public_repo read:user";
-const GITHUB_PRIVATE_REPO_SCOPE = "repo";
 
 function canUseTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
@@ -168,13 +159,6 @@ export function getGithubOAuthErrorMessage(
   }
 
   return description || fallback;
-}
-
-// GitHub이 scope 문자열을 안 주는 환경은 막지 않고, 명시적으로 부족할 때만 private 접근을 막는다.
-export function hasGithubPrivateRepoScope(scope: string | undefined) {
-  const scopes = (scope ?? "").split(/[,\s]+/).filter(Boolean);
-
-  return scopes.length === 0 || scopes.includes(GITHUB_PRIVATE_REPO_SCOPE);
 }
 
 function githubTimestamp(value: string | undefined) {
@@ -226,7 +210,7 @@ function createGithubEvents(
 }
 
 // GitHub OAuth device flow 시작은 브라우저 CORS를 피하려고 Tauri 명령을 우선 사용한다.
-export async function createGithubDeviceCode() {
+export async function createGithubDeviceCode(signal?: AbortSignal) {
   const clientId = getGithubClientId();
 
   if (!clientId) {
@@ -240,6 +224,7 @@ export async function createGithubDeviceCode() {
         client_id: clientId,
         scope: GITHUB_LOGIN_SCOPE,
       },
+      signal,
     );
   }
 
@@ -250,7 +235,7 @@ export async function createGithubDeviceCode() {
 }
 
 // 사용자가 브라우저 인증을 끝냈는지 확인하고 access token을 받는다.
-export async function fetchGithubAccessToken(deviceCode: string) {
+export async function fetchGithubAccessToken(deviceCode: string, signal?: AbortSignal) {
   const clientId = getGithubClientId();
 
   if (!clientId) {
@@ -265,6 +250,7 @@ export async function fetchGithubAccessToken(deviceCode: string) {
         device_code: deviceCode,
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       },
+      signal,
     );
   }
 
@@ -278,7 +264,11 @@ function getGithubClientId() {
   return GITHUB_CLIENT_ID || localStorage.getItem(GITHUB_CLIENT_ID_STORAGE_KEY)?.trim() || "";
 }
 
-async function postGithubOAuthForm<T>(url: string, params: Record<string, string>) {
+async function postGithubOAuthForm<T>(
+  url: string,
+  params: Record<string, string>,
+  signal?: AbortSignal,
+) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -286,6 +276,7 @@ async function postGithubOAuthForm<T>(url: string, params: Record<string, string
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: new URLSearchParams(params),
+    signal,
   });
 
   if (!response.ok) {
@@ -302,9 +293,14 @@ function getGithubHeaders(accessToken?: string | null) {
   };
 }
 
-async function fetchGithubJson<T>(path: string, accessToken?: string | null): Promise<T> {
+async function fetchGithubJson<T>(
+  path: string,
+  accessToken?: string | null,
+  signal?: AbortSignal,
+): Promise<T> {
   const response = await fetch(`https://api.github.com${path}`, {
     headers: getGithubHeaders(accessToken),
+    signal,
   });
 
   if (!response.ok) {
@@ -338,23 +334,26 @@ function toGithubAvailableRepository(repository: GitHubRepoApiResponse): GithubA
   };
 }
 
-async function fetchGithubUserRepositories(accessToken: string) {
+async function fetchGithubUserRepositories(accessToken: string, signal?: AbortSignal) {
   return fetchGithubJson<GitHubUserRepoApiResponse[]>(
     "/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=100",
     accessToken,
+    signal,
   );
 }
 
-async function fetchGithubInstallationRepositories(accessToken: string) {
+async function fetchGithubInstallationRepositories(accessToken: string, signal?: AbortSignal) {
   const response = await fetchGithubJson<GitHubInstallationsApiResponse>(
     "/user/installations?per_page=100",
     accessToken,
+    signal,
   );
   const repositoryResponses = await Promise.all(
     response.installations.map((installation) =>
       fetchGithubJson<GitHubInstallationRepositoriesApiResponse>(
         `/user/installations/${installation.id}/repositories?per_page=100`,
         accessToken,
+        signal,
       ),
     ),
   );
@@ -362,10 +361,10 @@ async function fetchGithubInstallationRepositories(accessToken: string) {
   return repositoryResponses.flatMap((repositoryResponse) => repositoryResponse.repositories);
 }
 
-export async function fetchGithubRepositories(accessToken: string) {
+export async function fetchGithubRepositories(accessToken: string, signal?: AbortSignal) {
   const [installationRepositories, userRepositories] = await Promise.all([
-    fetchGithubInstallationRepositories(accessToken).catch(() => null),
-    fetchGithubUserRepositories(accessToken).catch(() => null),
+    fetchGithubInstallationRepositories(accessToken, signal).catch(() => null),
+    fetchGithubUserRepositories(accessToken, signal).catch(() => null),
   ]);
   const repositories = [...(installationRepositories ?? []), ...(userRepositories ?? [])];
   const seenRepositories = new Set<string>();
@@ -391,8 +390,11 @@ export async function fetchGithubRepositories(accessToken: string) {
   };
 }
 
-export async function fetchGithubUserProfile(accessToken: string): Promise<GithubUserProfile> {
-  const user = await fetchGithubJson<GitHubUserApiResponse>("/user", accessToken);
+export async function fetchGithubUserProfile(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<GithubUserProfile> {
+  const user = await fetchGithubJson<GitHubUserApiResponse>("/user", accessToken, signal);
 
   return {
     login: user.login,
@@ -402,32 +404,44 @@ export async function fetchGithubUserProfile(accessToken: string): Promise<Githu
   };
 }
 
-export async function createGithubAppSession() {
+export async function createGithubAppSession(signal?: AbortSignal) {
   return fetchPaimRootJson<GithubAppSessionApiResponse>("/github/app/sessions", {
     method: "POST",
+    signal,
   });
 }
 
-export async function fetchGithubAppSession(state: string) {
-  return fetchPaimRootJson<GithubAppSessionApiResponse>(
+export async function fetchGithubAppSession(state: string, signal?: AbortSignal) {
+  return fetchPaimRootJsonPreservingSession<GithubAppSessionApiResponse>(
     `/github/app/sessions/${encodeURIComponent(state)}`,
+    { signal },
   );
 }
 
-export async function fetchGithubAppRepositories(state: string) {
-  return fetchPaimRootJson<GithubRepositoriesApiResponse>(
+export async function fetchGithubAppRepositories(state: string, signal?: AbortSignal) {
+  return fetchPaimRootJsonPreservingSession<GithubRepositoriesApiResponse>(
     `/github/app/sessions/${encodeURIComponent(state)}/repositories`,
+    { signal },
   );
 }
 
-export async function fetchGithubAppRepositoryPreview(repositoryUrl: string, state: string) {
-  return fetchPaimRootJson<GithubRepositoryPreviewApiResponse>("/github/app/repository-preview", {
+export async function fetchGithubAppRepositoryPreview(
+  repositoryUrl: string,
+  state: string,
+  signal?: AbortSignal,
+) {
+  return fetchPaimRootJsonPreservingSession<GithubRepositoryPreviewApiResponse>("/github/app/repository-preview", {
     method: "POST",
     body: JSON.stringify({ repository_url: repositoryUrl, state }),
+    signal,
   });
 }
 
-export async function fetchGithubRepository(rawUrl: string, accessToken?: string | null) {
+export async function fetchGithubRepository(
+  rawUrl: string,
+  accessToken?: string | null,
+  signal?: AbortSignal,
+) {
   const parsedRepo = parseGithubRepositoryUrl(rawUrl);
 
   if (!parsedRepo) {
@@ -435,19 +449,22 @@ export async function fetchGithubRepository(rawUrl: string, accessToken?: string
   }
 
   const repoPath = `/repos/${parsedRepo.owner}/${parsedRepo.repo}`;
-  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath, accessToken);
+  const repo = await fetchGithubJson<GitHubRepoApiResponse>(repoPath, accessToken, signal);
   const [commits, issues, pulls] = await Promise.all([
     fetchGithubJson<GitHubCommitApiResponse[]>(
       `${repoPath}/commits?sha=${encodeURIComponent(repo.default_branch)}&per_page=24`,
       accessToken,
+      signal,
     ),
     fetchGithubJson<GitHubIssueApiResponse[]>(
       `${repoPath}/issues?state=all&sort=updated&direction=desc&per_page=12`,
       accessToken,
+      signal,
     ),
     fetchGithubJson<GitHubPullApiResponse[]>(
       `${repoPath}/pulls?state=all&sort=updated&direction=desc&per_page=12`,
       accessToken,
+      signal,
     ),
   ]);
   const openIssues = issues.filter((issue) => !issue.pull_request);
@@ -476,20 +493,4 @@ export function getGithubPanelStateLabel(panelState: GithubPanelState) {
   };
 
   return labels[panelState];
-}
-
-export function getGithubAvailableRepositoryVisibility(repository: GithubAvailableRepository) {
-  return repository.private ? "PRIVATE" : "PUBLIC";
-}
-
-export function getGithubRepoLabel(repository: GitRepositoryInfo) {
-  const visibility = repository.visibility === "private" ? "Private" : "Public";
-  const provider =
-    repository.authProvider === "github_oauth"
-      ? "GitHub Login"
-      : repository.authProvider === "github_app"
-        ? "GitHub App"
-        : "Public API";
-
-  return `${visibility} · ${provider}`;
 }

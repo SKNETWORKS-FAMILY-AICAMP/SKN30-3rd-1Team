@@ -100,6 +100,7 @@ export type ProjectMemoryItem = {
   id: number;
   project_id?: number;
   doc_id?: number;
+  repo_id?: number | null;
   category: ProjectMemoryCategory;
   content: string;
   reason?: string | null;
@@ -114,9 +115,18 @@ export type ProjectMemoryItem = {
   completed_at?: string | null;
   sort_order?: number | null;
   created_at?: string | null;
+  source_info?: {
+    doc_id?: number | null;
+    kind?: string | null;
+    path?: string | null;
+    ref?: string | null;
+    repo_id?: number | null;
+    type?: string | null;
+    url?: string | null;
+  };
 };
 
-export type ProjectMemorySuggestionEvidence = {
+export type ProjectMemoryCompleteActionSuggestionEvidence = {
   type: "pr";
   number: number;
   title: string;
@@ -124,17 +134,32 @@ export type ProjectMemorySuggestionEvidence = {
   merged_at: string;
 };
 
-export type ProjectMemorySuggestion = {
+export type ProjectMemorySupersedeSuggestionEvidence = {
+  type: "supersede";
+  superseding_memory_id: number;
+};
+
+type ProjectMemorySuggestionBase = {
   id: number;
   memory_id: number;
-  kind: "complete_action";
-  evidence: ProjectMemorySuggestionEvidence;
   rationale: string;
   confidence: "high" | "medium";
   status: "pending" | "accepted" | "rejected";
   created_at?: string | null;
   resolved_at?: string | null;
 };
+
+export type ProjectMemorySuggestion = ProjectMemorySuggestionBase &
+  (
+    | {
+        kind: "complete_action";
+        evidence: ProjectMemoryCompleteActionSuggestionEvidence;
+      }
+    | {
+        kind: "supersede";
+        evidence: ProjectMemorySupersedeSuggestionEvidence;
+      }
+  );
 
 export type ProjectWorkspace = {
   id: string;
@@ -158,8 +183,10 @@ export type ProjectState = {
 };
 
 export type DemoStatus = {
+  kind?: "error" | "info" | "success" | "warning";
   ok: boolean;
   message: string;
+  projectId?: string;
   scope?: "github" | "overview";
 };
 
